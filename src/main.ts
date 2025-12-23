@@ -13,6 +13,8 @@ function parseOrigins(value?: string) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.setGlobalPrefix('api');
+
   app.enableCors({
     origin: parseOrigins(process.env.CORS_ORIGIN),
     credentials: true,
