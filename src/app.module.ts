@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AccountsModule } from './accounts/accounts.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AttendanceModule } from './attendance/attendance.module';
 import { PingModule } from './ping/ping.module';
+import { PlansModule } from './plans/plans.module';
+import { SettlementsModule } from './settlements/settlements.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { TraineeProfilesModule } from './trainee-profiles/trainee-profiles.module';
+import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.module';
 
 @Module({
   imports: [
@@ -28,6 +35,13 @@ import { PingModule } from './ping/ping.module';
     }),
 
     PingModule,
+    AccountsModule,
+    TrainerProfilesModule,
+    TraineeProfilesModule,
+    PlansModule,
+    SubscriptionsModule,
+    AttendanceModule,
+    SettlementsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

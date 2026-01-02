@@ -1,0 +1,362 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
+import { PlanType } from '../common/enums/plan-type.enum';
+import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
+import { SubscriptionResolverService } from '../subscriptions/subscription-resolver.service';
+import { SubscriptionEntity } from '../subscriptions/subscription.entity';
+import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
+import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
+import { getLocalDayRange } from './attendance-date.util';
+import { getLocalDateInterval } from './attendance-range.util';
+import { resolveTrainedAt } from './attendance-time.util';
+import { AttendanceEntity } from './attendance.entity';
+import { AttendanceDatesQueryDto } from './dto/attendance-dates.query.dto';
+import { AttendanceSessionsQueryDto } from './dto/attendance-sessions.query.dto';
+import { CreateAttendanceBatchDto } from './dto/create-attendance-batch.dto';
+import { CreateAttendanceDto } from './dto/create-attendance.dto';
+import { ListAttendanceQueryDto } from './dto/list-attendance.query.dto';
+
+@Injectable()
+export class AttendanceService {
+  constructor(
+    private readonly dataSource: DataSource,
+    @InjectRepository(AttendanceEntity)
+    private readonly attRepo: Repository<AttendanceEntity>,
+    @InjectRepository(TraineeProfileEntity)
+    private readonly traineeRepo: Repository<TraineeProfileEntity>,
+    @InjectRepository(TrainerProfileEntity)
+    private readonly trainerRepo: Repository<TrainerProfileEntity>,
+    @InjectRepository(SubscriptionEntity)
+    private readonly subRepo: Repository<SubscriptionEntity>,
+    private readonly resolver: SubscriptionResolverService,
+  ) {}
+
+  async create(dto: CreateAttendanceDto) {
+    const trainedAt = resolveTrainedAt(dto);
+
+    const [trainee, trainer] = await Promise.all([
+      this.traineeRepo.findOne({
+        where: { id: dto.traineeId, isActive: true },
+      }),
+      this.trainerRepo.findOne({
+        where: { id: dto.trainerId, isActive: true },
+      }),
+    ]);
+
+    if (!trainee)
+      throw new BadRequestException('Trainee not found or inactive');
+    if (!trainer)
+      throw new BadRequestException('Trainer not found or inactive');
+
+    return this.dataSource.transaction(async (manager) => {
+      return this.createOneInTransaction(
+        manager,
+        dto.traineeId,
+        dto.trainerId,
+        trainedAt,
+      );
+    });
+  }
+
+  async createBatch(dto: CreateAttendanceBatchDto) {
+    const traineeIds = Array.from(new Set(dto.traineeIds));
+    const trainedAt = resolveTrainedAt(dto);
+
+    // Validate trainer once
+    const trainer = await this.trainerRepo.findOne({
+      where: { id: dto.trainerId, isActive: true },
+    });
+    if (!trainer)
+      throw new BadRequestException('Trainer not found or inactive');
+
+    // Validate trainees exist + active
+    const trainees = await this.traineeRepo.findByIds(traineeIds as any);
+    const activeSet = new Set(
+      trainees.filter((t) => t.isActive).map((t) => t.id),
+    );
+
+    const invalidTraineeIds = traineeIds.filter((id) => !activeSet.has(id));
+    if (invalidTraineeIds.length > 0) {
+      throw new BadRequestException({
+        message: 'Some trainees are missing or inactive',
+        invalidTraineeIds,
+      });
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const results: any[] = [];
+
+      for (const traineeId of traineeIds) {
+        const created = await this.createOneInTransaction(
+          manager,
+          traineeId,
+          dto.trainerId,
+          trainedAt,
+        );
+        results.push(created);
+      }
+
+      return {
+        trainerId: dto.trainerId,
+        trainedAt: trainedAt.toISOString(),
+        count: results.length,
+        results,
+      };
+    });
+  }
+
+  async list(query: ListAttendanceQueryDto) {
+    const qb = this.attRepo
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.trainer', 't')
+      .leftJoinAndSelect('a.subscription', 's');
+
+    // date filter -> local-day range
+    if (query.date) {
+      const { from, to } = getLocalDayRange(query.date);
+      qb.andWhere('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
+    }
+
+    if (query.trainerId) {
+      qb.andWhere('a.trainerId = :trainerId', { trainerId: query.trainerId });
+    }
+
+    if (query.traineeId) {
+      qb.andWhere('a.traineeId = :traineeId', { traineeId: query.traineeId });
+    }
+
+    if (query.paymentStatus) {
+      qb.andWhere('a.paymentStatus = :paymentStatus', {
+        paymentStatus: query.paymentStatus,
+      });
+    }
+
+    qb.orderBy('a.trainedAt', 'DESC').addOrderBy('a.createdAt', 'DESC');
+
+    // Reasonable default for now
+    qb.limit(500);
+
+    return qb.getMany();
+  }
+
+  async dates(query: AttendanceDatesQueryDto) {
+    const { from, to } = getLocalDateInterval(query.from, query.to);
+
+    // Choose a single gym timezone (configurable later)
+    const tz = 'Europe/Sofia';
+
+    const qb = this.attRepo
+      .createQueryBuilder('a')
+      .select(`to_char(a.trainedAt AT TIME ZONE '${tz}', 'YYYY-MM-DD')`, 'date')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect(
+        `SUM(CASE WHEN a.paymentStatus = 'UNPAID' THEN 1 ELSE 0 END)`,
+        'unpaidCount',
+      )
+      .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
+
+    if (query.trainerId)
+      qb.andWhere('a.trainerId = :trainerId', { trainerId: query.trainerId });
+    if (query.traineeId)
+      qb.andWhere('a.traineeId = :traineeId', { traineeId: query.traineeId });
+
+    qb.groupBy('date').orderBy('date', 'ASC');
+
+    const raw = await qb.getRawMany<{
+      date: string;
+      count: string;
+      unpaidCount: string;
+    }>();
+
+    return {
+      from: query.from,
+      to: query.to,
+      days: raw.map((r) => ({
+        date: r.date,
+        count: Number(r.count),
+        unpaidCount: Number(r.unpaidCount),
+        paidCount: Number(r.count) - Number(r.unpaidCount),
+        hasUnpaid: Number(r.unpaidCount) > 0,
+      })),
+    };
+  }
+
+  async sessions(query: AttendanceSessionsQueryDto) {
+    const { from, to } = getLocalDayRange(query.date);
+    const bucket = query.bucketMinutes ?? 60;
+
+    const qb = this.attRepo
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.trainee', 'trn')
+      .leftJoinAndSelect('a.trainer', 't')
+      .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
+
+    if (query.trainerId) {
+      qb.andWhere('a.trainerId = :trainerId', { trainerId: query.trainerId });
+    }
+
+    qb.orderBy('a.trainedAt', 'ASC').addOrderBy('a.createdAt', 'ASC');
+
+    const items = await qb.getMany();
+
+    // Bucket locally by trainedAt
+    const sessions: Record<string, any> = {};
+
+    for (const a of items) {
+      const dt = a.trainedAt;
+      // Compute bucket start in local time
+      const minutesFromMidnight = dt.getHours() * 60 + dt.getMinutes();
+      const bucketStartMin = Math.floor(minutesFromMidnight / bucket) * bucket;
+      const startH = Math.floor(bucketStartMin / 60);
+      const startM = bucketStartMin % 60;
+
+      const key = `${query.date}|${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+
+      if (!sessions[key]) {
+        const start = new Date(
+          dt.getFullYear(),
+          dt.getMonth(),
+          dt.getDate(),
+          startH,
+          startM,
+          0,
+          0,
+        );
+        const end = new Date(start.getTime() + bucket * 60 * 1000);
+
+        sessions[key] = {
+          sessionKey: key,
+          date: query.date,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          bucketMinutes: bucket,
+          trainer: a.trainer
+            ? {
+                id: a.trainer.id,
+                name: a.trainer.name,
+                nickname: a.trainer.nickname,
+              }
+            : null,
+          attendance: [],
+          totals: { count: 0, paid: 0, unpaid: 0 },
+        };
+      }
+
+      sessions[key].attendance.push({
+        id: a.id,
+        trainedAt: a.trainedAt.toISOString(),
+        paymentStatus: a.paymentStatus,
+        trainee: {
+          id: a.trainee.id,
+          name: a.trainee.name,
+          nickname: a.trainee.nickname,
+        } as TraineeProfileEntity,
+      });
+
+      sessions[key].totals.count += 1;
+      if (a.paymentStatus === 'UNPAID') sessions[key].totals.unpaid += 1;
+      else sessions[key].totals.paid += 1;
+    }
+
+    return {
+      date: query.date,
+      trainerId: query.trainerId ?? null,
+      bucketMinutes: bucket,
+      sessions: Object.values(sessions),
+    };
+  }
+
+  private async createOneInTransaction(
+    manager: EntityManager,
+    traineeId: string,
+    trainerId: string,
+    trainedAt: Date,
+  ) {
+    // Use manager repos for consistency inside the transaction
+    const traineeRepo = manager.getRepository(TraineeProfileEntity);
+    const trainerRepo = manager.getRepository(TrainerProfileEntity);
+    const subRepo = manager.getRepository(SubscriptionEntity);
+    const attRepo = manager.getRepository(AttendanceEntity);
+
+    const [trainee, trainer] = await Promise.all([
+      traineeRepo.findOne({ where: { id: traineeId, isActive: true } }),
+      trainerRepo.findOne({ where: { id: trainerId, isActive: true } }),
+    ]);
+
+    if (!trainee)
+      throw new BadRequestException('Trainee not found or inactive');
+    if (!trainer)
+      throw new BadRequestException('Trainer not found or inactive');
+
+    // IMPORTANT: Resolve subscription in a way that is transaction-safe.
+    // If your resolver currently uses injected repos directly, add an overload that accepts manager,
+    // or implement the resolver logic here.
+    const subscription = await this.resolver.resolveForAttendance(
+      traineeId,
+      trainedAt,
+      manager,
+    );
+
+    const attendance = attRepo.create({
+      traineeId,
+      trainerId,
+      trainedAt,
+      subscriptionId: subscription?.id ?? null,
+      paymentStatus: subscription
+        ? AttendancePaymentStatus.PAID
+        : AttendancePaymentStatus.UNPAID,
+    });
+
+    const savedAttendance = await attRepo.save(attendance);
+
+    if (subscription && subscription.type === PlanType.PUNCH) {
+      // Lock subscription row for safe decrement
+      const locked = await subRepo
+        .createQueryBuilder('s')
+        .setLock('pessimistic_write')
+        .where('s.id = :id', { id: subscription.id })
+        .getOne();
+
+      if (!locked) throw new BadRequestException('Subscription not found');
+
+      if (!locked.remainingCredits || locked.remainingCredits <= 0) {
+        // Edge case (race): revert this attendance to UNPAID
+        savedAttendance.subscriptionId = null;
+        savedAttendance.paymentStatus = AttendancePaymentStatus.UNPAID;
+        await attRepo.save(savedAttendance);
+
+        return {
+          attendance: savedAttendance,
+          info: { paymentStatus: savedAttendance.paymentStatus },
+        };
+      }
+
+      locked.remainingCredits -= 1;
+      if (locked.remainingCredits === 0)
+        locked.status = SubscriptionStatus.EXHAUSTED;
+      await subRepo.save(locked);
+
+      return {
+        attendance: savedAttendance,
+        info: {
+          paymentStatus: savedAttendance.paymentStatus,
+          subscriptionId: locked.id,
+          subscriptionType: locked.type,
+          remainingCredits: locked.remainingCredits,
+        },
+      };
+    }
+
+    // TIME-based: no consumption
+    return {
+      attendance: savedAttendance,
+      info: {
+        paymentStatus: savedAttendance.paymentStatus,
+        subscriptionId: subscription?.id ?? null,
+        subscriptionType: subscription?.type ?? null,
+      },
+    };
+  }
+}
