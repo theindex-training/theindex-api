@@ -6,11 +6,20 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { AccountRole } from '../common/enums/account-role.enum';
 import { CreateTrainerDto } from './dto/create-trainer.dto';
 import { UpdateTrainerDto } from './dto/update-trainer.dto';
 import { TrainerProfilesService } from './trainer-profiles.service';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('jwt')
+@Roles(AccountRole.ADMIN)
 @Controller('trainers')
 export class TrainerProfilesController {
   constructor(private readonly trainersService: TrainerProfilesService) {}

@@ -27,6 +27,22 @@ export class AccountEntity {
   @Column({ type: 'enum', enum: AccountStatus, default: AccountStatus.INVITED })
   status!: AccountStatus;
 
+  @Index({ unique: true })
+  @Column({ type: 'uuid', nullable: true })
+  trainerProfileId!: string | null;
+
+  @OneToOne(() => TrainerProfileEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'trainerProfileId' })
+  trainerProfile?: TrainerProfileEntity | null;
+
+  @Index({ unique: true })
+  @Column({ type: 'uuid', nullable: true })
+  traineeProfileId!: string | null;
+
+  @OneToOne(() => TraineeProfileEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'traineeProfileId' })
+  traineeProfile?: TraineeProfileEntity | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

@@ -6,11 +6,20 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { AccountRole } from '../common/enums/account-role.enum';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { PlansService } from './plans.service';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('jwt')
+@Roles(AccountRole.ADMIN, AccountRole.TRAINER)
 @Controller('plans')
 export class PlansController {
   constructor(private readonly plansService: PlansService) {}
