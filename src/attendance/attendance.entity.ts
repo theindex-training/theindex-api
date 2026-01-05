@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
+import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
@@ -32,6 +33,13 @@ export class AttendanceEntity {
   @ManyToOne(() => TrainerProfileEntity, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'trainerId' })
   trainer!: TrainerProfileEntity;
+
+  @Column({ type: 'uuid' })
+  locationId!: string;
+
+  @ManyToOne(() => GymLocationEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'locationId' })
+  location!: GymLocationEntity | null;
 
   @Column({ type: 'timestamptz' })
   trainedAt!: Date;

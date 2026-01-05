@@ -7,6 +7,9 @@ export class CreateAttendanceDto {
   @IsUUID()
   trainerId!: string;
 
+  @IsUUID()
+  locationId!: string;
+
   @IsOptional()
   @IsDateString()
   trainedAt?: string; // default now

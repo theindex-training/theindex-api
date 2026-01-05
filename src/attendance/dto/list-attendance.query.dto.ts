@@ -18,6 +18,10 @@ export class ListAttendanceQueryDto {
   traineeId?: string;
 
   @IsOptional()
+  @IsUUID()
+  locationId?: string;
+
+  @IsOptional()
   @IsEnum(AttendancePaymentStatus)
   paymentStatus?: AttendancePaymentStatus;
 }

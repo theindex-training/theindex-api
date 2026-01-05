@@ -4,6 +4,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
+import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { SubscriptionResolverService } from '../subscriptions/subscription-resolver.service';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
@@ -28,27 +29,13 @@ export class AttendanceService {
     private readonly traineeRepo: Repository<TraineeProfileEntity>,
     @InjectRepository(TrainerProfileEntity)
     private readonly trainerRepo: Repository<TrainerProfileEntity>,
-    @InjectRepository(SubscriptionEntity)
-    private readonly subRepo: Repository<SubscriptionEntity>,
+    @InjectRepository(GymLocationEntity)
+    private readonly locationRepo: Repository<GymLocationEntity>,
     private readonly resolver: SubscriptionResolverService,
   ) {}
 
   async create(dto: CreateAttendanceDto) {
     const trainedAt = resolveTrainedAt(dto);
-
-    const [trainee, trainer] = await Promise.all([
-      this.traineeRepo.findOne({
-        where: { id: dto.traineeId, isActive: true },
-      }),
-      this.trainerRepo.findOne({
-        where: { id: dto.trainerId, isActive: true },
-      }),
-    ]);
-
-    if (!trainee)
-      throw new BadRequestException('Trainee not found or inactive');
-    if (!trainer)
-      throw new BadRequestException('Trainer not found or inactive');
 
     return this.dataSource.transaction(async (manager) => {
       return this.createOneInTransaction(
@@ -56,6 +43,7 @@ export class AttendanceService {
         dto.traineeId,
         dto.trainerId,
         trainedAt,
+        dto.locationId,
       );
     });
   }
@@ -85,6 +73,12 @@ export class AttendanceService {
       });
     }
 
+    const location = await this.locationRepo.findOne({
+      where: { id: dto.locationId, isActive: true },
+    });
+    if (!location)
+      throw new BadRequestException('Location not found or inactive');
+
     return this.dataSource.transaction(async (manager) => {
       const results: any[] = [];
 
@@ -94,6 +88,7 @@ export class AttendanceService {
           traineeId,
           dto.trainerId,
           trainedAt,
+          dto.locationId,
         );
         results.push(created);
       }
@@ -111,6 +106,7 @@ export class AttendanceService {
     const qb = this.attRepo
       .createQueryBuilder('a')
       .leftJoinAndSelect('a.trainer', 't')
+      .leftJoinAndSelect('a.location', 'loc')
       .leftJoinAndSelect('a.subscription', 's');
 
     // date filter -> local-day range
@@ -125,6 +121,12 @@ export class AttendanceService {
 
     if (query.traineeId) {
       qb.andWhere('a.traineeId = :traineeId', { traineeId: query.traineeId });
+    }
+
+    if (query.locationId) {
+      qb.andWhere('a.locationId = :locationId', {
+        locationId: query.locationId,
+      });
     }
 
     if (query.paymentStatus) {
@@ -239,6 +241,9 @@ export class AttendanceService {
                 nickname: a.trainer.nickname,
               }
             : null,
+          location: a.location
+            ? { id: a.location.id, name: a.location.name }
+            : null,
           attendance: [],
           totals: { count: 0, paid: 0, unpaid: 0 },
         };
@@ -273,22 +278,28 @@ export class AttendanceService {
     traineeId: string,
     trainerId: string,
     trainedAt: Date,
+    locationId: string,
   ) {
     // Use manager repos for consistency inside the transaction
     const traineeRepo = manager.getRepository(TraineeProfileEntity);
     const trainerRepo = manager.getRepository(TrainerProfileEntity);
+    const locationRepo = manager.getRepository(GymLocationEntity);
     const subRepo = manager.getRepository(SubscriptionEntity);
     const attRepo = manager.getRepository(AttendanceEntity);
 
-    const [trainee, trainer] = await Promise.all([
+    const [trainee, trainer, location] = await Promise.all([
       traineeRepo.findOne({ where: { id: traineeId, isActive: true } }),
       trainerRepo.findOne({ where: { id: trainerId, isActive: true } }),
+      locationRepo.findOne({ where: { id: locationId, isActive: true } }),
     ]);
 
     if (!trainee)
       throw new BadRequestException('Trainee not found or inactive');
     if (!trainer)
       throw new BadRequestException('Trainer not found or inactive');
+    if (!location) {
+      throw new BadRequestException('Location not found or inactive');
+    }
 
     // IMPORTANT: Resolve subscription in a way that is transaction-safe.
     // If your resolver currently uses injected repos directly, add an overload that accepts manager,
@@ -303,6 +314,7 @@ export class AttendanceService {
       traineeId,
       trainerId,
       trainedAt,
+      locationId,
       subscriptionId: subscription?.id ?? null,
       paymentStatus: subscription
         ? AttendancePaymentStatus.PAID

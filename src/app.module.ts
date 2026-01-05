@@ -5,7 +5,9 @@ import { AccountsModule } from './accounts/accounts.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AttendanceModule } from './attendance/attendance.module';
-import { PingModule } from './ping/ping.module';
+import { AuthModule } from './auth/auth.module';
+import { BootstrapModule } from './bootstrap/bootstrap.module';
+import { GymLocationsModule } from './gym-locations/gym-locations.module';
 import { PlansModule } from './plans/plans.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -34,11 +36,13 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
       },
     }),
 
-    PingModule,
+    BootstrapModule,
+    AuthModule,
     AccountsModule,
     TrainerProfilesModule,
     TraineeProfilesModule,
     PlansModule,
+    GymLocationsModule,
     SubscriptionsModule,
     AttendanceModule,
     SettlementsModule,

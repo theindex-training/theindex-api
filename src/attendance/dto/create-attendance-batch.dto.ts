@@ -18,7 +18,8 @@ export class CreateAttendanceBatchDto {
   @IsUUID('4', { each: true })
   traineeIds!: string[];
 
-  // Same semantics as single endpoint:
+  @IsUUID()
+  locationId!: string;
 
   @IsOptional()
   @IsString()

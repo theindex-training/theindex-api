@@ -4,8 +4,9 @@ import {
   Entity,
   Index,
   JoinColumn,
-  ManyToOne,
+  OneToOne,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { AccountEntity } from '../accounts/account.entity';
 
@@ -18,7 +19,7 @@ export class TraineeProfileEntity {
   @Column({ type: 'uuid', nullable: true })
   accountId!: string | null;
 
-  @ManyToOne(() => AccountEntity, { nullable: true, onDelete: 'SET NULL' })
+  @OneToOne(() => AccountEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'accountId' })
   account?: AccountEntity | null;
 
@@ -28,7 +29,7 @@ export class TraineeProfileEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   nickname!: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 30, nullable: true })
   phone!: string | null;
 
   @Column({ type: 'boolean', default: true })
@@ -36,4 +37,7 @@ export class TraineeProfileEntity {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
 }

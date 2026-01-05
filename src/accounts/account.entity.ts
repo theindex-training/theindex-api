@@ -3,11 +3,15 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { AccountRole } from '../common/enums/account-role.enum';
 import { AccountStatus } from '../common/enums/account-status.enum';
+import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
+import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 
 @Entity('accounts')
 export class AccountEntity {
@@ -31,7 +35,10 @@ export class AccountEntity {
   @Column({ type: 'uuid', nullable: true })
   trainerProfileId!: string | null;
 
-  @OneToOne(() => TrainerProfileEntity, { nullable: true, onDelete: 'SET NULL' })
+  @OneToOne(() => TrainerProfileEntity, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'trainerProfileId' })
   trainerProfile?: TrainerProfileEntity | null;
 
@@ -39,7 +46,10 @@ export class AccountEntity {
   @Column({ type: 'uuid', nullable: true })
   traineeProfileId!: string | null;
 
-  @OneToOne(() => TraineeProfileEntity, { nullable: true, onDelete: 'SET NULL' })
+  @OneToOne(() => TraineeProfileEntity, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'traineeProfileId' })
   traineeProfile?: TraineeProfileEntity | null;
 
