@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
+import { LoginDto } from '../accounts/dto/login.dto';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -11,7 +12,9 @@ export class AuthController {
 
   @Post('login')
   @UseGuards(LocalAuthGuard)
-  login(@Req() req: any) {
+  @ApiBody({ type: LoginDto }) // ✅ forces Swagger to show body fields
+  login(@Body() _dto: LoginDto, @Req() req: any) {
+    // _dto is not used because LocalAuthGuard authenticates and sets req.user
     return this.auth.login(req.user);
   }
 
