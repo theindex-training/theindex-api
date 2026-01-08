@@ -11,10 +11,10 @@ export class ActivateAccountDto {
 
   @ApiProperty({
     example: 'admin123',
-    description: 'Password for the account (min 6 characters)',
-    minLength: 6,
+    description: 'Password for the account (min 8 characters)',
+    minLength: 8,
   })
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   password!: string;
 }

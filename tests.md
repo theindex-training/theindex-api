@@ -16,7 +16,7 @@
 >   - TIME allocations only after subscription ends (Option 1)
 >   - Settlement `info.notReportableTimeAttendance` and pending subs list
 
-## 0) Base URL and helper vars
+## Base URL and helper vars
 
 ```bash
 export API="http://localhost:3000/api"
@@ -107,32 +107,101 @@ echo "TR_ADI=$TR_ADI"
 echo "TR_DIDO=$TR_DIDO"
 ```
 
-## Create accounts (TRAINER + TRAINEE) and activate them (auth logic tests)
-### Create invited TRAINER account linked to Velcho
+## Account provisioning
+
+### Provision TRAINER account (Velcho)
 ```bash
-export ACC_VELCHO=$(curl -s -X POST "$API/accounts" \
+export VELCHO_EMAIL="velcho@theindex.training"
+export VELCHO_PASS="velcho@theindex.local"
+
+export ACC_VELCHO=$(curl -s -X POST "$API/accounts/provision/trainer/$T_VELCHO" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"role\":\"TRAINER\",\"trainerProfileId\":\"$T_VELCHO\"}" | jq -r '.id')
+  -d "{
+    \"email\":\"$VELCHO_EMAIL\",
+    \"role\":\"TRAINER\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"$VELCHO_PASS\",
+    \"confirmPassword\":\"$VELCHO_PASS\"
+  }" | jq -r '.id')
 
+test -n "$ACC_VELCHO" && echo "✅ Velcho account provisioned"
 echo "ACC_VELCHO=$ACC_VELCHO"
 
 curl -s "$API/accounts/$ACC_VELCHO" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | jq
 ```
 
-Activate it
-```bash
-export VELCHO_EMAIL="velcho@theindex.local"
-export VELCHO_PASS="velcho123"
+Expected:
+- role: TRAINER
+- status: ACTIVE
+- trainerProfileId == $T_VELCHO
+- traineeProfileId = null
 
-curl -s -X POST "$API/accounts/$ACC_VELCHO/activate" \
+### Provision TRAINER account (Vito)
+```bash
+export VITO_EMAIL="vito@theindex.training"
+export VITO_PASS="vito@theindex.local"
+
+export ACC_VITO=$(curl -s -X POST "$API/accounts/provision/trainer/$T_VITO" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$VELCHO_EMAIL\",\"password\":\"$VELCHO_PASS\"}" | jq
+  -d "{
+    \"email\":\"$VITO_EMAIL\",
+    \"role\":\"TRAINER\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"$VITO_PASS\",
+    \"confirmPassword\":\"$VITO_PASS\"
+  }" | jq -r '.id')
+
+test -n "$ACC_VITO" && echo "✅ Vito account provisioned"
+echo "ACC_VITO=$ACC_VITO"
 ```
 
-Login as trainer:
+### Provision TRAINEE accounts (Anton)
+```bash
+export ANTON_EMAIL="anton@theindex.training"
+export ANTON_PASS="anton@theindex.local"
+
+export ACC_ANTON=$(curl -s -X POST "$API/accounts/provision/trainee/$TR_ANTON" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"email\":\"$ANTON_EMAIL\",
+    \"role\":\"TRAINEE\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"$ANTON_PASS\",
+    \"confirmPassword\":\"$ANTON_PASS\"
+  }" | jq -r '.id')
+
+test -n "$ACC_ANTON" && echo "✅ Anton account provisioned"
+echo "ACC_ANTON=$ACC_ANTON"
+
+curl -s "$API/accounts/$ACC_ANTON" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+```
+
+### Provision TRAINEE accounts (Ani)
+```bash
+export ANI_EMAIL="ani@theindex.training"
+export ANI_PASS="ani@theindex.local"
+
+export ACC_ANI=$(curl -s -X POST "$API/accounts/provision/trainee/$TR_ANI" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"email\":\"$ANI_EMAIL\",
+    \"role\":\"TRAINEE\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"$ANI_PASS\",
+    \"confirmPassword\":\"$ANI_PASS\"
+  }" | jq -r '.id')
+
+test -n "$ACC_ANI" && echo "✅ Ani account provisioned"
+echo "ACC_ANI=$ACC_ANI"
+```
+
+### Login as Velcho (TRAINER)
 ```bash
 export TRAINER_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
@@ -146,27 +215,43 @@ Expected:
 - role: "TRAINER"
 - trainerProfileId == $T_VELCHO
 
-### Create invited TRAINEE account linked to Anton
+### Login as Anton (TRAINEE)
 ```bash
-export ACC_ANTON=$(curl -s -X POST "$API/accounts" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"role\":\"TRAINEE\",\"traineeProfileId\":\"$TR_ANTON\"}" | jq -r '.id')
-
-export ANTON_EMAIL="anton@theindex.local"
-export ANTON_PASS="anton123"
-
-curl -s -X POST "$API/accounts/$ACC_ANTON/activate" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$ANTON_EMAIL\",\"password\":\"$ANTON_PASS\"}" | jq
-
-export ANTON_TOKEN=$(curl -s -X POST "$API/auth/login" \
+export TRAINEE_TOKEN=$(curl -s -X POST "$API/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$ANTON_EMAIL\",\"password\":\"$ANTON_PASS\"}" | jq -r '.accessToken')
 
-test -n "$ANTON_TOKEN" && echo "✅ ANTON_TOKEN acquired"
-curl -s "$API/auth/me" -H "Authorization: Bearer $ANTON_TOKEN" | jq
+test -n "$TRAINEE_TOKEN" && echo "✅ ANTON_TOKEN acquired"
+
+curl -s "$API/auth/me" -H "Authorization: Bearer $TRAINEE_TOKEN" | jq
+```
+
+### Trainer cannot create ADMIN account
+```bash
+curl -s -X POST "$API/accounts/provision/trainer/$T_KRASI" \
+  -H "Authorization: Bearer $TRAINER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"email\":\"krasi-admin@theindex.local\",
+    \"role\":\"ADMIN\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"Admin123456\",
+    \"confirmPassword\":\"Admin123456\"
+  }" | jq
+```
+
+### Cannot provision account twice for same profile
+```bash
+curl -s -X POST "$API/accounts/provision/trainee/$TR_ANTON" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"email\":\"anton@theindex.local\",
+    \"role\":\"TRAINEE\",
+    \"status\":\"ACTIVE\",
+    \"password\":\"Anton123456\",
+    \"confirmPassword\":\"Anton123456\"
+  }" | jq
 ```
 
 ### Negative auth checks

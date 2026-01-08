@@ -1,5 +1,5 @@
 import {
-  BadRequestException,
+  BadRequestException, ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +13,7 @@ import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity
 import { AccountEntity } from './account.entity';
 import { ActivateAccountDto } from './dto/activate-account.dto';
 import { CreateAccountDto } from './dto/create-account.dto';
+import { CreateProvisionedAccountDto } from './dto/create-provisioned-account.dto';
 
 @Injectable()
 export class AccountsService {
@@ -191,6 +192,119 @@ export class AccountsService {
       createdAt: acc.createdAt,
       updatedAt: acc.updatedAt,
     };
+  }
+
+  async provisionForProfile(
+    profileType: 'trainer' | 'trainee',
+    profileId: string,
+    dto: CreateProvisionedAccountDto
+  ) {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    // Enforce role/profileType match
+    if (profileType === 'trainer' && dto.role !== AccountRole.TRAINER) {
+      throw new BadRequestException(
+        'Trainer profile must be provisioned with TRAINER role',
+      );
+    }
+    if (profileType === 'trainee' && dto.role !== AccountRole.TRAINEE) {
+      throw new BadRequestException(
+        'Trainee profile must be provisioned with TRAINEE role',
+      );
+    }
+
+    if (dto.role === AccountRole.ADMIN) {
+      throw new ForbiddenException(
+        'This endpoint cannot create ADMIN accounts',
+      );
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const accountRepo = manager.getRepository(AccountEntity);
+      const trainerRepo = manager.getRepository(TrainerProfileEntity);
+      const traineeRepo = manager.getRepository(TraineeProfileEntity);
+
+      const email = dto.email.trim();
+      const existing = await accountRepo.findOne({ where: { email } });
+      if (existing) {
+        throw new BadRequestException(
+          'Email is already used by another account',
+        );
+      }
+
+      // Validate profile exists + active + has no account yet
+      if (profileType === 'trainer') {
+        const trainer = await trainerRepo.findOne({
+          where: { id: profileId, isActive: true },
+        });
+        if (!trainer)
+          throw new NotFoundException('Trainer profile not found or inactive');
+        if (trainer.accountId)
+          throw new BadRequestException('Trainer already has an account');
+
+        const passwordHash = await bcrypt.hash(dto.password, 10);
+
+        const acc = accountRepo.create({
+          email,
+          passwordHash,
+          role: AccountRole.TRAINER,
+          status: dto.status,
+          trainerProfileId: trainer.id,
+          traineeProfileId: null,
+        });
+
+        let saved: AccountEntity;
+        try {
+          saved = await accountRepo.save(acc);
+        } catch (e) {
+          throw new BadRequestException(
+            'Cannot create account (email may already exist)',
+          );
+        }
+
+        await trainerRepo.update({ id: trainer.id }, { accountId: saved.id });
+
+        return saved;
+      }
+
+      if (profileType === 'trainee') {
+        const trainee = await traineeRepo.findOne({
+          where: { id: profileId, isActive: true },
+        });
+        if (!trainee)
+          throw new NotFoundException('Trainee profile not found or inactive');
+        if (trainee.accountId)
+          throw new BadRequestException('Trainee already has an account');
+
+        const passwordHash = await bcrypt.hash(dto.password, 10);
+
+        const acc = accountRepo.create({
+          email,
+          passwordHash,
+          role: AccountRole.TRAINEE,
+          status: dto.status,
+          traineeProfileId: trainee.id,
+          trainerProfileId: null,
+        });
+
+        let saved: AccountEntity;
+        try {
+          saved = await accountRepo.save(acc);
+        } catch (e) {
+          throw new BadRequestException(
+            'Cannot create account (email may already exist)',
+          );
+        }
+
+        await traineeRepo.update({ id: trainee.id }, { accountId: saved.id });
+
+        return saved;
+      }
+
+      throw new BadRequestException('Invalid profile type');
+    });
   }
 
   private validateRoleLinks(dto: {
