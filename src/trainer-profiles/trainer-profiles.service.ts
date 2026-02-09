@@ -41,7 +41,7 @@ export class TrainerProfilesService {
 
     const trainer = this.trainerRepo.create({
       name: dto.name.trim(),
-      nickname: dto.nickname ?? null,
+      nickname: dto.nickname?.trim() ?? null,
       accountId: dto.accountId ?? null,
       isActive: dto.isActive ?? true,
     });
@@ -54,7 +54,9 @@ export class TrainerProfilesService {
 
     if (dto.name !== undefined) trainer.name = dto.name.trim();
 
-    if (dto.nickname !== undefined) trainer.nickname = dto.nickname.trim();
+    if (dto.nickname !== undefined) {
+      trainer.nickname = dto.nickname === null ? null : dto.nickname.trim();
+    }
 
     if (dto.isActive !== undefined) trainer.isActive = dto.isActive;
 
