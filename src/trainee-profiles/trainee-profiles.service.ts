@@ -78,7 +78,9 @@ export class TraineeProfilesService {
     const trainee = await this.getById(id);
 
     if (dto.name !== undefined) trainee.name = dto.name.trim();
-    if (dto.nickname !== undefined) trainee.nickname = dto.nickname.trim();
+    if (dto.nickname !== undefined) {
+      trainee.nickname = dto.nickname === null ? null : dto.nickname.trim();
+    }
 
     if (dto.phone !== undefined) {
       trainee.phone = dto.phone === null ? null : dto.phone.trim();

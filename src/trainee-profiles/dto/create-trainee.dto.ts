@@ -23,11 +23,12 @@ export class CreateTraineeDto {
     minLength: 1,
     maxLength: 50,
     description: 'Optional nickname used in the gym',
+    nullable: true,
   })
   @IsOptional()
   @IsString()
   @Length(1, 50)
-  nickname?: string;
+  nickname?: string | null;
 
   @ApiPropertyOptional({
     example: '0877777777',
