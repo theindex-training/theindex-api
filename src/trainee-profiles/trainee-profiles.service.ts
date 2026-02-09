@@ -106,6 +106,18 @@ export class TraineeProfilesService {
     return this.traineeRepo.save(trainee);
   }
 
+  async deactivate(id: string) {
+    const trainee = await this.getById(id);
+    trainee.isActive = false;
+    return this.traineeRepo.save(trainee);
+  }
+
+  async hardDelete(id: string) {
+    const trainee = await this.getById(id);
+    await this.traineeRepo.remove(trainee);
+    return { deleted: true };
+  }
+
   async overview(id: string) {
     const trainee = await this.getById(id);
 

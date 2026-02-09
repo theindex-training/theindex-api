@@ -78,4 +78,16 @@ export class TrainerProfilesService {
 
     return this.trainerRepo.save(trainer);
   }
+
+  async deactivate(id: string) {
+    const trainer = await this.getById(id);
+    trainer.isActive = false;
+    return this.trainerRepo.save(trainer);
+  }
+
+  async hardDelete(id: string) {
+    const trainer = await this.getById(id);
+    await this.trainerRepo.remove(trainer);
+    return { deleted: true };
+  }
 }
