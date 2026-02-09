@@ -78,4 +78,16 @@ export class PlansService {
 
     return this.planRepo.save(plan);
   }
+
+  async deactivate(id: string) {
+    const plan = await this.getById(id);
+    plan.isActive = false;
+    return this.planRepo.save(plan);
+  }
+
+  async hardDelete(id: string) {
+    const plan = await this.getById(id);
+    await this.planRepo.remove(plan);
+    return { deleted: true };
+  }
 }

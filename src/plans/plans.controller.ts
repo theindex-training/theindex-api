@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -43,5 +44,10 @@ export class PlansController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdatePlanDto) {
     return this.plansService.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.plansService.deactivate(id);
   }
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -43,6 +44,11 @@ export class TraineeProfilesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateTraineeDto) {
     return this.traineesService.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.traineesService.deactivate(id);
   }
 
   @Get(':id/overview')
