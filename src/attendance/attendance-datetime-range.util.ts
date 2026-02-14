@@ -31,12 +31,12 @@ function parseTimeOnly(timeStr: string): { h: number; min: number } {
 
 export function getLocalDateTimeInterval(input: {
   startDate: string;
-  endDate?: string;
+  endDate: string;
   startTime?: string;
   endTime?: string;
 }): { from: Date; to: Date } {
   const start = parseDateOnly(input.startDate);
-  const end = parseDateOnly(input.endDate ?? input.startDate);
+  const end = parseDateOnly(input.endDate);
   const startTime = parseTimeOnly(input.startTime ?? '00:00');
   const endTime = parseTimeOnly(input.endTime ?? '23:59');
 

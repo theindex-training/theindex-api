@@ -21,7 +21,6 @@ import { AttendanceDatesQueryDto } from './dto/attendance-dates.query.dto';
 import { AttendanceSessionsQueryDto } from './dto/attendance-sessions.query.dto';
 import { CreateAttendanceBatchDto } from './dto/create-attendance-batch.dto';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
-import { ListAttendanceQueryDto } from './dto/list-attendance.query.dto';
 
 @Injectable()
 export class AttendanceService {
@@ -104,63 +103,6 @@ export class AttendanceService {
         results,
       };
     });
-  }
-
-  async list(query: ListAttendanceQueryDto) {
-    const hasSessionFilters = Boolean(
-      query.startDate || query.endDate || query.startTime || query.endTime,
-    );
-
-    if (hasSessionFilters) {
-      if (!query.startDate) {
-        throw new BadRequestException('startDate is required when using period filters');
-      }
-
-      return this.listSessionView({
-        startDate: query.startDate as string,
-        endDate: query.endDate,
-        startTime: query.startTime,
-        endTime: query.endTime,
-        trainerId: query.trainerId,
-        bucketMinutes: query.bucketMinutes,
-      });
-    }
-
-    const qb = this.attRepo
-      .createQueryBuilder('a')
-      .leftJoinAndSelect('a.trainer', 't')
-      .leftJoinAndSelect('a.location', 'loc')
-      .leftJoinAndSelect('a.subscription', 's');
-
-    if (query.date) {
-      const { from, to } = getLocalDateTimeInterval({ startDate: query.date });
-      qb.andWhere('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
-    }
-
-    if (query.trainerId) {
-      qb.andWhere('a.trainerId = :trainerId', { trainerId: query.trainerId });
-    }
-
-    if (query.traineeId) {
-      qb.andWhere('a.traineeId = :traineeId', { traineeId: query.traineeId });
-    }
-
-    if (query.locationId) {
-      qb.andWhere('a.locationId = :locationId', {
-        locationId: query.locationId,
-      });
-    }
-
-    if (query.paymentStatus) {
-      qb.andWhere('a.paymentStatus = :paymentStatus', {
-        paymentStatus: query.paymentStatus,
-      });
-    }
-
-    qb.orderBy('a.trainedAt', 'DESC').addOrderBy('a.createdAt', 'DESC');
-    qb.limit(500);
-
-    return qb.getMany();
   }
 
   async dates(query: AttendanceDatesQueryDto) {
@@ -305,8 +247,8 @@ export class AttendanceService {
 
     return {
       filters: {
-        startDate: query.startDate as string,
-        endDate: query.endDate ?? query.startDate,
+        startDate: query.startDate,
+        endDate: query.endDate,
         startTime: query.startTime ?? '00:00',
         endTime: query.endTime ?? '23:59',
         trainerId: query.trainerId ?? null,
