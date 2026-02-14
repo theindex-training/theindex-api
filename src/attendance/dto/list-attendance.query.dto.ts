@@ -1,4 +1,13 @@
-import { IsEnum, IsOptional, IsUUID, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsUUID,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 import { AttendancePaymentStatus } from '../../common/enums/attendance-payment-status.enum';
 
 export class ListAttendanceQueryDto {
@@ -8,6 +17,29 @@ export class ListAttendanceQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   date?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  startDate?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  endDate?: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}$/)
+  startTime?: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}$/)
+  endTime?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(15)
+  @Max(180)
+  bucketMinutes?: number;
 
   @IsOptional()
   @IsUUID()
