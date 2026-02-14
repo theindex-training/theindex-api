@@ -415,6 +415,14 @@ export class SettlementsService {
     return { settlement, lines };
   }
 
+  async remove(id: string) {
+    const settlement = await this.settlementRepo.findOne({ where: { id } });
+    if (!settlement) throw new NotFoundException('Settlement not found');
+
+    await this.settlementRepo.remove(settlement);
+    return { deleted: true };
+  }
+
   async finalize(id: string) {
     const settlement = await this.settlementRepo.findOne({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
