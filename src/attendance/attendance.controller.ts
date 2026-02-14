@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -41,5 +50,10 @@ export class AttendanceController {
   @Get('sessions')
   sessions(@Query() query: AttendanceSessionsQueryDto) {
     return this.attendanceService.sessions(query);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.attendanceService.remove(id);
   }
 }

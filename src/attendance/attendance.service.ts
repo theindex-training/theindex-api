@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
@@ -271,6 +275,14 @@ export class AttendanceService {
       bucketMinutes: bucket,
       sessions: Object.values(sessions),
     };
+  }
+
+  async remove(id: string) {
+    const attendance = await this.attRepo.findOne({ where: { id } });
+    if (!attendance) throw new NotFoundException('Attendance not found');
+
+    await this.attRepo.remove(attendance);
+    return { deleted: true };
   }
 
   private async createOneInTransaction(
