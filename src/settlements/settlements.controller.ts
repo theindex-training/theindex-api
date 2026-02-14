@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -36,6 +37,11 @@ export class SettlementsController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.settlementsService.getById(id);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.settlementsService.remove(id);
   }
 
   @Post(':id/finalize')
