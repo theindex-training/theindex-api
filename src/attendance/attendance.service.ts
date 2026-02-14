@@ -151,7 +151,6 @@ export class AttendanceService {
     return this.listSessionView(query);
   }
 
-
   private async listSessionView(query: AttendanceSessionsQueryDto) {
     const { from, to } = getLocalDateTimeInterval(query);
     const bucket = query.bucketMinutes ?? 60;
@@ -161,6 +160,7 @@ export class AttendanceService {
       .leftJoinAndSelect('a.trainee', 'trn')
       .leftJoinAndSelect('a.trainer', 't')
       .leftJoinAndSelect('a.location', 'loc')
+      .leftJoinAndSelect('a.gymSubscription', 'gsub')
       .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
 
     if (query.trainerId) {
@@ -174,6 +174,7 @@ export class AttendanceService {
     const trainees = new Map<string, any>();
     const trainers = new Map<string, any>();
     const locations = new Map<string, any>();
+    const gymSubscriptions = new Map<string, any>();
 
     for (const a of items) {
       const dt = a.trainedAt;
@@ -229,12 +230,20 @@ export class AttendanceService {
         });
       }
 
+      if (a.gymSubscription) {
+        gymSubscriptions.set(a.gymSubscription.id, {
+          id: a.gymSubscription.id,
+          name: a.gymSubscription.name,
+        });
+      }
+
       sessions[key].attendance.push({
         id: a.id,
         trainedAt: a.trainedAt.toISOString(),
         paymentStatus: a.paymentStatus,
         traineeId: a.traineeId,
         subscriptionId: a.subscriptionId,
+        gymSubscriptionId: a.gymSubscriptionId,
       });
 
       sessions[key].totals.count += 1;
@@ -259,6 +268,7 @@ export class AttendanceService {
         trainees: Array.from(trainees.values()),
         trainers: Array.from(trainers.values()),
         locations: Array.from(locations.values()),
+        gymSubscriptions: Array.from(gymSubscriptions.values()),
       },
     };
   }
@@ -314,6 +324,7 @@ export class AttendanceService {
       trainedAt,
       locationId,
       subscriptionId: subscription?.id ?? null,
+      gymSubscriptionId: trainee.gymSubscriptionId,
       paymentStatus: subscription
         ? AttendancePaymentStatus.PAID
         : AttendancePaymentStatus.UNPAID,

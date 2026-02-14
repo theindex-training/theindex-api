@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
@@ -17,6 +18,7 @@ import { AttendanceService } from './attendance.service';
       TrainerProfileEntity,
       SubscriptionEntity,
       GymLocationEntity,
+      GymSubscriptionEntity,
     ]),
     SubscriptionsModule,
   ],

@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
@@ -50,6 +51,16 @@ export class AttendanceEntity {
   @ManyToOne(() => SubscriptionEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'subscriptionId' })
   subscription?: SubscriptionEntity | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  gymSubscriptionId!: string | null;
+
+  @ManyToOne(() => GymSubscriptionEntity, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'gymSubscriptionId' })
+  gymSubscription?: GymSubscriptionEntity | null;
 
   @Column({ type: 'enum', enum: AttendancePaymentStatus })
   paymentStatus!: AttendancePaymentStatus;

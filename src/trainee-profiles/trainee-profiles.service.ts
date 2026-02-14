@@ -9,6 +9,7 @@ import { AttendanceEntity } from '../attendance/attendance.entity';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
+import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
 import { CreateTraineeDto } from './dto/create-trainee.dto';
 import { UpdateTraineeDto } from './dto/update-trainee.dto';
 import { TraineeProfileEntity } from './trainee-profile.entity';
@@ -22,6 +23,8 @@ export class TraineeProfilesService {
     private readonly subRepo: Repository<SubscriptionEntity>,
     @InjectRepository(AttendanceEntity)
     private readonly attRepo: Repository<AttendanceEntity>,
+    @InjectRepository(GymSubscriptionEntity)
+    private readonly gymSubscriptionRepo: Repository<GymSubscriptionEntity>,
   ) {}
 
   async list(params: { search?: string; active?: boolean }) {
@@ -53,6 +56,14 @@ export class TraineeProfilesService {
   }
 
   async create(dto: CreateTraineeDto) {
+    const gymSubscriptionId = this.normalizeGymSubscriptionId(
+      dto.gymSubscriptionId,
+    );
+
+    if (gymSubscriptionId) {
+      await this.ensureGymSubscriptionActive(gymSubscriptionId);
+    }
+
     if (dto.accountId) {
       const existing = await this.traineeRepo.findOne({
         where: { accountId: dto.accountId },
@@ -68,6 +79,7 @@ export class TraineeProfilesService {
       nickname: dto.nickname?.trim() ?? null,
       phone: dto.phone?.trim() ?? null,
       accountId: dto.accountId ?? null,
+      gymSubscriptionId,
       isActive: dto.isActive ?? true,
     });
 
@@ -88,6 +100,18 @@ export class TraineeProfilesService {
 
     if (dto.isActive !== undefined) trainee.isActive = dto.isActive;
 
+    if (dto.gymSubscriptionId !== undefined) {
+      const nextGymSubscriptionId = this.normalizeGymSubscriptionId(
+        dto.gymSubscriptionId,
+      );
+
+      if (nextGymSubscriptionId) {
+        await this.ensureGymSubscriptionActive(nextGymSubscriptionId);
+      }
+
+      trainee.gymSubscriptionId = nextGymSubscriptionId;
+    }
+
     if (dto.accountId !== undefined) {
       const nextAccountId = dto.accountId === null ? null : dto.accountId;
 
@@ -106,6 +130,21 @@ export class TraineeProfilesService {
     }
 
     return this.traineeRepo.save(trainee);
+  }
+
+  private normalizeGymSubscriptionId(value: string | null | undefined) {
+    if (value === undefined || value === null) return null;
+    return value;
+  }
+
+  private async ensureGymSubscriptionActive(gymSubscriptionId: string) {
+    const gymSubscription = await this.gymSubscriptionRepo.findOne({
+      where: { id: gymSubscriptionId, isActive: true },
+    });
+
+    if (!gymSubscription) {
+      throw new BadRequestException('Gym subscription not found or inactive');
+    }
   }
 
   async deactivate(id: string) {

@@ -8,6 +8,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { GymLocationsModule } from './gym-locations/gym-locations.module';
+import { GymSubscriptionsModule } from './gym-subscriptions/gym-subscriptions.module';
 import { PlansModule } from './plans/plans.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -43,6 +44,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     TraineeProfilesModule,
     PlansModule,
     GymLocationsModule,
+    GymSubscriptionsModule,
     SubscriptionsModule,
     AttendanceModule,
     SettlementsModule,
