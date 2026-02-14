@@ -3,7 +3,18 @@ import { IsInt, IsOptional, IsUUID, Matches, Max, Min } from 'class-validator';
 
 export class AttendanceSessionsQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  date!: string;
+  startDate!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  endDate!: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}$/)
+  startTime?: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}$/)
+  endTime?: string;
 
   @IsOptional()
   @IsUUID()

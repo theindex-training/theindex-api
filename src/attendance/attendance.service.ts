@@ -13,15 +13,14 @@ import { SubscriptionResolverService } from '../subscriptions/subscription-resol
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
-import { getLocalDayRange } from './attendance-date.util';
 import { getLocalDateInterval } from './attendance-range.util';
+import { getLocalDateTimeInterval } from './attendance-datetime-range.util';
 import { resolveTrainedAt } from './attendance-time.util';
 import { AttendanceEntity } from './attendance.entity';
 import { AttendanceDatesQueryDto } from './dto/attendance-dates.query.dto';
 import { AttendanceSessionsQueryDto } from './dto/attendance-sessions.query.dto';
 import { CreateAttendanceBatchDto } from './dto/create-attendance-batch.dto';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
-import { ListAttendanceQueryDto } from './dto/list-attendance.query.dto';
 
 @Injectable()
 export class AttendanceService {
@@ -106,47 +105,6 @@ export class AttendanceService {
     });
   }
 
-  async list(query: ListAttendanceQueryDto) {
-    const qb = this.attRepo
-      .createQueryBuilder('a')
-      .leftJoinAndSelect('a.trainer', 't')
-      .leftJoinAndSelect('a.location', 'loc')
-      .leftJoinAndSelect('a.subscription', 's');
-
-    // date filter -> local-day range
-    if (query.date) {
-      const { from, to } = getLocalDayRange(query.date);
-      qb.andWhere('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
-    }
-
-    if (query.trainerId) {
-      qb.andWhere('a.trainerId = :trainerId', { trainerId: query.trainerId });
-    }
-
-    if (query.traineeId) {
-      qb.andWhere('a.traineeId = :traineeId', { traineeId: query.traineeId });
-    }
-
-    if (query.locationId) {
-      qb.andWhere('a.locationId = :locationId', {
-        locationId: query.locationId,
-      });
-    }
-
-    if (query.paymentStatus) {
-      qb.andWhere('a.paymentStatus = :paymentStatus', {
-        paymentStatus: query.paymentStatus,
-      });
-    }
-
-    qb.orderBy('a.trainedAt', 'DESC').addOrderBy('a.createdAt', 'DESC');
-
-    // Reasonable default for now
-    qb.limit(500);
-
-    return qb.getMany();
-  }
-
   async dates(query: AttendanceDatesQueryDto) {
     const { from, to } = getLocalDateInterval(query.from, query.to);
 
@@ -190,13 +148,19 @@ export class AttendanceService {
   }
 
   async sessions(query: AttendanceSessionsQueryDto) {
-    const { from, to } = getLocalDayRange(query.date);
+    return this.listSessionView(query);
+  }
+
+
+  private async listSessionView(query: AttendanceSessionsQueryDto) {
+    const { from, to } = getLocalDateTimeInterval(query);
     const bucket = query.bucketMinutes ?? 60;
 
     const qb = this.attRepo
       .createQueryBuilder('a')
       .leftJoinAndSelect('a.trainee', 'trn')
       .leftJoinAndSelect('a.trainer', 't')
+      .leftJoinAndSelect('a.location', 'loc')
       .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
 
     if (query.trainerId) {
@@ -206,19 +170,20 @@ export class AttendanceService {
     qb.orderBy('a.trainedAt', 'ASC').addOrderBy('a.createdAt', 'ASC');
 
     const items = await qb.getMany();
-
-    // Bucket locally by trainedAt
     const sessions: Record<string, any> = {};
+    const trainees = new Map<string, any>();
+    const trainers = new Map<string, any>();
+    const locations = new Map<string, any>();
 
     for (const a of items) {
       const dt = a.trainedAt;
-      // Compute bucket start in local time
       const minutesFromMidnight = dt.getHours() * 60 + dt.getMinutes();
       const bucketStartMin = Math.floor(minutesFromMidnight / bucket) * bucket;
       const startH = Math.floor(bucketStartMin / 60);
       const startM = bucketStartMin % 60;
 
-      const key = `${query.date}|${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+      const day = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      const key = `${day}|${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}|${a.trainerId}|${a.locationId}`;
 
       if (!sessions[key]) {
         const start = new Date(
@@ -234,46 +199,67 @@ export class AttendanceService {
 
         sessions[key] = {
           sessionKey: key,
-          date: query.date,
+          date: day,
           start: start.toISOString(),
           end: end.toISOString(),
           bucketMinutes: bucket,
-          trainer: a.trainer
-            ? {
-                id: a.trainer.id,
-                name: a.trainer.name,
-                nickname: a.trainer.nickname,
-              }
-            : null,
-          location: a.location
-            ? { id: a.location.id, name: a.location.name }
-            : null,
+          trainerId: a.trainerId,
+          locationId: a.locationId,
           attendance: [],
           totals: { count: 0, paid: 0, unpaid: 0 },
         };
+      }
+
+      trainees.set(a.trainee.id, {
+        id: a.trainee.id,
+        name: a.trainee.name,
+        nickname: a.trainee.nickname,
+      });
+
+      trainers.set(a.trainer.id, {
+        id: a.trainer.id,
+        name: a.trainer.name,
+        nickname: a.trainer.nickname,
+      });
+
+      if (a.location) {
+        locations.set(a.location.id, {
+          id: a.location.id,
+          name: a.location.name,
+        });
       }
 
       sessions[key].attendance.push({
         id: a.id,
         trainedAt: a.trainedAt.toISOString(),
         paymentStatus: a.paymentStatus,
-        trainee: {
-          id: a.trainee.id,
-          name: a.trainee.name,
-          nickname: a.trainee.nickname,
-        } as TraineeProfileEntity,
+        traineeId: a.traineeId,
+        subscriptionId: a.subscriptionId,
       });
 
       sessions[key].totals.count += 1;
-      if (a.paymentStatus === 'UNPAID') sessions[key].totals.unpaid += 1;
-      else sessions[key].totals.paid += 1;
+      if (a.paymentStatus === AttendancePaymentStatus.UNPAID) {
+        sessions[key].totals.unpaid += 1;
+      } else {
+        sessions[key].totals.paid += 1;
+      }
     }
 
     return {
-      date: query.date,
-      trainerId: query.trainerId ?? null,
+      filters: {
+        startDate: query.startDate,
+        endDate: query.endDate,
+        startTime: query.startTime ?? '00:00',
+        endTime: query.endTime ?? '23:59',
+        trainerId: query.trainerId ?? null,
+      },
       bucketMinutes: bucket,
       sessions: Object.values(sessions),
+      entities: {
+        trainees: Array.from(trainees.values()),
+        trainers: Array.from(trainers.values()),
+        locations: Array.from(locations.values()),
+      },
     };
   }
 
