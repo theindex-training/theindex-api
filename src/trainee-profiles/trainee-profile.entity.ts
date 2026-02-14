@@ -4,11 +4,13 @@ import {
   Entity,
   Index,
   JoinColumn,
+  ManyToOne,
   OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { AccountEntity } from '../accounts/account.entity';
+import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
 
 @Entity('trainee_profiles')
 export class TraineeProfileEntity {
@@ -31,6 +33,16 @@ export class TraineeProfileEntity {
 
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  gymSubscriptionId!: string | null;
+
+  @ManyToOne(() => GymSubscriptionEntity, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'gymSubscriptionId' })
+  gymSubscription?: GymSubscriptionEntity | null;
 
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;

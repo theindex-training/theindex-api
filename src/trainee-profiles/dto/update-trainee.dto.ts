@@ -49,6 +49,15 @@ export class UpdateTraineeDto {
   accountId?: string | null;
 
   @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: 'Optional assigned gym subscription method ID',
+  })
+  @IsOptional()
+  @IsUUID()
+  gymSubscriptionId?: string | null;
+
+  @ApiPropertyOptional({
     example: true,
     description: 'Whether the trainee profile is active',
   })
