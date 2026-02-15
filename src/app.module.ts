@@ -13,6 +13,7 @@ import { PlansModule } from './plans/plans.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TraineeProfilesModule } from './trainee-profiles/trainee-profiles.module';
+import { TrainingTimesModule } from './training-times/training-times.module';
 import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     GymSubscriptionsModule,
     SubscriptionsModule,
     AttendanceModule,
+    TrainingTimesModule,
     SettlementsModule,
   ],
   controllers: [AppController],
