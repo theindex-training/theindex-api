@@ -9,6 +9,7 @@ import { AttendancePaymentStatus } from '../common/enums/attendance-payment-stat
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { splitCents } from '../settlements/settlement-allocation.util';
 import { SubscriptionResolverService } from '../subscriptions/subscription-resolver.service';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
@@ -152,6 +153,33 @@ export class AttendanceService {
   }
 
   private async listSessionView(query: AttendanceSessionsQueryDto) {
+    type AttendancePriceInfo = {
+      priceCents: number;
+      calculation: 'UNPAID' | 'PUNCH_CREDIT' | 'TIME_PRORATA' | 'UNALLOCATED';
+      subscriptionType: PlanType | null;
+      isFinal: boolean;
+    };
+
+    type SessionView = {
+      sessionKey: string;
+      date: string;
+      start: string;
+      end: string;
+      bucketMinutes: number;
+      trainerId: string;
+      locationId: string;
+      attendance: Array<{
+        id: string;
+        trainedAt: string;
+        paymentStatus: AttendancePaymentStatus;
+        traineeId: string;
+        subscriptionId: string | null;
+        gymSubscriptionId: string | null;
+        price: AttendancePriceInfo;
+      }>;
+      totals: { count: number; paid: number; unpaid: number };
+    };
+
     const { from, to } = getLocalDateTimeInterval(query);
     const bucket = query.bucketMinutes ?? 60;
 
@@ -160,6 +188,7 @@ export class AttendanceService {
       .leftJoinAndSelect('a.trainee', 'trn')
       .leftJoinAndSelect('a.trainer', 't')
       .leftJoinAndSelect('a.location', 'loc')
+      .leftJoinAndSelect('a.subscription', 'sub')
       .leftJoinAndSelect('a.gymSubscription', 'gsub')
       .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to });
 
@@ -170,7 +199,9 @@ export class AttendanceService {
     qb.orderBy('a.trainedAt', 'ASC').addOrderBy('a.createdAt', 'ASC');
 
     const items = await qb.getMany();
-    const sessions: Record<string, any> = {};
+    const priceInfoByAttendanceId =
+      await this.resolvePriceInfoForAttendances(items);
+    const sessions: Record<string, SessionView> = {};
     const trainees = new Map<string, any>();
     const trainers = new Map<string, any>();
     const locations = new Map<string, any>();
@@ -244,6 +275,7 @@ export class AttendanceService {
         traineeId: a.traineeId,
         subscriptionId: a.subscriptionId,
         gymSubscriptionId: a.gymSubscriptionId,
+        price: priceInfoByAttendanceId.get(a.id)!,
       });
 
       sessions[key].totals.count += 1;
@@ -271,6 +303,150 @@ export class AttendanceService {
         gymSubscriptions: Array.from(gymSubscriptions.values()),
       },
     };
+  }
+
+  private async resolvePriceInfoForAttendances(
+    attendances: AttendanceEntity[],
+  ): Promise<
+    Map<
+      string,
+      {
+        priceCents: number;
+        calculation: 'UNPAID' | 'PUNCH_CREDIT' | 'TIME_PRORATA' | 'UNALLOCATED';
+        subscriptionType: PlanType | null;
+        isFinal: boolean;
+      }
+    >
+  > {
+    const now = new Date();
+    const priceInfoByAttendanceId = new Map<
+      string,
+      {
+        priceCents: number;
+        calculation: 'UNPAID' | 'PUNCH_CREDIT' | 'TIME_PRORATA' | 'UNALLOCATED';
+        subscriptionType: PlanType | null;
+        isFinal: boolean;
+      }
+    >();
+
+    for (const attendance of attendances) {
+      if (
+        attendance.paymentStatus === AttendancePaymentStatus.UNPAID ||
+        !attendance.subscriptionId ||
+        !attendance.subscription
+      ) {
+        priceInfoByAttendanceId.set(attendance.id, {
+          priceCents: 0,
+          calculation: 'UNPAID',
+          subscriptionType: null,
+          isFinal: true,
+        });
+      }
+    }
+
+    const subscriptionIds = Array.from(
+      new Set(
+        attendances
+          .filter(
+            (a) =>
+              a.paymentStatus === AttendancePaymentStatus.PAID &&
+              a.subscriptionId &&
+              a.subscription,
+          )
+          .map((a) => a.subscriptionId!),
+      ),
+    );
+
+    if (subscriptionIds.length === 0) {
+      return priceInfoByAttendanceId;
+    }
+
+    const paidAttendancesBySubscription = new Map<string, AttendanceEntity[]>();
+    const paidAttendances = await this.attRepo
+      .createQueryBuilder('a')
+      .select(['a.id', 'a.subscriptionId', 'a.trainedAt'])
+      .where('a.subscriptionId IN (:...subscriptionIds)', { subscriptionIds })
+      .andWhere('a.paymentStatus = :paymentStatus', {
+        paymentStatus: AttendancePaymentStatus.PAID,
+      })
+      .orderBy('a.trainedAt', 'ASC')
+      .addOrderBy('a.id', 'ASC')
+      .getMany();
+
+    for (const attendance of paidAttendances) {
+      const subscriptionId = attendance.subscriptionId;
+      if (!subscriptionId) continue;
+
+      const groupedAttendances =
+        paidAttendancesBySubscription.get(subscriptionId) ?? [];
+      groupedAttendances.push(attendance);
+      paidAttendancesBySubscription.set(subscriptionId, groupedAttendances);
+    }
+
+    const subscriptionsById = new Map<string, SubscriptionEntity>();
+    for (const attendance of attendances) {
+      if (attendance.subscriptionId && attendance.subscription) {
+        subscriptionsById.set(
+          attendance.subscriptionId,
+          attendance.subscription,
+        );
+      }
+    }
+
+    for (const subscriptionId of subscriptionIds) {
+      const subscription = subscriptionsById.get(subscriptionId);
+      if (!subscription) continue;
+
+      const paidItems = paidAttendancesBySubscription.get(subscriptionId) ?? [];
+
+      if (subscription.type === PlanType.PUNCH) {
+        const credits = subscription.initialCredits ?? 0;
+        if (credits > 0) {
+          const split = splitCents(subscription.paidCents, credits);
+          const limit = Math.min(paidItems.length, split.length);
+
+          for (let i = 0; i < limit; i++) {
+            priceInfoByAttendanceId.set(paidItems[i].id, {
+              priceCents: split[i],
+              calculation: 'PUNCH_CREDIT',
+              subscriptionType: PlanType.PUNCH,
+              isFinal: true,
+            });
+          }
+        }
+      }
+
+      if (subscription.type === PlanType.TIME) {
+        if (paidItems.length > 0) {
+          const split = splitCents(subscription.paidCents, paidItems.length);
+          const isFinal =
+            !!subscription.endsAt &&
+            subscription.endsAt.getTime() <= now.getTime();
+
+          for (let i = 0; i < paidItems.length; i++) {
+            priceInfoByAttendanceId.set(paidItems[i].id, {
+              priceCents: split[i],
+              calculation: 'TIME_PRORATA',
+              subscriptionType: PlanType.TIME,
+              isFinal,
+            });
+          }
+        }
+      }
+    }
+
+    for (const attendance of attendances) {
+      if (priceInfoByAttendanceId.has(attendance.id)) continue;
+
+      priceInfoByAttendanceId.set(attendance.id, {
+        priceCents: 0,
+        calculation: 'UNALLOCATED',
+        subscriptionType: attendance.subscription?.type ?? null,
+        isFinal: false,
+      });
+    }
+
+    return priceInfoByAttendanceId;
   }
 
   async remove(id: string) {
