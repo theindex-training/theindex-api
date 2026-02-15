@@ -6,6 +6,7 @@ import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity
 import { SubscriptionResolverService } from './subscription-resolver.service';
 import { SubscriptionEntity } from './subscription.entity';
 import { SubscriptionsController } from './subscriptions.controller';
+import { SubscriptionsCronService } from './subscriptions-cron.service';
 import { SubscriptionsService } from './subscriptions.service';
 
 @Module({
@@ -18,7 +19,11 @@ import { SubscriptionsService } from './subscriptions.service';
     ]),
   ],
   controllers: [SubscriptionsController],
-  providers: [SubscriptionsService, SubscriptionResolverService],
+  providers: [
+    SubscriptionsService,
+    SubscriptionResolverService,
+    SubscriptionsCronService,
+  ],
   exports: [SubscriptionsService, SubscriptionResolverService],
 })
 export class SubscriptionsModule {}
