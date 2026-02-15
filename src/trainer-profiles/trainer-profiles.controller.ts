@@ -20,7 +20,7 @@ import { TrainerProfilesService } from './trainer-profiles.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
-@Roles(AccountRole.ADMIN)
+@Roles(AccountRole.ADMIN, AccountRole.TRAINER)
 @Controller('trainers')
 export class TrainerProfilesController {
   constructor(private readonly trainersService: TrainerProfilesService) {}

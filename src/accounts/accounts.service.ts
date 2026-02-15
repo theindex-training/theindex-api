@@ -1,5 +1,6 @@
 import {
-  BadRequestException, ForbiddenException,
+  BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,9 +12,9 @@ import { AccountStatus } from '../common/enums/account-status.enum';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { AccountEntity } from './account.entity';
-import { ActivateAccountDto } from './dto/activate-account.dto';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { CreateProvisionedAccountDto } from './dto/create-provisioned-account.dto';
+import { UpdateAccountDto } from './dto/update-account.dto';
 
 @Injectable()
 export class AccountsService {
@@ -73,7 +74,7 @@ export class AccountsService {
         email: dto.email ?? null,
         passwordHash: null,
         role: dto.role,
-        status: AccountStatus.INVITED,
+        status: AccountStatus.ACTIVE,
         trainerProfileId: dto.trainerProfileId ?? null,
         traineeProfileId: dto.traineeProfileId ?? null,
       });
@@ -81,7 +82,7 @@ export class AccountsService {
       let saved: AccountEntity;
       try {
         saved = await accountRepo.save(acc);
-      } catch (e: any) {
+      } catch {
         throw new BadRequestException(
           'Cannot create account (email may already exist)',
         );
@@ -106,71 +107,39 @@ export class AccountsService {
     });
   }
 
-  async activate(accountId: string, dto: ActivateAccountDto) {
-    return this.dataSource.transaction(async (manager) => {
-      const accountRepo = manager.getRepository(AccountEntity);
-      const trainerRepo = manager.getRepository(TrainerProfileEntity);
-      const traineeRepo = manager.getRepository(TraineeProfileEntity);
+  async update(accountId: string, dto: UpdateAccountDto) {
+    const acc = await this.findById(accountId);
+    if (!acc) throw new NotFoundException('Account not found');
 
-      const acc = await accountRepo.findOne({ where: { id: accountId } });
-      if (!acc) throw new NotFoundException('Account not found');
-
-      if (acc.status === AccountStatus.DISABLED) {
-        throw new BadRequestException('Account is disabled');
-      }
-
-      // If email already set and different, do not allow takeover
-      if (acc.email && acc.email !== dto.email) {
-        throw new BadRequestException(
-          'Email does not match the invited account',
-        );
-      }
-
-      // Ensure email not used by someone else
-      const existing = await accountRepo.findOne({
-        where: { email: dto.email },
-      });
+    if (dto.email !== undefined) {
+      const email = dto.email.trim().toLowerCase();
+      const existing = await this.repo.findOne({ where: { email } });
       if (existing && existing.id !== acc.id) {
         throw new BadRequestException(
           'Email is already used by another account',
         );
       }
+      acc.email = email;
+    }
 
-      const passwordHash = await bcrypt.hash(dto.password, 10);
-
-      acc.email = dto.email;
-      acc.passwordHash = passwordHash;
-      acc.status = AccountStatus.ACTIVE;
-
-      const saved = await accountRepo.save(acc);
-
-      // Safety net: ensure profile.accountId is set correctly
-      if (saved.role === AccountRole.TRAINER && saved.trainerProfileId) {
-        const trainer = await trainerRepo.findOne({
-          where: { id: saved.trainerProfileId },
-        });
-        if (!trainer)
-          throw new BadRequestException('Trainer profile not found');
-
-        if (trainer.accountId !== saved.id) {
-          await trainerRepo.update({ id: trainer.id }, { accountId: saved.id });
-        }
+    if (dto.password !== undefined || dto.confirmPassword !== undefined) {
+      if (!dto.password || !dto.confirmPassword) {
+        throw new BadRequestException(
+          'Both password and confirmPassword are required to change password',
+        );
       }
 
-      if (saved.role === AccountRole.TRAINEE && saved.traineeProfileId) {
-        const trainee = await traineeRepo.findOne({
-          where: { id: saved.traineeProfileId },
-        });
-        if (!trainee)
-          throw new BadRequestException('Trainee profile not found');
-
-        if (trainee.accountId !== saved.id) {
-          await traineeRepo.update({ id: trainee.id }, { accountId: saved.id });
-        }
+      if (dto.password !== dto.confirmPassword) {
+        throw new BadRequestException('Passwords do not match');
       }
 
-      return saved;
-    });
+      acc.passwordHash = await bcrypt.hash(dto.password, 10);
+      if (acc.status === AccountStatus.DISABLED) {
+        acc.status = AccountStatus.ACTIVE;
+      }
+    }
+
+    return this.repo.save(acc);
   }
 
   async setStatus(accountId: string, status: AccountStatus) {
@@ -179,6 +148,37 @@ export class AccountsService {
 
     acc.status = status;
     return this.repo.save(acc);
+  }
+
+  async delete(accountId: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const accountRepo = manager.getRepository(AccountEntity);
+      const trainerRepo = manager.getRepository(TrainerProfileEntity);
+      const traineeRepo = manager.getRepository(TraineeProfileEntity);
+
+      const acc = await accountRepo.findOne({ where: { id: accountId } });
+      if (!acc) throw new NotFoundException('Account not found');
+
+      if (acc.trainerProfileId) {
+        await trainerRepo.update(
+          { id: acc.trainerProfileId },
+          { accountId: null },
+        );
+      }
+
+      if (acc.traineeProfileId) {
+        await traineeRepo.update(
+          { id: acc.traineeProfileId },
+          { accountId: null },
+        );
+      }
+
+      acc.status = AccountStatus.DISABLED;
+      acc.trainerProfileId = null;
+      acc.traineeProfileId = null;
+
+      return accountRepo.save(acc);
+    });
   }
 
   sanitize(acc: AccountEntity) {
@@ -197,7 +197,7 @@ export class AccountsService {
   async provisionForProfile(
     profileType: 'trainer' | 'trainee',
     profileId: string,
-    dto: CreateProvisionedAccountDto
+    dto: CreateProvisionedAccountDto,
   ) {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
@@ -258,7 +258,7 @@ export class AccountsService {
         let saved: AccountEntity;
         try {
           saved = await accountRepo.save(acc);
-        } catch (e) {
+        } catch {
           throw new BadRequestException(
             'Cannot create account (email may already exist)',
           );
@@ -292,7 +292,7 @@ export class AccountsService {
         let saved: AccountEntity;
         try {
           saved = await accountRepo.save(acc);
-        } catch (e) {
+        } catch {
           throw new BadRequestException(
             'Cannot create account (email may already exist)',
           );
