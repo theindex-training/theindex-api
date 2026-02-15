@@ -35,7 +35,31 @@ export class AccountsService {
     const acc = await this.findById(accountId);
     if (!acc) throw new NotFoundException('Account not found');
 
-    acc.status = dto.status;
+    if (dto.password !== undefined) {
+      if (!dto.confirmPassword || dto.password !== dto.confirmPassword) {
+        throw new BadRequestException('Passwords do not match');
+      }
+
+      acc.passwordHash = await bcrypt.hash(dto.password, 10);
+    }
+
+    if (dto.email !== undefined) {
+      const email = dto.email.trim();
+      const existing = await this.findByEmail(email);
+
+      if (existing && existing.id !== acc.id) {
+        throw new BadRequestException(
+          'Email is already used by another account',
+        );
+      }
+
+      acc.email = email;
+    }
+
+    if (dto.status !== undefined) {
+      acc.status = dto.status;
+    }
+
     return this.repo.save(acc);
   }
 
