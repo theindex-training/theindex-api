@@ -28,7 +28,7 @@ export class AccountEntity {
   @Column({ type: 'enum', enum: AccountRole })
   role!: AccountRole;
 
-  @Column({ type: 'enum', enum: AccountStatus, default: AccountStatus.INVITED })
+  @Column({ type: 'enum', enum: AccountStatus, default: AccountStatus.ACTIVE })
   status!: AccountStatus;
 
   @Index({ unique: true })
