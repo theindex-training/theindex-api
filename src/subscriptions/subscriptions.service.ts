@@ -84,6 +84,21 @@ export class SubscriptionsService {
     });
   }
 
+  async exhaustPastEndTimeSubscriptions(): Promise<number> {
+    const now = new Date();
+
+    const result = await this.subRepo
+      .createQueryBuilder()
+      .update(SubscriptionEntity)
+      .set({ status: SubscriptionStatus.EXHAUSTED })
+      .where('type = :type', { type: PlanType.TIME })
+      .andWhere('status = :status', { status: SubscriptionStatus.ACTIVE })
+      .andWhere('endsAt IS NOT NULL')
+      .andWhere('endsAt < :now', { now })
+      .execute();
+
+    return result.affected ?? 0;
+  }
   async listForTrainee(traineeId: string) {
     return this.subRepo.find({
       where: { traineeId },
