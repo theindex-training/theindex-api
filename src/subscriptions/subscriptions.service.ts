@@ -110,8 +110,8 @@ export class SubscriptionsService {
     const subscription = await this.subRepo.findOne({ where: { id } });
     if (!subscription) throw new NotFoundException('Subscription not found');
 
-    subscription.status = SubscriptionStatus.CANCELLED;
-    return this.subRepo.save(subscription);
+    await this.subRepo.remove(subscription);
+    return { deleted: true };
   }
 
   private async reconcileUnpaidAttendance(
