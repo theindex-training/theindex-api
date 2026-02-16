@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AttendanceEntity } from '../attendance/attendance.entity';
@@ -104,6 +104,14 @@ export class SubscriptionsService {
       where: { traineeId },
       order: { startsAt: 'DESC', createdAt: 'DESC' },
     });
+  }
+
+  async remove(id: string) {
+    const subscription = await this.subRepo.findOne({ where: { id } });
+    if (!subscription) throw new NotFoundException('Subscription not found');
+
+    await this.subRepo.remove(subscription);
+    return { deleted: true };
   }
 
   private async reconcileUnpaidAttendance(
