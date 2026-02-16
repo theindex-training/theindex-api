@@ -407,11 +407,15 @@ export class SettlementsService {
     return this.settlementRepo.find({ order: { generatedAt: 'DESC' } });
   }
 
-  async getById(id: string) {
+  async getById(id: string, trainerId?: string) {
     const settlement = await this.settlementRepo.findOne({ where: { id } });
     if (!settlement) throw new NotFoundException('Settlement not found');
 
-    const lines = await this.lineRepo.find({ where: { settlementId: id } });
+    const where = trainerId
+      ? { settlementId: id, trainerId }
+      : { settlementId: id };
+
+    const lines = await this.lineRepo.find({ where });
     return { settlement, lines };
   }
 
