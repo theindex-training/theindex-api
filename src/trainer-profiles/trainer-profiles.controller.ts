@@ -20,7 +20,6 @@ import { TrainerProfilesService } from './trainer-profiles.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
-@Roles(AccountRole.ADMIN, AccountRole.TRAINER)
 @Controller('trainers')
 export class TrainerProfilesController {
   constructor(private readonly trainersService: TrainerProfilesService) {}
@@ -37,16 +36,19 @@ export class TrainerProfilesController {
   }
 
   @Post()
+  @Roles(AccountRole.ADMIN)
   create(@Body() dto: CreateTrainerDto) {
     return this.trainersService.create(dto);
   }
 
   @Patch(':id')
+  @Roles(AccountRole.ADMIN)
   update(@Param('id') id: string, @Body() dto: UpdateTrainerDto) {
     return this.trainersService.update(id, dto);
   }
 
   @Delete(':id')
+  @Roles(AccountRole.ADMIN)
   remove(@Param('id') id: string) {
     return this.trainersService.deactivate(id);
   }
