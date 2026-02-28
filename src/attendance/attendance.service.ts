@@ -14,6 +14,7 @@ import { SubscriptionResolverService } from '../subscriptions/subscription-resol
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
+import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { getLocalDateInterval } from './attendance-range.util';
 import { getLocalDateTimeInterval } from './attendance-datetime-range.util';
 import { resolveTrainedAt } from './attendance-time.util';
@@ -35,6 +36,8 @@ export class AttendanceService {
     private readonly trainerRepo: Repository<TrainerProfileEntity>,
     @InjectRepository(GymLocationEntity)
     private readonly locationRepo: Repository<GymLocationEntity>,
+    @InjectRepository(TrainingTimeEntity)
+    private readonly trainingTimeRepo: Repository<TrainingTimeEntity>,
     private readonly resolver: SubscriptionResolverService,
   ) {}
 
@@ -165,7 +168,7 @@ export class AttendanceService {
       date: string;
       start: string;
       end: string;
-      bucketMinutes: number;
+      trainingTimeId: string | null;
       trainerId: string;
       locationId: string;
       attendance: Array<{
@@ -181,7 +184,14 @@ export class AttendanceService {
     };
 
     const { from, to } = getLocalDateTimeInterval(query);
-    const bucket = query.bucketMinutes ?? 60;
+    const trainingTimes = await this.trainingTimeRepo.find({
+      order: { startTime: 'ASC' },
+    });
+    const trainingTimeIntervals = trainingTimes.map((item) => ({
+      id: item.id,
+      startMinutes: this.toMinutes(item.startTime),
+      endMinutes: this.toMinutes(item.endTime),
+    }));
 
     const qb = this.attRepo
       .createQueryBuilder('a')
@@ -210,31 +220,56 @@ export class AttendanceService {
     for (const a of items) {
       const dt = a.trainedAt;
       const minutesFromMidnight = dt.getHours() * 60 + dt.getMinutes();
-      const bucketStartMin = Math.floor(minutesFromMidnight / bucket) * bucket;
-      const startH = Math.floor(bucketStartMin / 60);
-      const startM = bucketStartMin % 60;
+      const trainingTime = trainingTimeIntervals.find(
+        (item) =>
+          minutesFromMidnight >= item.startMinutes &&
+          minutesFromMidnight < item.endMinutes,
+      );
+
+      const sessionStart = trainingTime
+        ? new Date(
+            dt.getFullYear(),
+            dt.getMonth(),
+            dt.getDate(),
+            Math.floor(trainingTime.startMinutes / 60),
+            trainingTime.startMinutes % 60,
+            0,
+            0,
+          )
+        : new Date(
+            dt.getFullYear(),
+            dt.getMonth(),
+            dt.getDate(),
+            dt.getHours(),
+            dt.getMinutes(),
+            0,
+            0,
+          );
+
+      const sessionEnd = trainingTime
+        ? new Date(
+            dt.getFullYear(),
+            dt.getMonth(),
+            dt.getDate(),
+            Math.floor(trainingTime.endMinutes / 60),
+            trainingTime.endMinutes % 60,
+            0,
+            0,
+          )
+        : new Date(sessionStart.getTime() + 60 * 60 * 1000);
 
       const day = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      const key = `${day}|${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}|${a.trainerId}|${a.locationId}`;
+      const key = trainingTime
+        ? `${day}|slot:${trainingTime.id}|${a.trainerId}|${a.locationId}`
+        : `${day}|custom:${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}|${a.trainerId}|${a.locationId}`;
 
       if (!sessions[key]) {
-        const start = new Date(
-          dt.getFullYear(),
-          dt.getMonth(),
-          dt.getDate(),
-          startH,
-          startM,
-          0,
-          0,
-        );
-        const end = new Date(start.getTime() + bucket * 60 * 1000);
-
         sessions[key] = {
           sessionKey: key,
           date: day,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          bucketMinutes: bucket,
+          start: sessionStart.toISOString(),
+          end: sessionEnd.toISOString(),
+          trainingTimeId: trainingTime?.id ?? null,
           trainerId: a.trainerId,
           locationId: a.locationId,
           attendance: [],
@@ -294,7 +329,6 @@ export class AttendanceService {
         endTime: query.endTime ?? '23:59',
         trainerId: query.trainerId ?? null,
       },
-      bucketMinutes: bucket,
       sessions: Object.values(sessions),
       entities: {
         trainees: Array.from(trainees.values()),
@@ -303,6 +337,11 @@ export class AttendanceService {
         gymSubscriptions: Array.from(gymSubscriptions.values()),
       },
     };
+  }
+
+  private toMinutes(value: string): number {
+    const [hours, minutes] = value.split(':').map((v) => Number(v));
+    return hours * 60 + minutes;
   }
 
   private async resolvePriceInfoForAttendances(
