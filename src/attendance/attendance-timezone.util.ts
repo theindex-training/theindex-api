@@ -35,6 +35,7 @@ function getDatePartsInTimeZone(date: Date, timeZone: string): DateParts {
 
 function getTimeZoneOffsetMs(instant: number, timeZone: string): number {
   const zoned = getDatePartsInTimeZone(new Date(instant), timeZone);
+  const instantOnWholeSecond = Math.trunc(instant / 1000) * 1000;
   const utcEquivalent = Date.UTC(
     zoned.year,
     zoned.month - 1,
@@ -44,7 +45,7 @@ function getTimeZoneOffsetMs(instant: number, timeZone: string): number {
     zoned.second,
   );
 
-  return utcEquivalent - instant;
+  return utcEquivalent - instantOnWholeSecond;
 }
 
 export function fromGymLocalToUtc(
@@ -73,4 +74,3 @@ export function fromGymLocalToUtc(
 
   return new Date(utcInstant);
 }
-

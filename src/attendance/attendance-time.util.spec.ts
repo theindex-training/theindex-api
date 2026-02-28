@@ -26,4 +26,12 @@ describe('resolveTrainedAt', () => {
 
     expect(trainedAt.toISOString()).toBe('2025-01-15T06:10:00.000Z');
   });
+
+  it('preserves milliseconds for trainedAt without timezone', () => {
+    const trainedAt = resolveTrainedAt({
+      trainedAt: '2025-01-15T08:10:00.123',
+    });
+
+    expect(trainedAt.toISOString()).toBe('2025-01-15T06:10:00.123Z');
+  });
 });
