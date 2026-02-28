@@ -1,6 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Matches, Max, Min } from 'class-validator';
+import { IsOptional, IsUUID, Matches } from 'class-validator';
 
 export class AttendanceSessionsQueryDto {
   @ApiProperty({
@@ -42,20 +41,4 @@ export class AttendanceSessionsQueryDto {
   @IsUUID()
   trainerId?: string;
 
-  /**
-   * Minutes per bucket. Default 60.
-   * Keep it bounded to avoid silly values.
-   */
-  @ApiPropertyOptional({
-    description: 'Minutes per session bucket. Default: 60',
-    minimum: 15,
-    maximum: 180,
-    example: 60,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(15)
-  @Max(180)
-  bucketMinutes?: number;
 }

@@ -6,6 +6,7 @@ import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
+import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { AttendanceController } from './attendance.controller';
 import { AttendanceEntity } from './attendance.entity';
 import { AttendanceService } from './attendance.service';
@@ -19,6 +20,7 @@ import { AttendanceService } from './attendance.service';
       SubscriptionEntity,
       GymLocationEntity,
       GymSubscriptionEntity,
+      TrainingTimeEntity,
     ]),
     SubscriptionsModule,
   ],
