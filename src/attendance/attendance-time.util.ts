@@ -1,4 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
+import { fromGymLocalToUtc } from './attendance-timezone.util';
+
+function hasExplicitTimeZone(dateTime: string): boolean {
+  return /([zZ]|[+-]\d{2}:?\d{2})$/.test(dateTime);
+}
 
 export function resolveTrainedAt(dto: {
   trainedAt?: string;
@@ -7,6 +12,28 @@ export function resolveTrainedAt(dto: {
 }): Date {
   // Priority 1: full datetime
   if (dto.trainedAt) {
+    if (!hasExplicitTimeZone(dto.trainedAt)) {
+      const parsed = dto.trainedAt.match(
+        /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/,
+      );
+
+      if (parsed) {
+        const [, yStr, mStr, dStr, hStr, minStr, secStr, msStr] = parsed;
+        const second = secStr ? Number(secStr) : 0;
+        const millisecond = msStr ? Number(msStr.padEnd(3, '0')) : 0;
+
+        return fromGymLocalToUtc(
+          Number(yStr),
+          Number(mStr),
+          Number(dStr),
+          Number(hStr),
+          Number(minStr),
+          second,
+          millisecond,
+        );
+      }
+    }
+
     const d = new Date(dto.trainedAt);
     if (isNaN(d.getTime())) throw new BadRequestException('Invalid trainedAt');
     return d;
@@ -41,8 +68,7 @@ export function resolveTrainedAt(dto: {
       }
     }
 
-    // Local time constructor (safe for your single-gym deployment)
-    const local = new Date(y, m - 1, day, hours, minutes, 0, 0);
+    const local = fromGymLocalToUtc(y, m, day, hours, minutes, 0, 0);
     if (isNaN(local.getTime()))
       throw new BadRequestException('Invalid date/time');
     return local;
