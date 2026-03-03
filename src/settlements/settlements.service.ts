@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 import { getLocalDateInterval } from '../attendance/attendance-range.util';
 import { AttendanceEntity } from '../attendance/attendance.entity';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
@@ -28,6 +29,7 @@ export class SettlementsService {
     private readonly attRepo: Repository<AttendanceEntity>,
     @InjectRepository(SubscriptionEntity)
     private readonly subRepo: Repository<SubscriptionEntity>,
+    private readonly cashRegisterService: CashRegisterService,
   ) {}
 
   async generate(dto: GenerateSettlementDto) {
@@ -428,12 +430,35 @@ export class SettlementsService {
   }
 
   async finalize(id: string) {
-    const settlement = await this.settlementRepo.findOne({ where: { id } });
-    if (!settlement) throw new NotFoundException('Settlement not found');
-    if (settlement.status === SettlementStatus.FINAL) return settlement;
+    return this.dataSource.transaction(async (manager) => {
+      const settlement = await manager
+        .getRepository(SettlementEntity)
+        .createQueryBuilder('s')
+        .setLock('pessimistic_write')
+        .where('s.id = :id', { id })
+        .getOne();
 
-    settlement.status = SettlementStatus.FINAL;
-    return this.settlementRepo.save(settlement);
+      if (!settlement) throw new NotFoundException('Settlement not found');
+      if (settlement.status === SettlementStatus.FINAL) return settlement;
+
+      const lines = await manager.getRepository(SettlementLineEntity).find({
+        where: { settlementId: settlement.id },
+      });
+
+      const totalAmountCents = lines.reduce(
+        (acc, line) => acc + line.amountCents,
+        0,
+      );
+
+      await this.cashRegisterService.registerSettlementFinalization(
+        manager,
+        settlement.id,
+        totalAmountCents,
+      );
+
+      settlement.status = SettlementStatus.FINAL;
+      return manager.getRepository(SettlementEntity).save(settlement);
+    });
   }
 
   async allocations(
