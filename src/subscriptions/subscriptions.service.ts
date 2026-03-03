@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AttendanceEntity } from '../attendance/attendance.entity';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 import { PlanEntity } from '../plans/plan.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
@@ -22,6 +27,7 @@ export class SubscriptionsService {
     private readonly traineeRepo: Repository<TraineeProfileEntity>,
     @InjectRepository(AttendanceEntity)
     private readonly attRepo: Repository<AttendanceEntity>,
+    private readonly cashRegisterService: CashRegisterService,
   ) {}
 
   async createForTrainee(traineeId: string, dto: CreateSubscriptionDto) {
@@ -75,6 +81,12 @@ export class SubscriptionsService {
       });
 
       const saved = await subscriptionRepo.save(subscription);
+
+      await this.cashRegisterService.registerSubscriptionPayment(
+        manager,
+        saved.id,
+        paidCents,
+      );
 
       // ✅ Reconcile unpaid attendance immediately after purchase
       await this.reconcileUnpaidAttendance(manager, traineeId, saved);
