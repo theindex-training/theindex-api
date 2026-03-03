@@ -1,0 +1,6 @@
+export enum CashRegisterTransactionType {
+  SUBSCRIPTION_IN = 'SUBSCRIPTION_IN',
+  SETTLEMENT_OUT = 'SETTLEMENT_OUT',
+  MANUAL_IN = 'MANUAL_IN',
+  MANUAL_OUT = 'MANUAL_OUT',
+}
