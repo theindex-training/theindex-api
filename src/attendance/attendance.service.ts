@@ -155,6 +155,25 @@ export class AttendanceService {
     return this.listSessionView(query);
   }
 
+  async listForTraineeByPaymentStatus(
+    traineeId: string,
+    paymentStatus: AttendancePaymentStatus,
+  ) {
+    return this.attRepo.find({
+      where: { traineeId, paymentStatus },
+      relations: {
+        trainer: true,
+        location: true,
+        subscription: true,
+        gymSubscription: true,
+      },
+      order: {
+        trainedAt: 'DESC',
+        createdAt: 'DESC',
+      },
+    });
+  }
+
   private async listSessionView(query: AttendanceSessionsQueryDto) {
     type AttendancePriceInfo = {
       priceCents: number;
