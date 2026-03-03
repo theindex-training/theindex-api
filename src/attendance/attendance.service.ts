@@ -508,11 +508,44 @@ export class AttendanceService {
   }
 
   async remove(id: string) {
-    const attendance = await this.attRepo.findOne({ where: { id } });
-    if (!attendance) throw new NotFoundException('Attendance not found');
+    return this.dataSource.transaction(async (manager) => {
+      const attendanceRepo = manager.getRepository(AttendanceEntity);
+      const subscriptionRepo = manager.getRepository(SubscriptionEntity);
 
-    await this.attRepo.remove(attendance);
-    return { deleted: true };
+      const attendance = await attendanceRepo.findOne({ where: { id } });
+      if (!attendance) throw new NotFoundException('Attendance not found');
+
+      if (
+        attendance.paymentStatus === AttendancePaymentStatus.PAID &&
+        attendance.subscriptionId
+      ) {
+        const lockedSubscription = await subscriptionRepo
+          .createQueryBuilder('s')
+          .setLock('pessimistic_write')
+          .where('s.id = :id', { id: attendance.subscriptionId })
+          .getOne();
+
+        if (lockedSubscription?.type === PlanType.PUNCH) {
+          const restoredCredits =
+            (lockedSubscription.remainingCredits ?? 0) + 1;
+          const maxCredits = lockedSubscription.initialCredits;
+
+          lockedSubscription.remainingCredits =
+            maxCredits !== null
+              ? Math.min(restoredCredits, maxCredits)
+              : restoredCredits;
+
+          if (lockedSubscription.remainingCredits > 0) {
+            lockedSubscription.status = SubscriptionStatus.ACTIVE;
+          }
+
+          await subscriptionRepo.save(lockedSubscription);
+        }
+      }
+
+      await attendanceRepo.remove(attendance);
+      return { deleted: true };
+    });
   }
 
   private async createOneInTransaction(
