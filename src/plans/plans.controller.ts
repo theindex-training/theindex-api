@@ -26,12 +26,14 @@ export class PlansController {
   constructor(private readonly plansService: PlansService) {}
 
   @Get()
+  @Roles(AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE)
   list(@Query('active') active?: string) {
     const parsed = active === undefined ? undefined : active === 'true';
     return this.plansService.list(parsed);
   }
 
   @Get(':id')
+  @Roles(AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE)
   get(@Param('id') id: string) {
     return this.plansService.getById(id);
   }
