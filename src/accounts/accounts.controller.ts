@@ -49,20 +49,6 @@ export class AccountsController {
     }
   }
 
-  @Post(':profileType/:profileId')
-  async create(
-    @Param('profileType') profileType: ProfileType,
-    @Param('profileId') profileId: string,
-    @Body() dto: CreateProvisionedAccountDto,
-  ) {
-    const acc = await this.accounts.provisionForProfile(
-      profileType,
-      profileId,
-      dto,
-    );
-    return this.accounts.sanitize(acc);
-  }
-
   @Patch(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateAccountDto) {
     const acc = await this.accounts.update(id, dto);
@@ -94,6 +80,20 @@ export class AccountsController {
   ) {
     this.ensureTraineeCanAccessOnlySelf(req, id);
     return this.accounts.changePassword({ id: req.user.sub }, id, dto);
+  }
+
+  @Post(':profileType/:profileId')
+  async create(
+    @Param('profileType') profileType: ProfileType,
+    @Param('profileId') profileId: string,
+    @Body() dto: CreateProvisionedAccountDto,
+  ) {
+    const acc = await this.accounts.provisionForProfile(
+      profileType,
+      profileId,
+      dto,
+    );
+    return this.accounts.sanitize(acc);
   }
 
   @Get(':id')
