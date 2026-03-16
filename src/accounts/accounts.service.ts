@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
@@ -141,7 +140,7 @@ export class AccountsService {
       }
 
       if (!acc.passwordHash) {
-        throw new UnauthorizedException('Account has no password set');
+        throw new BadRequestException('Account has no password set');
       }
 
       const isCurrentPasswordValid = await bcrypt.compare(
@@ -150,7 +149,7 @@ export class AccountsService {
       );
 
       if (!isCurrentPasswordValid) {
-        throw new UnauthorizedException('Current password is invalid');
+        throw new BadRequestException('Current password is invalid');
       }
     }
 
