@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
@@ -13,6 +14,7 @@ import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { AccountEntity } from './account.entity';
 import { CreateProvisionedAccountDto } from './dto/create-provisioned-account.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 
 @Injectable()
@@ -41,6 +43,7 @@ export class AccountsService {
       }
 
       acc.passwordHash = await bcrypt.hash(dto.password, 10);
+      acc.hasUpdatedInitialPassword = true;
     }
 
     if (dto.email !== undefined) {
@@ -100,10 +103,65 @@ export class AccountsService {
       email: acc.email,
       role: acc.role,
       status: acc.status,
+      hasUpdatedInitialPassword: acc.hasUpdatedInitialPassword,
       trainerProfileId: acc.trainerProfileId,
       traineeProfileId: acc.traineeProfileId,
       createdAt: acc.createdAt,
       updatedAt: acc.updatedAt,
+    };
+  }
+
+  async hasUpdatedInitialPassword(accountId: string) {
+    const acc = await this.findById(accountId);
+    if (!acc) throw new NotFoundException('Account not found');
+
+    return {
+      accountId: acc.id,
+      hasUpdatedInitialPassword: acc.hasUpdatedInitialPassword,
+    };
+  }
+
+  async changePassword(
+    requester: { id: string },
+    targetAccountId: string,
+    dto: ChangePasswordDto,
+  ) {
+    const acc = await this.findById(targetAccountId);
+    if (!acc) throw new NotFoundException('Account not found');
+
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const isSelfChange = requester.id === targetAccountId;
+
+    if (isSelfChange) {
+      if (!dto.currentPassword) {
+        throw new BadRequestException('Current password is required');
+      }
+
+      if (!acc.passwordHash) {
+        throw new UnauthorizedException('Account has no password set');
+      }
+
+      const isCurrentPasswordValid = await bcrypt.compare(
+        dto.currentPassword,
+        acc.passwordHash,
+      );
+
+      if (!isCurrentPasswordValid) {
+        throw new UnauthorizedException('Current password is invalid');
+      }
+    }
+
+    acc.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    acc.hasUpdatedInitialPassword = true;
+
+    await this.repo.save(acc);
+
+    return {
+      accountId: acc.id,
+      hasUpdatedInitialPassword: acc.hasUpdatedInitialPassword,
     };
   }
 
