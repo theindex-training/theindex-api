@@ -31,6 +31,9 @@ export class AccountEntity {
   @Column({ type: 'enum', enum: AccountStatus, default: AccountStatus.ACTIVE })
   status!: AccountStatus;
 
+  @Column({ type: 'boolean', default: false })
+  hasUpdatedInitialPassword!: boolean;
+
   @Index({ unique: true })
   @Column({ type: 'uuid', nullable: true })
   trainerProfileId!: string | null;
