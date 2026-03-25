@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
@@ -30,4 +30,14 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(8)
   confirmPassword!: string;
+
+  @ApiPropertyOptional({
+    example: '0877777777',
+    description:
+      "Phone number. Required when the account changes password for the first time (hasUpdatedInitialPassword = false), optional afterwards.",
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string | null;
 }

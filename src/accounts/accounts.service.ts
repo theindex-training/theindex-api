@@ -153,10 +153,27 @@ export class AccountsService {
       }
     }
 
+    if (!acc.hasUpdatedInitialPassword && !dto.phone?.trim()) {
+      throw new BadRequestException(
+        'Phone is required when changing password for the first time',
+      );
+    }
+
     acc.passwordHash = await bcrypt.hash(dto.newPassword, 10);
     acc.hasUpdatedInitialPassword = true;
 
-    await this.repo.save(acc);
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(AccountEntity).save(acc);
+
+      if (acc.traineeProfileId && dto.phone !== undefined) {
+        const normalizedPhone = dto.phone === null ? null : dto.phone.trim();
+
+        await manager.getRepository(TraineeProfileEntity).update(
+          { id: acc.traineeProfileId },
+          { phone: normalizedPhone },
+        );
+      }
+    });
 
     return {
       accountId: acc.id,
