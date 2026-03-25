@@ -166,9 +166,11 @@ export class AccountsService {
       await manager.getRepository(AccountEntity).save(acc);
 
       if (acc.traineeProfileId && dto.phone !== undefined) {
+        const normalizedPhone = dto.phone === null ? null : dto.phone.trim();
+
         await manager.getRepository(TraineeProfileEntity).update(
           { id: acc.traineeProfileId },
-          { phone: dto.phone.trim() },
+          { phone: normalizedPhone },
         );
       }
     });

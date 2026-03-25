@@ -39,5 +39,5 @@ export class ChangePasswordDto {
   })
   @IsOptional()
   @IsString()
-  phone?: string;
+  phone?: string | null;
 }
