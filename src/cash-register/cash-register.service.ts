@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CreateManualCashRegisterTransactionDto } from './dto/create-manual-cash-register-transaction.dto';
 import { CashRegisterKvEntity } from './cash-register-kv.entity';
 import { CashRegisterTransactionEntity } from './cash-register-transaction.entity';
 import { CashRegisterTransactionSourceType } from './enums/cash-register-transaction-source-type.enum';
 import { CashRegisterTransactionType } from './enums/cash-register-transaction-type.enum';
+import { SubscriptionEntity } from '../subscriptions/subscription.entity';
+import { SettlementEntity } from '../settlements/settlement.entity';
 
 const CASH_REGISTER_BALANCE_KEY = 'cash_register_balance_cents';
 
@@ -17,6 +19,10 @@ export class CashRegisterService {
     private readonly kvRepo: Repository<CashRegisterKvEntity>,
     @InjectRepository(CashRegisterTransactionEntity)
     private readonly txRepo: Repository<CashRegisterTransactionEntity>,
+    @InjectRepository(SubscriptionEntity)
+    private readonly subscriptionRepo: Repository<SubscriptionEntity>,
+    @InjectRepository(SettlementEntity)
+    private readonly settlementRepo: Repository<SettlementEntity>,
   ) {}
 
   async getCurrentState() {
@@ -24,10 +30,11 @@ export class CashRegisterService {
     const transactions = await this.txRepo.find({
       order: { createdAt: 'DESC' },
     });
+    const enrichedTransactions = await this.enrichTransactions(transactions);
 
     return {
       balanceCents: balance,
-      transactions,
+      transactions: enrichedTransactions,
     };
   }
 
@@ -156,5 +163,96 @@ export class CashRegisterService {
     });
 
     return txRepo.save(tx);
+  }
+
+  private async enrichTransactions(transactions: CashRegisterTransactionEntity[]) {
+    const subscriptionIds = Array.from(
+      new Set(
+        transactions
+          .filter(
+            (tx) =>
+              tx.type === CashRegisterTransactionType.SUBSCRIPTION_IN &&
+              tx.sourceType === CashRegisterTransactionSourceType.SUBSCRIPTION &&
+              !!tx.sourceId,
+          )
+          .map((tx) => tx.sourceId as string),
+      ),
+    );
+
+    const settlementIds = Array.from(
+      new Set(
+        transactions
+          .filter(
+            (tx) =>
+              tx.type === CashRegisterTransactionType.SETTLEMENT_OUT &&
+              tx.sourceType === CashRegisterTransactionSourceType.SETTLEMENT &&
+              !!tx.sourceId,
+          )
+          .map((tx) => tx.sourceId as string),
+      ),
+    );
+
+    const subscriptions = subscriptionIds.length
+      ? await this.subscriptionRepo.find({
+          where: { id: In(subscriptionIds) },
+          relations: { trainee: true, plan: true },
+        })
+      : [];
+
+    const settlements = settlementIds.length
+      ? await this.settlementRepo.find({
+          where: { id: In(settlementIds) },
+        })
+      : [];
+
+    const subscriptionsById = new Map(subscriptions.map((s) => [s.id, s]));
+    const settlementsById = new Map(settlements.map((s) => [s.id, s]));
+
+    return transactions.map((tx) => {
+      if (
+        tx.type === CashRegisterTransactionType.SUBSCRIPTION_IN &&
+        tx.sourceType === CashRegisterTransactionSourceType.SUBSCRIPTION &&
+        tx.sourceId
+      ) {
+        const subscription = subscriptionsById.get(tx.sourceId);
+        return {
+          ...tx,
+          sourceDetails: subscription
+            ? {
+                boughtBy: {
+                  traineeId: subscription.traineeId,
+                  name: subscription.trainee.name,
+                  nickname: subscription.trainee.nickname,
+                },
+                purchasedAt: subscription.createdAt,
+                subscriptionType: subscription.type,
+                planTitle: subscription.plan.title,
+              }
+            : null,
+        };
+      }
+
+      if (
+        tx.type === CashRegisterTransactionType.SETTLEMENT_OUT &&
+        tx.sourceType === CashRegisterTransactionSourceType.SETTLEMENT &&
+        tx.sourceId
+      ) {
+        const settlement = settlementsById.get(tx.sourceId);
+        return {
+          ...tx,
+          sourceDetails: settlement
+            ? {
+                periodStart: settlement.periodStart,
+                periodEnd: settlement.periodEnd,
+              }
+            : null,
+        };
+      }
+
+      return {
+        ...tx,
+        sourceDetails: null,
+      };
+    });
   }
 }
