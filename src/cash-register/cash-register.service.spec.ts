@@ -6,6 +6,8 @@ describe('CashRegisterService zero-amount automatic transactions', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
+      {} as any,
     );
 
     const applySpy = jest.spyOn(service as any, 'applyTransaction');
@@ -22,6 +24,8 @@ describe('CashRegisterService zero-amount automatic transactions', () => {
 
   it('registerSettlementFinalization should skip zero-amount transactions', async () => {
     const service = new CashRegisterService(
+      {} as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,
