@@ -119,11 +119,29 @@ export class SubscriptionsService {
   }
 
   async remove(id: string) {
-    const subscription = await this.subRepo.findOne({ where: { id } });
-    if (!subscription) throw new NotFoundException('Subscription not found');
+    return this.dataSource.transaction(async (manager) => {
+      const subscriptionRepo = manager.getRepository(SubscriptionEntity);
+      const attendanceRepo = manager.getRepository(AttendanceEntity);
 
-    await this.subRepo.remove(subscription);
-    return { deleted: true };
+      const subscription = await subscriptionRepo.findOne({ where: { id } });
+      if (!subscription) throw new NotFoundException('Subscription not found');
+
+      await attendanceRepo
+        .createQueryBuilder()
+        .update(AttendanceEntity)
+        .set({
+          paymentStatus: AttendancePaymentStatus.UNPAID,
+          subscriptionId: null,
+        })
+        .where('subscriptionId = :subscriptionId', { subscriptionId: id })
+        .andWhere('paymentStatus = :paymentStatus', {
+          paymentStatus: AttendancePaymentStatus.PAID,
+        })
+        .execute();
+
+      await subscriptionRepo.remove(subscription);
+      return { deleted: true };
+    });
   }
 
   private async reconcileUnpaidAttendance(
