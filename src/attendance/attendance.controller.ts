@@ -22,6 +22,7 @@ import { AttendanceDatesQueryDto } from './dto/attendance-dates.query.dto';
 import { AttendanceSessionsQueryDto } from './dto/attendance-sessions.query.dto';
 import { CreateAttendanceBatchDto } from './dto/create-attendance-batch.dto';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
+import { InactiveTraineesQueryDto } from './dto/inactive-trainees.query.dto';
 
 type AttendanceJwtUser = {
   role: AccountRole;
@@ -71,6 +72,16 @@ export class AttendanceController {
   @Get('sessions')
   sessions(@Query() query: AttendanceSessionsQueryDto) {
     return this.attendanceService.sessions(query);
+  }
+
+  @Get('reports/inactive-trainees')
+  listTraineesWithoutRecentTrainings(@Query() query: InactiveTraineesQueryDto) {
+    return this.attendanceService.listTraineesWithoutRecentTrainings(query);
+  }
+
+  @Get('reports/without-active-subscription')
+  listTraineesWithoutActiveSubscription() {
+    return this.attendanceService.listTraineesWithoutActiveSubscription();
   }
 
   @Roles(AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE)
