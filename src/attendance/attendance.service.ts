@@ -23,6 +23,7 @@ import { AttendanceDatesQueryDto } from './dto/attendance-dates.query.dto';
 import { AttendanceSessionsQueryDto } from './dto/attendance-sessions.query.dto';
 import { CreateAttendanceBatchDto } from './dto/create-attendance-batch.dto';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
+import { InactiveTraineesQueryDto } from './dto/inactive-trainees.query.dto';
 
 @Injectable()
 export class AttendanceService {
@@ -32,6 +33,8 @@ export class AttendanceService {
     private readonly attRepo: Repository<AttendanceEntity>,
     @InjectRepository(TraineeProfileEntity)
     private readonly traineeRepo: Repository<TraineeProfileEntity>,
+    @InjectRepository(SubscriptionEntity)
+    private readonly subRepo: Repository<SubscriptionEntity>,
     @InjectRepository(TrainerProfileEntity)
     private readonly trainerRepo: Repository<TrainerProfileEntity>,
     @InjectRepository(GymLocationEntity)
@@ -172,6 +175,185 @@ export class AttendanceService {
         createdAt: 'DESC',
       },
     });
+  }
+
+  async listTraineesWithoutRecentTrainings(query: InactiveTraineesQueryDto) {
+    const now = new Date();
+    const thresholdDate = new Date(
+      now.getTime() - query.skipDays * 24 * 60 * 60 * 1000,
+    );
+
+    const [trainees, lastTrainingRaw, activeSubscriptions] = await Promise.all([
+      this.traineeRepo.find({
+        order: { name: 'ASC', nickname: 'ASC' },
+      }),
+      this.attRepo
+        .createQueryBuilder('a')
+        .select('a.traineeId', 'traineeId')
+        .addSelect('MAX(a.trainedAt)', 'lastTrainedAt')
+        .groupBy('a.traineeId')
+        .getRawMany<{ traineeId: string; lastTrainedAt: string | null }>(),
+      this.subRepo
+        .createQueryBuilder('s')
+        .leftJoinAndSelect('s.plan', 'plan')
+        .where('s.status = :status', { status: SubscriptionStatus.ACTIVE })
+        .andWhere(
+          `(
+            (s.type = :punch AND s.remainingCredits IS NOT NULL AND s.remainingCredits > 0)
+            OR
+            (s.type = :time AND s.endsAt IS NOT NULL AND s.endsAt > :now)
+          )`,
+          { punch: PlanType.PUNCH, time: PlanType.TIME, now },
+        )
+        .orderBy('s.startsAt', 'DESC')
+        .addOrderBy('s.createdAt', 'DESC')
+        .getMany(),
+    ]);
+
+    const lastTrainingByTraineeId = new Map<string, Date | null>(
+      lastTrainingRaw.map((item) => [
+        item.traineeId,
+        item.lastTrainedAt ? new Date(item.lastTrainedAt) : null,
+      ]),
+    );
+    const activeSubscriptionByTraineeId = new Map<string, SubscriptionEntity>();
+    for (const sub of activeSubscriptions) {
+      if (!activeSubscriptionByTraineeId.has(sub.traineeId)) {
+        activeSubscriptionByTraineeId.set(sub.traineeId, sub);
+      }
+    }
+
+    return trainees
+      .map((trainee) => {
+        const lastTrainingDate =
+          lastTrainingByTraineeId.get(trainee.id) ?? null;
+        const activeSubscription =
+          activeSubscriptionByTraineeId.get(trainee.id) ?? null;
+
+        return {
+          name: trainee.name,
+          nickname: trainee.nickname,
+          lastTrainingDate: lastTrainingDate?.toISOString() ?? null,
+          activeSubscription: activeSubscription
+            ? this.toSubscriptionReport(activeSubscription, now)
+            : null,
+          lastTrainingAtSort:
+            lastTrainingDate?.getTime() ?? Number.NEGATIVE_INFINITY,
+        };
+      })
+      .filter(
+        (item) =>
+          item.lastTrainingDate === null ||
+          new Date(item.lastTrainingDate) < thresholdDate,
+      )
+      .sort((a, b) => b.lastTrainingAtSort - a.lastTrainingAtSort)
+      .map((item) => ({
+        name: item.name,
+        nickname: item.nickname,
+        lastTrainingDate: item.lastTrainingDate,
+        activeSubscription: item.activeSubscription,
+      }));
+  }
+
+  async listTraineesWithoutActiveSubscription() {
+    const now = new Date();
+
+    const [trainees, lastTrainingRaw, subscriptions] = await Promise.all([
+      this.traineeRepo.find({
+        order: { name: 'ASC', nickname: 'ASC' },
+      }),
+      this.attRepo
+        .createQueryBuilder('a')
+        .select('a.traineeId', 'traineeId')
+        .addSelect('MAX(a.trainedAt)', 'lastTrainedAt')
+        .groupBy('a.traineeId')
+        .getRawMany<{ traineeId: string; lastTrainedAt: string | null }>(),
+      this.subRepo
+        .createQueryBuilder('s')
+        .leftJoinAndSelect('s.plan', 'plan')
+        .orderBy('s.startsAt', 'DESC')
+        .addOrderBy('s.createdAt', 'DESC')
+        .getMany(),
+    ]);
+
+    const lastTrainingByTraineeId = new Map<string, Date | null>(
+      lastTrainingRaw.map((item) => [
+        item.traineeId,
+        item.lastTrainedAt ? new Date(item.lastTrainedAt) : null,
+      ]),
+    );
+
+    const latestSubscriptionByTraineeId = new Map<string, SubscriptionEntity>();
+    const hasActiveSubscriptionByTraineeId = new Map<string, boolean>();
+
+    for (const sub of subscriptions) {
+      if (!latestSubscriptionByTraineeId.has(sub.traineeId)) {
+        latestSubscriptionByTraineeId.set(sub.traineeId, sub);
+      }
+
+      const isActiveNow =
+        sub.status === SubscriptionStatus.ACTIVE &&
+        ((sub.type === PlanType.PUNCH &&
+          sub.remainingCredits !== null &&
+          sub.remainingCredits > 0) ||
+          (sub.type === PlanType.TIME &&
+            sub.endsAt !== null &&
+            sub.endsAt > now));
+
+      if (isActiveNow) {
+        hasActiveSubscriptionByTraineeId.set(sub.traineeId, true);
+      }
+    }
+
+    return trainees
+      .filter((trainee) => !hasActiveSubscriptionByTraineeId.get(trainee.id))
+      .map((trainee) => {
+        const lastTrainingDate =
+          lastTrainingByTraineeId.get(trainee.id) ?? null;
+        const latestSubscription =
+          latestSubscriptionByTraineeId.get(trainee.id) ?? null;
+
+        return {
+          name: trainee.name,
+          nickname: trainee.nickname,
+          lastTrainingDate: lastTrainingDate?.toISOString() ?? null,
+          lastActiveSubscription: latestSubscription
+            ? this.toSubscriptionReport(latestSubscription, now)
+            : null,
+          lastTrainingAtSort:
+            lastTrainingDate?.getTime() ?? Number.NEGATIVE_INFINITY,
+        };
+      })
+      .sort((a, b) => b.lastTrainingAtSort - a.lastTrainingAtSort)
+      .map((item) => ({
+        name: item.name,
+        nickname: item.nickname,
+        lastTrainingDate: item.lastTrainingDate,
+        lastActiveSubscription: item.lastActiveSubscription,
+      }));
+  }
+
+  private toSubscriptionReport(subscription: SubscriptionEntity, now: Date) {
+    return {
+      planName: subscription.plan?.title ?? null,
+      type: subscription.type,
+      startDate: subscription.startsAt?.toISOString() ?? null,
+      endDate: subscription.endsAt?.toISOString() ?? null,
+      remainingTrainings:
+        subscription.type === PlanType.PUNCH
+          ? (subscription.remainingCredits ?? 0)
+          : null,
+      remainingDays:
+        subscription.type === PlanType.TIME && subscription.endsAt
+          ? Math.max(
+              0,
+              Math.ceil(
+                (subscription.endsAt.getTime() - now.getTime()) /
+                  (24 * 60 * 60 * 1000),
+              ),
+            )
+          : null,
+    };
   }
 
   private async listSessionView(query: AttendanceSessionsQueryDto) {
