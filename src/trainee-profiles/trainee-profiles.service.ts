@@ -327,8 +327,8 @@ export class TraineeProfilesService {
       )
       .addSelect('COUNT(*)', 'trainingsCount')
       .where('a.traineeId = :id', { id })
-      .groupBy('weekdayNumber')
-      .addGroupBy('weekday')
+      .groupBy('"weekdayNumber"')
+      .addGroupBy('"weekday"')
       .orderBy('"trainingsCount"', 'DESC')
       .addOrderBy('"weekdayNumber"', 'ASC')
       .getRawMany<{
@@ -349,8 +349,8 @@ export class TraineeProfilesService {
       )
       .addSelect('COUNT(*)', 'trainingsCount')
       .where('a.traineeId = :id', { id })
-      .groupBy('slotStart')
-      .addGroupBy('slotEnd')
+      .groupBy('"slotStart"')
+      .addGroupBy('"slotEnd"')
       .orderBy('"trainingsCount"', 'DESC')
       .addOrderBy('"slotStart"', 'ASC')
       .getRawMany<{
