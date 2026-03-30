@@ -85,6 +85,17 @@ export class AttendanceController {
   }
 
   @Roles(AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE)
+  @Get('trainees/:traineeId')
+  listForTrainee(
+    @Param('traineeId') traineeId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    this.validateTraineeScopeOrThrow(req, traineeId);
+
+    return this.attendanceService.listForTraineeByPaymentStatus(traineeId);
+  }
+
+  @Roles(AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE)
   @Get('trainees/:traineeId/unpaid')
   listUnpaidForTrainee(
     @Param('traineeId') traineeId: string,
