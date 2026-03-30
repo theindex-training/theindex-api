@@ -160,10 +160,10 @@ export class AttendanceService {
 
   async listForTraineeByPaymentStatus(
     traineeId: string,
-    paymentStatus: AttendancePaymentStatus,
+    paymentStatus?: AttendancePaymentStatus,
   ) {
     return this.attRepo.find({
-      where: { traineeId, paymentStatus },
+      where: paymentStatus ? { traineeId, paymentStatus } : { traineeId },
       relations: {
         trainer: true,
         location: true,
