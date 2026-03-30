@@ -14,6 +14,12 @@ import { CreateTraineeDto } from './dto/create-trainee.dto';
 import { UpdateTraineeDto } from './dto/update-trainee.dto';
 import { TraineeProfileEntity } from './trainee-profile.entity';
 
+const REPORT_TIMEZONE = 'Europe/Sofia';
+
+type CountRow = {
+  count: string;
+};
+
 @Injectable()
 export class TraineeProfilesService {
   constructor(
@@ -238,6 +244,156 @@ export class TraineeProfilesService {
       attendance: {
         recent: attendanceDto,
       },
+    };
+  }
+
+  async trainingInsights(id: string) {
+    await this.getById(id);
+
+    const topTrainingPartnersRaw = await this.attRepo
+      .createQueryBuilder('selfAttendance')
+      .innerJoin(
+        AttendanceEntity,
+        'peerAttendance',
+        `
+          peerAttendance.traineeId != selfAttendance.traineeId
+          AND peerAttendance.trainerId = selfAttendance.trainerId
+          AND peerAttendance.locationId = selfAttendance.locationId
+          AND peerAttendance.trainedAt = selfAttendance.trainedAt
+        `,
+      )
+      .innerJoin(
+        TraineeProfileEntity,
+        'peerTrainee',
+        'peerTrainee.id = peerAttendance.traineeId',
+      )
+      .select('peerTrainee.id', 'traineeId')
+      .addSelect('peerTrainee.name', 'traineeName')
+      .addSelect('COUNT(*)', 'trainingsTogether')
+      .where('selfAttendance.traineeId = :id', { id })
+      .groupBy('peerTrainee.id')
+      .addGroupBy('peerTrainee.name')
+      .orderBy('trainingsTogether', 'DESC')
+      .addOrderBy('peerTrainee.name', 'ASC')
+      .getRawMany<{
+        traineeId: string;
+        traineeName: string;
+        trainingsTogether: string;
+      }>();
+
+    const topTrainersRaw = await this.attRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.trainer', 't')
+      .select('t.id', 'trainerId')
+      .addSelect('t.name', 'trainerName')
+      .addSelect('COUNT(*)', 'trainingsCount')
+      .where('a.traineeId = :id', { id })
+      .groupBy('t.id')
+      .addGroupBy('t.name')
+      .orderBy('trainingsCount', 'DESC')
+      .addOrderBy('t.name', 'ASC')
+      .getRawMany<{
+        trainerId: string;
+        trainerName: string;
+        trainingsCount: string;
+      }>();
+
+    const topGymsRaw = await this.attRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.location', 'g')
+      .select('g.id', 'gymId')
+      .addSelect('g.name', 'gymName')
+      .addSelect('COUNT(*)', 'trainingsCount')
+      .where('a.traineeId = :id', { id })
+      .groupBy('g.id')
+      .addGroupBy('g.name')
+      .orderBy('trainingsCount', 'DESC')
+      .addOrderBy('g.name', 'ASC')
+      .getRawMany<{
+        gymId: string;
+        gymName: string;
+        trainingsCount: string;
+      }>();
+
+    const topWeekdaysRaw = await this.attRepo
+      .createQueryBuilder('a')
+      .select(
+        `EXTRACT(ISODOW FROM a.trainedAt AT TIME ZONE '${REPORT_TIMEZONE}')`,
+        'weekdayNumber',
+      )
+      .addSelect(
+        `TRIM(TO_CHAR(a.trainedAt AT TIME ZONE '${REPORT_TIMEZONE}', 'Day'))`,
+        'weekday',
+      )
+      .addSelect('COUNT(*)', 'trainingsCount')
+      .where('a.traineeId = :id', { id })
+      .groupBy('weekdayNumber')
+      .addGroupBy('weekday')
+      .orderBy('trainingsCount', 'DESC')
+      .addOrderBy('weekdayNumber', 'ASC')
+      .getRawMany<{
+        weekdayNumber: string;
+        weekday: string;
+        trainingsCount: string;
+      }>();
+
+    const topTimeSlotsRaw = await this.attRepo
+      .createQueryBuilder('a')
+      .select(
+        `TO_CHAR(date_trunc('hour', a.trainedAt AT TIME ZONE '${REPORT_TIMEZONE}'), 'HH24:MI')`,
+        'slotStart',
+      )
+      .addSelect(
+        `TO_CHAR(date_trunc('hour', a.trainedAt AT TIME ZONE '${REPORT_TIMEZONE}') + interval '59 minutes', 'HH24:MI')`,
+        'slotEnd',
+      )
+      .addSelect('COUNT(*)', 'trainingsCount')
+      .where('a.traineeId = :id', { id })
+      .groupBy('slotStart')
+      .addGroupBy('slotEnd')
+      .orderBy('trainingsCount', 'DESC')
+      .addOrderBy('slotStart', 'ASC')
+      .getRawMany<{
+        slotStart: string;
+        slotEnd: string;
+        trainingsCount: string;
+      }>();
+
+    const totalAttendancesRaw = await this.attRepo
+      .createQueryBuilder('a')
+      .select('COUNT(*)', 'count')
+      .where('a.traineeId = :id', { id })
+      .getRawOne<CountRow>();
+
+    const totalAttendances = Number(totalAttendancesRaw?.count ?? 0);
+
+    return {
+      traineeId: id,
+      totalAttendances,
+      topTrainingPartners: topTrainingPartnersRaw.map((row) => ({
+        traineeId: row.traineeId,
+        traineeName: row.traineeName,
+        trainingsTogether: Number(row.trainingsTogether),
+      })),
+      topTrainers: topTrainersRaw.map((row) => ({
+        trainerId: row.trainerId,
+        trainerName: row.trainerName,
+        trainingsCount: Number(row.trainingsCount),
+      })),
+      topGyms: topGymsRaw.map((row) => ({
+        gymId: row.gymId,
+        gymName: row.gymName,
+        trainingsCount: Number(row.trainingsCount),
+      })),
+      topWeekdays: topWeekdaysRaw.map((row) => ({
+        weekday: row.weekday,
+        weekdayNumber: Number(row.weekdayNumber),
+        trainingsCount: Number(row.trainingsCount),
+      })),
+      topTimeSlots: topTimeSlotsRaw.map((row) => ({
+        timeSlot: `${row.slotStart}-${row.slotEnd}`,
+        trainingsCount: Number(row.trainingsCount),
+      })),
     };
   }
 }
