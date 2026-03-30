@@ -273,7 +273,7 @@ export class TraineeProfilesService {
       .where('selfAttendance.traineeId = :id', { id })
       .groupBy('peerTrainee.id')
       .addGroupBy('peerTrainee.name')
-      .orderBy('trainingsTogether', 'DESC')
+      .orderBy('"trainingsTogether"', 'DESC')
       .addOrderBy('peerTrainee.name', 'ASC')
       .getRawMany<{
         traineeId: string;
@@ -290,7 +290,7 @@ export class TraineeProfilesService {
       .where('a.traineeId = :id', { id })
       .groupBy('t.id')
       .addGroupBy('t.name')
-      .orderBy('trainingsCount', 'DESC')
+      .orderBy('"trainingsCount"', 'DESC')
       .addOrderBy('t.name', 'ASC')
       .getRawMany<{
         trainerId: string;
@@ -307,7 +307,7 @@ export class TraineeProfilesService {
       .where('a.traineeId = :id', { id })
       .groupBy('g.id')
       .addGroupBy('g.name')
-      .orderBy('trainingsCount', 'DESC')
+      .orderBy('"trainingsCount"', 'DESC')
       .addOrderBy('g.name', 'ASC')
       .getRawMany<{
         gymId: string;
@@ -329,8 +329,8 @@ export class TraineeProfilesService {
       .where('a.traineeId = :id', { id })
       .groupBy('weekdayNumber')
       .addGroupBy('weekday')
-      .orderBy('trainingsCount', 'DESC')
-      .addOrderBy('weekdayNumber', 'ASC')
+      .orderBy('"trainingsCount"', 'DESC')
+      .addOrderBy('"weekdayNumber"', 'ASC')
       .getRawMany<{
         weekdayNumber: string;
         weekday: string;
@@ -351,8 +351,8 @@ export class TraineeProfilesService {
       .where('a.traineeId = :id', { id })
       .groupBy('slotStart')
       .addGroupBy('slotEnd')
-      .orderBy('trainingsCount', 'DESC')
-      .addOrderBy('slotStart', 'ASC')
+      .orderBy('"trainingsCount"', 'DESC')
+      .addOrderBy('"slotStart"', 'ASC')
       .getRawMany<{
         slotStart: string;
         slotEnd: string;
