@@ -2,14 +2,17 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -17,6 +20,15 @@ import { AccountRole } from '../common/enums/account-role.enum';
 import { CreateTraineeDto } from './dto/create-trainee.dto';
 import { UpdateTraineeDto } from './dto/update-trainee.dto';
 import { TraineeProfilesService } from './trainee-profiles.service';
+
+type TraineeJwtUser = {
+  role: AccountRole;
+  traineeProfileId?: string | null;
+};
+
+type AuthenticatedRequest = Request & {
+  user: TraineeJwtUser;
+};
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
@@ -54,5 +66,15 @@ export class TraineeProfilesController {
   @Get(':id/overview')
   overview(@Param('id') id: string) {
     return this.traineesService.overview(id);
+  }
+
+  @Roles(AccountRole.TRAINEE)
+  @Get('me/training-insights')
+  myTrainingInsights(@Req() req: AuthenticatedRequest) {
+    if (!req.user.traineeProfileId) {
+      throw new ForbiddenException('Trainee profile is not linked to account');
+    }
+
+    return this.traineesService.trainingInsights(req.user.traineeProfileId);
   }
 }
