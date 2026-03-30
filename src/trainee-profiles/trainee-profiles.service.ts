@@ -256,10 +256,10 @@ export class TraineeProfilesService {
         AttendanceEntity,
         'peerAttendance',
         `
-          peerAttendance.traineeId != selfAttendance.traineeId
-          AND peerAttendance.trainerId = selfAttendance.trainerId
-          AND peerAttendance.locationId = selfAttendance.locationId
-          AND peerAttendance.trainedAt = selfAttendance.trainedAt
+          "peerAttendance"."traineeId" != "selfAttendance"."traineeId"
+          AND "peerAttendance"."trainerId" = "selfAttendance"."trainerId"
+          AND "peerAttendance"."locationId" = "selfAttendance"."locationId"
+          AND "peerAttendance"."trainedAt" = "selfAttendance"."trainedAt"
         `,
       )
       .innerJoin(
