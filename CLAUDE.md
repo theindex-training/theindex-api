@@ -64,3 +64,29 @@ Features: accounts, attendance, cash-register, gym-locations, gym-subscriptions,
 - Never commit `.env` or real secrets. Add new config keys to `.env.example`.
 - Keep the module/DTO/guard patterns above. Add `*.spec.ts` next to pure logic you change (see `cash-register.service.spec.ts`, `attendance-time.util.spec.ts`).
 - Run `npm run build` and `npm test` before pushing. Lint with the non-`--fix` command and don't let errors grow beyond the baseline. Keep reformat-only changes out of unrelated PRs.
+
+## Testing rules (characterization tests)
+We are adding characterization tests to a production API. `TEST_PLAN.md` lists what to cover and tracks progress per module. `TEST_NOTES.md` logs behavior that looks unintended.
+
+- **Current production behavior is the spec.** Tests describe what the code DOES, not what it should do.
+- **Never change production code to make a test pass.** If behavior looks like a bug, test the current behavior, add a `// CHARACTERIZATION: possibly unintended` comment on the test, and log it in `TEST_NOTES.md` with an explanation.
+- **Test through public interfaces**: service methods and HTTP endpoints, not private internals. No `(service as any).privateMethod`, no spying on private methods.
+- **Mock only at boundaries** (database, external HTTP, time/dates). Never mock the code under test. Don't mock collaborators inside the app (e.g. `CashRegisterService` when testing `SubscriptionsService`).
+- **Every test must fail if the business rule it covers is broken.** No tests that only check a function was called. Assert on outcomes: returned values, persisted rows, HTTP status and body, balances.
+- **When fixing a bug in future**: first add a failing test that reproduces it, then fix it. Update the matching characterization test and `TEST_NOTES.md` entry in the same PR.
+- **Tests must pass in CI before any deploy.** Note: as of Nov 2026 the only workflow (`docker-ghcr.yml`) builds and deploys without running tests. Adding a test gate means changing `.github/workflows/`, which needs the owner's approval first (see Rules above).
+
+`TEST_NOTES.md` entry format:
+```
+## <module>: <one-line behavior>
+- Test: `<spec file>` > `<test name>`
+- Current behavior: ...
+- Why it looks unintended: ...
+- Impact / who would notice: ...
+```
+
+Practical notes for writing tests (details in `TEST_PLAN.md` § Test infrastructure):
+- Pin the process timezone (`TZ=UTC`) for every Jest run. Several date helpers use server-local time, so results depend on `TZ`.
+- Freeze "now" by faking **only `Date`**: `jest.useFakeTimers({ now, doNotFake: [every API except 'Date'] })`. Faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. DB-generated `createdAt` still uses the DB clock (and is identical for rows inserted in one transaction).
+- Code that uses QueryBuilder, raw SQL, `AT TIME ZONE` or row locks must be tested against a real Postgres test database, not mocked repositories.
+- e2e apps must apply the same setup as `main.ts` (`setGlobalPrefix('api')`, the same `ValidationPipe` options). `AppModule` alone doesn't include them.
