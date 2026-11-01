@@ -16,7 +16,8 @@ cp .env.example .env        # local config: needs a running Postgres
 npm run start:dev           # watch mode on :3000
 npm run build               # nest build -> dist/
 npm run start:prod          # node dist/main
-npm test                    # unit tests (src/**/*.spec.ts)
+npm test                    # unit tests (src/**/*.spec.ts), DB-free
+npm run test:int            # service integration tests (src/**/*.int-spec.ts) against Postgres DB `theindex_test` (TEST_DB_* in .env.example); drops its schema
 npm run test:e2e            # test/*.e2e-spec.ts: boots AppModule, needs Postgres; add --forceExit (cron timer keeps the process alive)
 npx eslint "{src,apps,libs,test}/**/*.ts"   # lint without modifying files
 npm run lint                # NOTE: runs eslint --fix and rewrites files

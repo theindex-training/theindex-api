@@ -44,41 +44,42 @@ Risk = how much damage a regression does × how likely a change is to break it.
 
 - [ ] **Phase 0 done**
 
-- [ ] **INF-01** Test database. Use a dedicated Postgres DB (e.g. `theindex_test`), never the dev DB. Use `synchronize: true` and `TRUNCATE ... RESTART IDENTITY CASCADE` on all tables between tests. Locally: `docker run postgres:16`. In CI: a service container.
-- [ ] **INF-02** Jest layout:
+- [x] **INF-01** Test database (done: `test/int/test-app.ts`, `TEST_DB_*` env vars, refuses names not ending in `_test`, `dropSchema` per suite). Use a dedicated Postgres DB (e.g. `theindex_test`), never the dev DB. Use `synchronize: true` and `TRUNCATE ... RESTART IDENTITY CASCADE` on all tables between tests. Locally: `docker run postgres:16`. In CI: a service container.
+- [x] **INF-02** Jest layout (done: `test/jest-int.json`, `npm run test:int`; e2e scripts unchanged apart from `TZ=UTC`):
   - Keep `npm test` DB-free: `src/**/*.spec.ts` = [U] only.
   - Add an integration config for `*.int-spec.ts`. Note the current `testRegex` `.*\.spec\.ts$` does *not* match `.int-spec.ts`.
   - e2e stays in `test/*.e2e-spec.ts`.
   - Add npm scripts `test:int` and `test:e2e`. Use `--runInBand` for DB suites.
-- [ ] **INF-03** Pin timezone: run every Jest command with `TZ=UTC` (script prefix). UTC is what the `node:20-alpine` image uses unless compose overrides it; see Q1. Add a guard test that fails if `new Date(2025, 0, 1).getTimezoneOffset() !== 0`, so a misconfigured run fails loudly instead of producing wrong expectations.
-- [ ] **INF-04** Clock helper. `freezeTime(iso)` = `jest.useFakeTimers({ now, doNotFake: [everything except 'Date'] })`. Fake only `Date`: faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. "now" in this codebase always comes from JS `new Date()`, never SQL `now()`, so this controls all business time. Exception: `@CreateDateColumn` values come from the DB clock, and Postgres `now()` is the *transaction start*, so rows inserted in one transaction share `createdAt`.
-- [ ] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction.
+- [x] **INF-03** Pin timezone: run every Jest command with `TZ=UTC` (script prefix). UTC is what the `node:20-alpine` image uses unless compose overrides it; see Q1. Add a guard test that fails if `new Date(2025, 0, 1).getTimezoneOffset() !== 0`, so a misconfigured run fails loudly instead of producing wrong expectations.
+- [x] **INF-04** Clock helper. `freezeTime(iso)` = `jest.useFakeTimers({ now, doNotFake: [everything except 'Date'] })`. Fake only `Date`: faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. "now" in this codebase always comes from JS `new Date()`, never SQL `now()`, so this controls all business time. Exception: `@CreateDateColumn` values come from the DB clock, and Postgres `now()` is the *transaction start*, so rows inserted in one transaction share `createdAt`.
+- [x] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction.
 - [ ] **INF-06** e2e app factory. Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
 - [ ] **INF-07** Auth helpers:
   - `loginAs(email, password)` through `POST /api/auth/login`. Seed the admin through `SEED_ADMIN_EMAIL/PASSWORD`, so the real `BootstrapService` runs.
   - `signToken(payload)` with the same secret, for payload edge cases (TRAINEE with `traineeProfileId: null`, TRAINER without `trainerProfileId`).
 - [ ] **INF-08** Fix stale baseline tests. `src/app.controller.spec.ts` and `test/app.e2e-spec.ts` expect `'Hello World!'`, but production returns `'Hello TheIndex!'`. Update the expectations, since current behavior is the spec. The e2e must also use `/api`. This is a test-only change.
-- [ ] **INF-09** Replace `src/cash-register/cash-register.service.spec.ts`. It spies on the private `applyTransaction` and only checks it wasn't called, which breaks two rules. Replace it with CR-07 [I], which asserts on rows and balance.
+- [x] **INF-09** Replace `src/cash-register/cash-register.service.spec.ts`. It spies on the private `applyTransaction` and only checks it wasn't called, which breaks two rules. Replace it with CR-07 [I], which asserts on rows and balance.
 - [ ] **INF-10** CI gate (**needs owner approval**: `CLAUDE.md` forbids editing `.github/workflows/` without asking). Proposal:
   - Add a `test` job: Postgres service, `npm ci`, build, lint (non-fix, error count ≤ baseline), `test`, `test:int`, `test:e2e`, all with `TZ=UTC`.
   - Make `build-api` `needs: test`.
   - Also run it on `pull_request`.
-- [ ] **INF-11** New test files must pass `npx eslint` without raising the baseline error count.
+- [x] **INF-11** New test files must pass `npx eslint` without raising the baseline error count.
 
 ---
 
 ## 1. Settlements: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`settlements.service.int-spec.ts`). Remaining for the module: [E] SET-03, SET-35, SET-40–43.
 
 Code: `settlements/settlements.service.ts`, `settlements.controller.ts`, `settlement-allocation.util.ts`.
 
 Settlements take attendance in a period and create one **allocation** per attendance (value in cents + reason) and one **line** per trainer (sum). Finalizing takes the total out of the cash register.
 
 ### Generate
-- [ ] **SET-01** [I] P0. Period with no attendance:
+- [x] **SET-01** [I] P0. Period with no attendance:
   - Assert a DRAFT settlement is persisted with `periodStart/End` as given.
   - Assert the response is `{ settlement, lines: [], info: { message: 'No attendance in period' } }` (different `info` shape from the non-empty case) and there are 0 allocation/line rows.
-- [ ] **SET-02** [I] P0. Period boundaries are computed by `getLocalDateInterval` in **server-local TZ** (UTC under INF-03): `[periodStart 00:00, periodEnd+1 00:00)`.
+- [x] **SET-02** [I] P0. Period boundaries are computed by `getLocalDateInterval` in **server-local TZ** (UTC under INF-03): `[periodStart 00:00, periodEnd+1 00:00)`.
   - Assert attendance at `periodStart T00:00:00.000Z` is included.
   - Assert `periodEnd T23:59:59.999Z` is included.
   - Assert `periodEnd+1 T00:00:00.000Z` is excluded.
@@ -88,62 +89,62 @@ Settlements take attendance in a period and create one **allocation** per attend
   - Assert `periodStart == periodEnd` → 201 (one-day period).
   - Assert a non-`YYYY-MM-DD` value → 400 (DTO).
   - ⚠ Suspect: `2025-02-30` is accepted and silently rolls over to 2025-03-02.
-- [ ] **SET-04** [I] P0. UNPAID attendance:
+- [x] **SET-04** [I] P0. UNPAID attendance:
   - Assert the allocation has `valueCents 0`, `reason UNPAID`, `subscriptionId null`, `subscriptionType null`.
   - Assert it counts in `info.unpaidAttendance` and `line.unpaidAttendanceCount`.
   - Same for a PAID row whose `subscriptionId` is null (only reachable via direct insert; P2).
-- [ ] **SET-05** [I] P0. PUNCH value = `splitCents(paidCents, initialCredits)`. It's divided by the credits *bought*, not the credits used.
+- [x] **SET-05** [I] P0. PUNCH value = `splitCents(paidCents, initialCredits)`. It's divided by the credits *bought*, not the credits used.
   - Example: 10000 cents, 3 credits, 2 used. Assert values 3334 and 3333, assert the 1st attendance by `(trainedAt, id)` gets the extra cent, and assert the total allocated is 6667 (the unused credit's 3333 is never allocated).
-- [ ] **SET-06** [I] P0. PUNCH index is **global per subscription**, ordered by `trainedAt ASC, id ASC` over all its PAID attendances, including those outside the period.
+- [x] **SET-06** [I] P0. PUNCH index is **global per subscription**, ordered by `trainedAt ASC, id ASC` over all its PAID attendances, including those outside the period.
   - Example: sub 10000/3, attendances on Nov 10 and Dec 5. Assert the December settlement allocates 3333 (index 1), not 3334.
-- [ ] **SET-07** [I] P0. TIME subscription not yet ended (`endsAt > generatedAt`):
+- [x] **SET-07** [I] P0. TIME subscription not yet ended (`endsAt > generatedAt`):
   - Assert each in-period allocation has `valueCents 0`, `reason TIME_PRORATA`, and `subscriptionId`/`subscriptionType` set.
   - Assert `info.notReportableTimeAttendance` counts them.
   - Assert `info.pendingTimeSubscriptions` has `{ subscriptionId, endsAt: ISO, attendanceInPeriodCount }`.
-- [ ] **SET-08** [I] P0. TIME subscription ended (`endsAt <= generatedAt`; equality counts as ended, so freeze time to exactly `endsAt`):
+- [x] **SET-08** [I] P0. TIME subscription ended (`endsAt <= generatedAt`; equality counts as ended, so freeze time to exactly `endsAt`):
   - Value = `splitCents(paidCents, count of ALL its PAID attendances)`, including those outside the period. Only in-period ones are allocated.
   - Example: 9000 over 4 attendances, 3 in period. Assert 2250 each and 6750 allocated.
-- [ ] **SET-09** [I] P0. ⚠ Suspect: pending TIME value is never paid automatically.
+- [x] **SET-09** [I] P0. ⚠ Suspect: pending TIME value is never paid automatically.
   - Steps: generate December while the TIME sub is pending (value 0), let it end, generate January.
   - Assert December's attendances are not re-allocated in January.
   - Assert only regenerating December pays them.
-- [ ] **SET-10** [I] P0. ⚠ Suspect: overlapping/duplicate settlements are allowed.
+- [x] **SET-10** [I] P0. ⚠ Suspect: overlapping/duplicate settlements are allowed.
   - Assert generating the same period twice gives two DRAFT settlements, each with full allocations for the same attendances (the unique index is per settlement only).
   - Assert finalizing both takes the money out twice.
-- [ ] **SET-11** [I] P0. Lines:
+- [x] **SET-11** [I] P0. Lines:
   - Assert one line per trainer with `amountCents = Σ allocation.valueCents` and `attendanceCount` = all of that trainer's rows (incl. unpaid/pending).
   - Assert `unpaidAttendanceCount` and `details: { punchCents, timeCents }`.
   - Assert the response `lines` are ordered by `amountCents DESC`.
   - Assert a trainer with only unpaid attendance still gets a line with 0.
-- [ ] **SET-12** [I] P0. Assert all `info` counters for a mixed period: `totalAttendance`, `unpaidAttendance`, `reportablePunchPaidAttendance`, `reportableTimePaidAttendance`, `notReportableTimeAttendance`.
-- [ ] **SET-13** [I] P0. Attribution: assert `allocation.trainerId` is the attendance's trainer. Two trainers sharing one trainee's PUNCH sub each get their own attendance's split value.
-- [ ] **SET-14** [I] P1. Rounding invariant: assert that for a fully used PUNCH sub, or an ended TIME sub with all attendance in period, Σ allocations == `paidCents` exactly.
+- [x] **SET-12** [I] P0. Assert all `info` counters for a mixed period: `totalAttendance`, `unpaidAttendance`, `reportablePunchPaidAttendance`, `reportableTimePaidAttendance`, `notReportableTimeAttendance`.
+- [x] **SET-13** [I] P0. Attribution: assert `allocation.trainerId` is the attendance's trainer. Two trainers sharing one trainee's PUNCH sub each get their own attendance's split value.
+- [x] **SET-14** [I] P1. Rounding invariant: assert that for a fully used PUNCH sub, or an ended TIME sub with all attendance in period, Σ allocations == `paidCents` exactly.
 
 ### Finalize
-- [ ] **SET-20** [I] P0. DRAFT → FINAL:
+- [x] **SET-20** [I] P0. DRAFT → FINAL:
   - Assert exactly one cash-register tx: `SETTLEMENT_OUT`, `sourceType SETTLEMENT`, `sourceId = settlement.id`, `amountCents = −Σ lines.amountCents`.
   - Assert the balance dropped by that amount and `balanceAfterCents` matches.
-- [ ] **SET-21** [I] P0. Balance too low:
+- [x] **SET-21** [I] P0. Balance too low:
   - Assert 400 `Cash register balance cannot be negative`.
   - Assert the settlement stays DRAFT, there is no tx row, and the balance is unchanged (rollback).
-- [ ] **SET-22** [I] P0. Total 0 (only unpaid/pending rows): assert status FINAL and no cash tx.
-- [ ] **SET-23** [I] P0. Finalizing an already FINAL settlement: assert it returns the settlement, with no second tx and no balance change.
-- [ ] **SET-24** [I] P1. Unknown id → 404 `Settlement not found`.
-- [ ] **SET-25** [I] P1. ⚠ Suspect: finalize uses the line amounts **stored at generation**.
+- [x] **SET-22** [I] P0. Total 0 (only unpaid/pending rows): assert status FINAL and no cash tx.
+- [x] **SET-23** [I] P0. Finalizing an already FINAL settlement: assert it returns the settlement, with no second tx and no balance change.
+- [x] **SET-24** [I] P1. Unknown id → 404 `Settlement not found`.
+- [x] **SET-25** [I] P1. ⚠ Suspect: finalize uses the line amounts **stored at generation**.
   - Steps: delete an attendance after generating (its allocation cascades away), then finalize.
   - Assert the cash-out equals the original line total, not Σ remaining allocations.
 
 ### Remove / read
-- [ ] **SET-30** [I] P1. Delete: assert `{ deleted: true }`, and that lines + allocations are gone (cascade). Unknown id → 404.
-- [ ] **SET-31** [I] P0. ⚠ Suspect: a FINAL settlement can be deleted.
+- [x] **SET-30** [I] P1. Delete: assert `{ deleted: true }`, and that lines + allocations are gone (cascade). Unknown id → 404.
+- [x] **SET-31** [I] P0. ⚠ Suspect: a FINAL settlement can be deleted.
   - Assert its `SETTLEMENT_OUT` tx stays and the balance is not restored.
   - Assert `GET /cash-register` then shows `sourceDetails: null` for it.
-- [ ] **SET-32** [I] P2. `list()` is ordered by `generatedAt DESC`.
-- [ ] **SET-33** [I] P1. `getById`:
+- [x] **SET-32** [I] P2. `list()` is ordered by `generatedAt DESC`.
+- [x] **SET-33** [I] P1. `getById`:
   - Assert it returns `{ settlement, lines }`.
   - Assert the `trainerId` argument limits the lines to that trainer.
   - Assert unknown id → 404.
-- [ ] **SET-34** [I] P1. `allocations`:
+- [x] **SET-34** [I] P1. `allocations`:
   - Assert defaults `limit 50`, `offset 0`, ordering by attendance `trainedAt ASC, id ASC`, and that `total` counts all matches regardless of paging.
   - Assert the `trainerId` filter and that each row includes the `attendance` relation.
   - Assert an unknown settlement id → `{ total: 0, rows: [] }` (no 404).
@@ -159,55 +160,56 @@ Settlements take attendance in a period and create one **allocation** per attend
 
 ## 2. Subscriptions: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`subscriptions.service.int-spec.ts`, incl. resolver). Remaining for the module: [E] SUB-06, SUB-40, SUB-41.
 
 Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.ts`, `subscriptions.controller.ts`.
 
 ### Purchase
-- [ ] **SUB-01** [I] P0. PUNCH plan: assert `type PUNCH`, `initialCredits = remainingCredits = plan.credits`, `endsAt null`, `status ACTIVE`, and `paidCents` defaulting to `plan.priceCents`.
-- [ ] **SUB-02** [I] P0. TIME plan: assert `endsAt = startsAt + durationDays × 86 400 000 ms` (fixed 24h days, so across a DST change the *local* end time shifts by 1h) and credits null.
-- [ ] **SUB-03** [I] P1. `startsAt`:
+- [x] **SUB-01** [I] P0. PUNCH plan: assert `type PUNCH`, `initialCredits = remainingCredits = plan.credits`, `endsAt null`, `status ACTIVE`, and `paidCents` defaulting to `plan.priceCents`.
+- [x] **SUB-02** [I] P0. TIME plan: assert `endsAt = startsAt + durationDays × 86 400 000 ms` (fixed 24h days, so across a DST change the *local* end time shifts by 1h) and credits null.
+- [x] **SUB-03** [I] P1. `startsAt`:
   - Assert omitted → frozen "now".
   - Assert an ISO datetime with offset is respected.
   - ⚠ Suspect (minor): date-only `2025-12-10` → `2025-12-10T00:00:00.000Z` (UTC midnight, not Sofia midnight).
-- [ ] **SUB-04** [I] P0. Payment:
+- [x] **SUB-04** [I] P0. Payment:
   - Assert a `paidCents` override is stored.
   - Assert `> 0` creates one `SUBSCRIPTION_IN` tx (`sourceId = subscription.id`) and raises the balance.
   - Assert `0` creates no tx and leaves the balance unchanged.
-- [ ] **SUB-05** [I] P0. Inactive/missing trainee → 400 `Trainee not found or inactive`. Inactive/missing plan → 400 `Plan not found or inactive`. Assert no subscription row, no cash tx, and no attendance changes.
+- [x] **SUB-05** [I] P0. Inactive/missing trainee → 400 `Trainee not found or inactive`. Inactive/missing plan → 400 `Plan not found or inactive`. Assert no subscription row, no cash tx, and no attendance changes.
 - [ ] **SUB-06** [E] P1. DTO: non-UUID `planId`, negative or non-integer `paidCents`, non-ISO `startsAt`, and unknown fields → 400.
-- [ ] **SUB-07** [I] P2. Plan with a broken shape (PUNCH with no credits, TIME with no duration; only via direct DB edit) → 400 `Punch plan must have credits` / `Time plan must have durationDays`.
+- [x] **SUB-07** [I] P2. Plan with a broken shape (PUNCH with no credits, TIME with no duration; only via direct DB edit) → 400 `Punch plan must have credits` / `Time plan must have durationDays`.
 
 ### Reconciliation of unpaid attendance on purchase
-- [ ] **SUB-10** [I] P0. PUNCH, N credits, M < N unpaid: assert all M become PAID and linked, `remainingCredits = N−M`, status ACTIVE, and the **returned** entity shows the updated credits.
-- [ ] **SUB-11** [I] P0. PUNCH, M > N:
+- [x] **SUB-10** [I] P0. PUNCH, N credits, M < N unpaid: assert all M become PAID and linked, `remainingCredits = N−M`, status ACTIVE, and the **returned** entity shows the updated credits.
+- [x] **SUB-11** [I] P0. PUNCH, M > N:
   - Assert the **oldest** N (`trainedAt ASC`, then `createdAt ASC`) become PAID and the newer ones stay UNPAID.
   - Assert `remainingCredits 0` and status `EXHAUSTED`.
-- [ ] **SUB-12** [I] P1. PUNCH, M == N → EXHAUSTED.
-- [ ] **SUB-13** [I] P0. ⚠ Suspect: TIME marks **all** the trainee's unpaid attendance PAID, including attendance before `startsAt` and after `endsAt`. The resolver would never match those (RES-02).
-- [ ] **SUB-14** [I] P0. Scope:
+- [x] **SUB-12** [I] P1. PUNCH, M == N → EXHAUSTED.
+- [x] **SUB-13** [I] P0. ⚠ Suspect: TIME marks **all** the trainee's unpaid attendance PAID, including attendance before `startsAt` and after `endsAt`. The resolver would never match those (RES-02).
+- [x] **SUB-14** [I] P0. Scope:
   - Assert other trainees' unpaid attendance is untouched.
   - Assert the trainee's already-PAID attendance (linked to another sub) is untouched.
-- [ ] **SUB-15** [I] P1. Reconciliation ignores `trainedAt` vs `startsAt` for PUNCH too. Unpaid attendance from before the purchase consumes credits.
+- [x] **SUB-15** [I] P1. Reconciliation ignores `trainedAt` vs `startsAt` for PUNCH too. Unpaid attendance from before the purchase consumes credits.
 
 ### Delete
-- [ ] **SUB-20** [I] P0. Delete:
+- [x] **SUB-20** [I] P0. Delete:
   - Assert its PAID attendance becomes UNPAID with `subscriptionId null`.
   - Assert UNPAID rows and other subs' rows are untouched.
   - Assert `{ deleted: true }`. Unknown id → 404 `Subscription not found`.
-- [ ] **SUB-21** [I] P0. ⚠ Suspect: deleting does not reverse the cash register. Assert the `SUBSCRIPTION_IN` tx and balance remain and `sourceDetails` becomes null.
-- [ ] **SUB-22** [I] P1. ⚠ Suspect: attendance freed by the delete is **not** re-reconciled against the trainee's other active subscriptions.
-- [ ] **SUB-23** [I] P1. Deleting a sub referenced by settlement allocations: assert the allocations remain with `subscriptionId null` (FK SET NULL) and unchanged `valueCents`.
+- [x] **SUB-21** [I] P0. ⚠ Suspect: deleting does not reverse the cash register. Assert the `SUBSCRIPTION_IN` tx and balance remain and `sourceDetails` becomes null.
+- [x] **SUB-22** [I] P1. ⚠ Suspect: attendance freed by the delete is **not** re-reconciled against the trainee's other active subscriptions.
+- [x] **SUB-23** [I] P1. Deleting a sub referenced by settlement allocations: assert the allocations remain with `subscriptionId null` (FK SET NULL) and unchanged `valueCents`.
 
 ### List
-- [ ] **SUB-30** [I] P2. `listForTrainee` returns all statuses ordered by `startsAt DESC, createdAt DESC`.
+- [x] **SUB-30** [I] P2. `listForTrainee` returns all statuses ordered by `startsAt DESC, createdAt DESC`.
 
 ### Resolver: which subscription pays for an attendance
 Test through `AttendanceService.create` (the real consumer) plus `resolveForAttendance` directly where that's clearer. Both are public.
-- [ ] **RES-01** [I] P0. PUNCH: eligible when ACTIVE with `remainingCredits > 0`, **regardless of `startsAt` vs `trainedAt`**. A PUNCH sub starting next month pays for today's attendance.
-- [ ] **RES-02** [I] P0. TIME: eligible when ACTIVE and `startsAt <= trainedAt < endsAt`. Assert start inclusive, end exclusive (attendance exactly at `endsAt` → not covered).
-- [ ] **RES-03** [I] P0. Status ≠ ACTIVE (EXHAUSTED, EXPIRED, CANCELLED via direct insert) is never eligible, even with credits or a matching window.
-- [ ] **RES-04** [I] P0. Several eligible: earliest `startsAt` wins, then earliest `createdAt`. PUNCH and TIME compete on the same ordering, e.g. an older PUNCH is used before a newer TIME that covers the date.
-- [ ] **RES-05** [I] P0. Another trainee's subscription is never used.
+- [x] **RES-01** [I] P0. PUNCH: eligible when ACTIVE with `remainingCredits > 0`, **regardless of `startsAt` vs `trainedAt`**. A PUNCH sub starting next month pays for today's attendance.
+- [x] **RES-02** [I] P0. TIME: eligible when ACTIVE and `startsAt <= trainedAt < endsAt`. Assert start inclusive, end exclusive (attendance exactly at `endsAt` → not covered).
+- [x] **RES-03** [I] P0. Status ≠ ACTIVE (EXHAUSTED, EXPIRED, CANCELLED via direct insert) is never eligible, even with credits or a matching window.
+- [x] **RES-04** [I] P0. Several eligible: earliest `startsAt` wins, then earliest `createdAt`. PUNCH and TIME compete on the same ordering, e.g. an older PUNCH is used before a newer TIME that covers the date.
+- [x] **RES-05** [I] P0. Another trainee's subscription is never used.
 
 ### Access
 - [ ] **SUB-40** [E] P0. ADMIN and TRAINER can create and delete subscriptions (incl. `paidCents: 0`). TRAINEE → 403.
@@ -217,41 +219,42 @@ Test through `AttendanceService.create` (the real consumer) plus `resolveForAtte
 
 ## 3. Attendance write path: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`attendance.service.int-spec.ts`). Remaining for the module: [E] ATT-13, ATT-31, ATT-32.
 
 Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `attendance.controller.ts`.
 
 ### Create
-- [ ] **ATT-01** [I] P0. Eligible PUNCH:
+- [x] **ATT-01** [I] P0. Eligible PUNCH:
   - Assert the attendance is PAID with `subscriptionId` set and the sub's `remainingCredits` dropped by 1.
   - Assert the response `info` is `{ paymentStatus: 'PAID', subscriptionId, subscriptionType: 'PUNCH', remainingCredits }`.
-- [ ] **ATT-02** [I] P0. Last credit: assert `remainingCredits 0` and status EXHAUSTED. Assert the next attendance is UNPAID, or uses the next eligible sub if there is one.
-- [ ] **ATT-03** [I] P0. Eligible TIME: assert PAID, no credit change, and that `info` has no `remainingCredits` key.
-- [ ] **ATT-04** [I] P0. No eligible sub: assert UNPAID, `subscriptionId null`, and `info.subscriptionId/subscriptionType` null.
-- [ ] **ATT-05** [I] P1. `gymSubscriptionId` is a **snapshot** of the trainee's value at creation. Assert changing the trainee later doesn't change old rows.
-- [ ] **ATT-06** [I] P0. Inactive/missing trainee / trainer / location → 400 `Trainee|Trainer|Location not found or inactive`, checked in that order. Assert nothing is persisted and credits are unchanged.
-- [ ] **ATT-07** [I] P1. The persisted `trainedAt` follows `resolveTrainedAt` (DT-02). One case per branch is enough here.
-- [ ] **ATT-08** [I] P1. ⚠ Suspect: future-dated attendance and exact duplicates (same trainee, same `trainedAt`) are accepted. Assert each duplicate consumes a credit.
-- [ ] **ATT-09** [I] P1. Concurrency invariant: two parallel `create` calls against a 1-credit PUNCH sub → exactly one PAID and one UNPAID, and `remainingCredits` never < 0. This exercises the lock + revert branch. Use real parallel transactions and repeat a few times. Mark flaky-prone.
+- [x] **ATT-02** [I] P0. Last credit: assert `remainingCredits 0` and status EXHAUSTED. Assert the next attendance is UNPAID, or uses the next eligible sub if there is one.
+- [x] **ATT-03** [I] P0. Eligible TIME: assert PAID, no credit change, and that `info` has no `remainingCredits` key.
+- [x] **ATT-04** [I] P0. No eligible sub: assert UNPAID, `subscriptionId null`, and `info.subscriptionId/subscriptionType` null.
+- [x] **ATT-05** [I] P1. `gymSubscriptionId` is a **snapshot** of the trainee's value at creation. Assert changing the trainee later doesn't change old rows.
+- [x] **ATT-06** [I] P0. Inactive/missing trainee / trainer / location → 400 `Trainee|Trainer|Location not found or inactive`, checked in that order. Assert nothing is persisted and credits are unchanged.
+- [x] **ATT-07** [I] P1. The persisted `trainedAt` follows `resolveTrainedAt` (DT-02). One case per branch is enough here.
+- [x] **ATT-08** [I] P1. ⚠ Suspect: future-dated attendance and exact duplicates (same trainee, same `trainedAt`) are accepted. Assert each duplicate consumes a credit.
+- [x] **ATT-09** [I] P1. Concurrency invariant: two parallel `create` calls against a 1-credit PUNCH sub → exactly one PAID and one UNPAID, and `remainingCredits` never < 0. This exercises the lock + revert branch. Use real parallel transactions and repeat a few times. Mark flaky-prone. ⚠ **Found while writing it:** about half the time the loser fails with a Postgres deadlock (500) instead of being stored UNPAID. The invariants hold either way; see TEST_NOTES.
 
 ### Batch
-- [ ] **ATT-10** [I] P0. Duplicate `traineeIds` are de-duplicated. Assert `count` = unique trainees, `results` has one entry per trainee with its own payment resolution, and the response is `{ trainerId, trainedAt: ISO, count, results }`.
-- [ ] **ATT-11** [I] P0. Any missing/inactive trainee → 400 with body `message: 'Some trainees are missing or inactive'` and `invalidTraineeIds: [...]`. Assert **nothing** is created for any trainee.
-- [ ] **ATT-12** [I] P1. Validation order: trainer, then trainees, then location. Assert all three happen before any insert.
+- [x] **ATT-10** [I] P0. Duplicate `traineeIds` are de-duplicated. Assert `count` = unique trainees, `results` has one entry per trainee with its own payment resolution, and the response is `{ trainerId, trainedAt: ISO, count, results }`.
+- [x] **ATT-11** [I] P0. Any missing/inactive trainee → 400 with body `message: 'Some trainees are missing or inactive'` and `invalidTraineeIds: [...]`. Assert **nothing** is created for any trainee.
+- [x] **ATT-12** [I] P1. Validation order: trainer, then trainees, then location. Assert all three happen before any insert.
 - [ ] **ATT-13** [E] P1. DTO differences:
   - Assert `traineeIds` `[]` → 400, more than 200 → 400, and non-v4 UUIDs → 400 (`IsUUID('4')`).
   - Batch `trainedAt` is only `IsString`: garbage → 400 `Invalid trainedAt` (service message).
   - Single create uses `IsDateString`: garbage → 400 from the DTO, with a different message.
 
 ### Delete
-- [ ] **ATT-20** [I] P0. PAID + PUNCH: assert `remainingCredits + 1`, capped at `initialCredits`, and EXHAUSTED → ACTIVE.
-- [ ] **ATT-21** [I] P1. Status is set to ACTIVE whenever restored credits > 0, even from EXPIRED/CANCELLED (direct insert). Low impact today because nothing sets those statuses.
-- [ ] **ATT-22** [I] P0. Deleting TIME-linked or UNPAID attendance leaves subscriptions untouched.
-- [ ] **ATT-23** [I] P1. ⚠ Suspect: the restored credit isn't applied to the trainee's other UNPAID attendance.
-- [ ] **ATT-24** [I] P0. ⚠ Suspect: deleting attendance that's in a settlement cascades its allocation row, but the settlement **lines are not updated**, even for FINAL settlements. Lines and allocations then disagree.
-- [ ] **ATT-25** [I] P1. Unknown id → 404 `Attendance not found`.
+- [x] **ATT-20** [I] P0. PAID + PUNCH: assert `remainingCredits + 1`, capped at `initialCredits`, and EXHAUSTED → ACTIVE.
+- [x] **ATT-21** [I] P1. Status is set to ACTIVE whenever restored credits > 0, even from EXPIRED/CANCELLED (direct insert). Low impact today because nothing sets those statuses.
+- [x] **ATT-22** [I] P0. Deleting TIME-linked or UNPAID attendance leaves subscriptions untouched.
+- [x] **ATT-23** [I] P1. ⚠ Suspect: the restored credit isn't applied to the trainee's other UNPAID attendance.
+- [x] **ATT-24** [I] P0. ⚠ Suspect: deleting attendance that's in a settlement cascades its allocation row, but the settlement **lines are not updated**, even for FINAL settlements. Lines and allocations then disagree.
+- [x] **ATT-25** [I] P1. Unknown id → 404 `Attendance not found`.
 
 ### Lists + access
-- [ ] **ATT-30** [I] P1. `listForTraineeByPaymentStatus`:
+- [x] **ATT-30** [I] P1. `listForTraineeByPaymentStatus`:
   - Assert ordering `trainedAt DESC, createdAt DESC`.
   - Assert relations `trainer`, `location`, `subscription`, `gymSubscription` are loaded.
   - Assert `/paid` and `/unpaid` filter and the base route returns both.
@@ -262,24 +265,25 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
 
 ## 4. Cash register: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`cash-register.service.int-spec.ts`). Remaining for the module: [E] CR-10, CR-11.
 
 Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `cash_register_kv` (`cash_register_balance_cents`). Each change appends a transaction with `balanceAfterCents`.
 
-- [ ] **CR-01** [I] P0. Manual IN: assert `amountCents +X`, `MANUAL_IN`, `sourceType MANUAL`, `sourceId null`, `notes` stored (or null), and `balanceAfterCents`.
-- [ ] **CR-02** [I] P0. Manual OUT:
+- [x] **CR-01** [I] P0. Manual IN: assert `amountCents +X`, `MANUAL_IN`, `sourceType MANUAL`, `sourceId null`, `notes` stored (or null), and `balanceAfterCents`.
+- [x] **CR-02** [I] P0. Manual OUT:
   - Assert the stored amount is **negative** and the type is `MANUAL_OUT`.
   - Overdraw → 400 `Cash register balance cannot be negative`. Assert no tx row and an unchanged balance.
-- [ ] **CR-03** [I] P0. OUT that brings the balance to exactly 0 is allowed.
-- [ ] **CR-04** [I] P1. Empty state: `getCurrentState()` → `{ balanceCents: 0, transactions: [] }`. Assert the first tx creates the kv row starting from 0.
-- [ ] **CR-05** [I] P0. Running balance: after a mixed sequence, assert each `balanceAfterCents` equals the cumulative sum, and `balanceCents` equals the last `balanceAfterCents` and Σ amounts.
-- [ ] **CR-06** [I] P0. Idempotency per `(sourceType, sourceId)`: assert calling `registerSubscriptionPayment` twice with the same id returns the existing tx, with no new row and no balance change.
-- [ ] **CR-07** [I] P0. Zero-amount automatic tx (`registerSubscriptionPayment` / `registerSettlementFinalization` with 0): assert it returns `null`, adds no row and leaves the balance unchanged. Replaces the current spy-based spec (INF-09).
-- [ ] **CR-08** [I] P1. `getCurrentState` ordering and enrichment:
+- [x] **CR-03** [I] P0. OUT that brings the balance to exactly 0 is allowed.
+- [x] **CR-04** [I] P1. Empty state: `getCurrentState()` → `{ balanceCents: 0, transactions: [] }`. Assert the first tx creates the kv row starting from 0.
+- [x] **CR-05** [I] P0. Running balance: after a mixed sequence, assert each `balanceAfterCents` equals the cumulative sum, and `balanceCents` equals the last `balanceAfterCents` and Σ amounts.
+- [x] **CR-06** [I] P0. Idempotency per `(sourceType, sourceId)`: assert calling `registerSubscriptionPayment` twice with the same id returns the existing tx, with no new row and no balance change.
+- [x] **CR-07** [I] P0. Zero-amount automatic tx (`registerSubscriptionPayment` / `registerSettlementFinalization` with 0): assert it returns `null`, adds no row and leaves the balance unchanged. Replaces the current spy-based spec (INF-09).
+- [x] **CR-08** [I] P1. `getCurrentState` ordering and enrichment:
   - Assert ordering by `createdAt DESC`.
   - Assert `SUBSCRIPTION_IN` → `sourceDetails { boughtBy { traineeId, name, nickname }, purchasedAt, subscriptionType, planTitle }`.
   - Assert `SETTLEMENT_OUT` → `{ periodStart, periodEnd }`.
   - Assert MANUAL or a deleted source → `null`.
-- [ ] **CR-09** [I] P2. Concurrency: parallel manual OUTs that together exceed the balance. Assert the final balance ≥ 0 and equals Σ committed tx amounts. Flaky-prone, optional.
+- [x] **CR-09** [I] P2. Concurrency: parallel manual OUTs that together exceed the balance. Assert the final balance ≥ 0 and equals Σ committed tx amounts. Flaky-prone, optional.
 - [ ] **CR-10** [E] P0. ADMIN only: TRAINER/TRAINEE → 403 on both routes.
 - [ ] **CR-11** [E] P1. DTO: `direction` not `IN|OUT` → 400; `amountCents` 0, negative or non-integer → 400; `notes: ''` → 400.
 
@@ -510,9 +514,9 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 11. Subscriptions cron: P1
-- [ ] **Module done**
+- [x] **Module done** (CRON-01 in `subscriptions.service.int-spec.ts`; CRON-02 is P2 and still open)
 
-- [ ] **CRON-01** [I] P0. `exhaustPastEndTimeSubscriptions()`:
+- [x] **CRON-01** [I] P0. `exhaustPastEndTimeSubscriptions()`:
   - TIME + ACTIVE + `endsAt < now` → **EXHAUSTED**.
   - `endsAt == now` → untouched. PUNCH and non-ACTIVE → untouched.
   - Returns the affected count.
