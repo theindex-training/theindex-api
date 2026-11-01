@@ -1,0 +1,11 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "roots": ["<rootDir>/src"],
+  "testEnvironment": "node",
+  "testRegex": "\\.int-spec\\.ts$",
+  "setupFiles": ["<rootDir>/test/tz-guard.ts"],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
+}
