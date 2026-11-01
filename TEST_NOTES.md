@@ -70,6 +70,30 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: a double-submit burns a trainee's credit and adds a payout line for the trainer.
 - Impact / who would notice: trainees (lost credits), owner (overpaid trainers).
 
+## accounts: an admin/trainer password reset counts as the user's own first change
+- Test: `src/accounts/accounts.service.int-spec.ts` > `ACC-11 an admin reset still requires a phone and marks the initial password as updated`
+- Current behavior: when someone else changes an account's password (`POST /accounts/:id/change-password` by ADMIN or TRAINER, no current password needed), the service sets `hasUpdatedInitialPassword = true`. If the target hasn't changed their initial password yet, the person doing the reset must also send a `phone`, which is written to the target's trainee profile.
+- Why it looks unintended: the flag exists so users replace a password someone else chose. After a reset the staff member knows the password, yet the user is never prompted to change it. Requiring the resetter to type the trainee's phone looks like the self-service first-login rule leaking into the reset path.
+- Impact / who would notice: security. Staff know working passwords for trainee accounts indefinitely. Combined with ACC-15 (TRAINER can reset any account, incl. ADMIN), a trainer can take over an admin account without the admin ever being asked to change the password.
+
+## auth: login reveals that an account exists and is disabled, even with a wrong password
+- Test: `src/auth/auth.service.int-spec.ts` > `AUTH-04 status is checked before the password, so a wrong password reveals a disabled account`
+- Current behavior: `validateUser` checks `status !== ACTIVE` before comparing the password. Any password for a DISABLED account returns 401 `Account is not active (DISABLED)`; an unknown email returns `Invalid credentials`.
+- Why it looks unintended: unknown email and wrong password deliberately share one message (AUTH-03), which suggests enumeration was meant to be avoided. The status branch undoes that for disabled accounts.
+- Impact / who would notice: low. Someone guessing emails can tell which ones belong to disabled (e.g. deleted, see next entry) accounts.
+
+## accounts: a deleted account's email can never be used again
+- Test: `src/accounts/accounts.service.int-spec.ts` > `ACC-07 a deleted account keeps its email, so the email can never be provisioned again`
+- Current behavior: `DELETE /accounts/:id` only sets `status = DISABLED` and unlinks the profiles; the row and its email stay. Provisioning a new account with that email (even for the same, now unlinked profile) returns 400 `Email is already used by another account`. The only way back is `PATCH /accounts/:id { status: 'ACTIVE' }` on the old row, which then has no profile links.
+- Why it looks unintended: from the UI, "delete account, then re-create it" is the obvious way to fix a wrongly provisioned account, and it fails with a message that points at a different account.
+- Impact / who would notice: staff re-provisioning a trainee or trainer who uses the same email; they need a different email or a manual DB fix.
+
+## accounts: provisioning after a profile-side unlink fails with a misleading "email" error
+- Test: `src/accounts/accounts.service.int-spec.ts` > `ACC-04 profile unlinked on the profile side only -> 400 with a misleading "email" message`
+- Current behavior: `PATCH /trainers/:id { accountId: null }` (and the trainee equivalent) clears the profile's `accountId` but leaves `accounts.trainerProfileId` pointing at the profile. Provisioning a new account for that profile passes the `already has an account` check, then hits the unique index on `accounts.trainerProfileId`; the error is caught and reported as 400 `Cannot create account (email may already exist)`, even when the email is unused.
+- Why it looks unintended: the two sides of the link disagree, and the message sends staff looking at the email instead of the real cause.
+- Impact / who would notice: staff trying to give a profile a new account; there is no API path that clears the account side except deleting (disabling) the old account.
+
 ## settlements: period boundaries use server-local time, not Europe/Sofia
 - Test: `src/settlements/settlements.service.int-spec.ts` > `SET-02 attendance at 2025-12-01 01:00 Sofia (23:00Z Nov 30) lands in November, not December`
 - Current behavior: `getLocalDateInterval` builds `[periodStart 00:00, periodEnd+1 00:00)` in the **server** timezone. Under UTC (the Docker default, see `TEST_PLAN.md` Q1), attendance between 00:00 and 02:00/03:00 Sofia time on the first day of a month falls into the previous month's settlement.
@@ -82,8 +106,45 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the Swagger example is a date-only string, and gym-local time is Sofia elsewhere.
 - Impact / who would notice: minor; attendance between 00:00 and 02:00 Sofia on the first or last day of a TIME pass can resolve differently than expected.
 
+## attendance: `trainedAt` strings that aren't `YYYY-MM-DDTHH:mm[:ss[.fff]]` skip the Sofia conversion
+- Test: `src/attendance/attendance-time.util.spec.ts` > `DT-02 date-only trainedAt is UTC midnight, not Sofia` and `DT-02 trainedAt with a space instead of T is server-local time, not Sofia`
+- Current behavior: only the exact `T` form without a zone is treated as Europe/Sofia. `'2025-01-15'` becomes `2025-01-15T00:00:00.000Z` (02:00 Sofia). `'2025-01-15 08:10'` is parsed by `new Date` in **server-local** time (08:10Z under UTC, i.e. 10:10 Sofia), while `'2025-01-15T08:10'` gives 06:10Z.
+- Why it looks unintended: the function's purpose is to interpret zoneless input as gym time; two common spellings silently get a different zone. The batch endpoint only checks `IsString`, so both reach the service there.
+- Impact / who would notice: staff or integrations sending dates without the `T`; attendance lands 2–3 hours off and can move to another day, which changes `/attendance/dates`, sessions and settlement periods.
+
+## attendance: impossible dates and hours roll over instead of being rejected
+- Test: `src/attendance/attendance-time.util.spec.ts` > `DT-02 impossible dates and hours roll over instead of being rejected`; `src/attendance/attendance-range.util.spec.ts` > `DT-03 month 13 and day 32 roll over silently instead of being rejected`
+- Current behavior: `resolveTrainedAt({ trainedDate: '2025-02-30' })` → 2025-03-02 12:00 Sofia; `trainedAt: '2025-01-15T25:00'` → 2025-01-16 01:00 Sofia. `getLocalDateInterval('2025-13-01', …)` starts on 2026-01-01 and `'2025-01-32'` on 2025-02-01. Only zero/non-numeric parts and out-of-range `trainedTime` are rejected.
+- Why it looks unintended: `trainedTime` is range-checked (24:00 → 400), so the same mistake in the date or in `trainedAt` was clearly meant to be an error too.
+- Impact / who would notice: a typo records attendance on another day, or a report/settlement silently covers a different period than the one typed.
+
 ## subscriptions cron: ended TIME passes become EXHAUSTED, never EXPIRED
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `CRON-01 exhausts ACTIVE TIME subs with endsAt < now only and returns the count`
 - Current behavior: the daily job sets `status = EXHAUSTED` on ACTIVE TIME subs whose `endsAt < now`. `SubscriptionStatus.EXPIRED` (and `CANCELLED`) exist in the enum but nothing in the codebase ever sets them.
 - Why it looks unintended: `EXPIRED` is the natural status for a time-based pass that ran out; `EXHAUSTED` describes a PUNCH card with no credits left.
 - Impact / who would notice: the frontend or reports that filter by status. Low impact today because both statuses are treated as "not active".
+
+## accounts: trainer and admin accounts must send a phone on their first password change, and it is discarded
+- Test: `src/accounts/accounts.service.int-spec.ts` > `ACC-10 trainer and ADMIN accounts must send a phone the first time, but it is not stored anywhere`
+- Current behavior: `changePassword` requires a non-blank `phone` whenever `hasUpdatedInitialPassword` is false, for every role. Only accounts with a `traineeProfileId` store it. Trainer profiles have no phone column and the seeded ADMIN (`BootstrapService`) starts with `hasUpdatedInitialPassword = false`, so both must type a phone that goes nowhere.
+- Why it looks unintended: the phone rule exists to collect trainee contact data.
+- Impact / who would notice: trainers and the admin on their first password change; a pointless required field.
+
+## accounts: a whitespace-only phone is stored as an empty string
+- Test: `src/accounts/accounts.service.int-spec.ts` > `ACC-10 after the first change a whitespace-only phone is stored as an empty string, not null`
+- Current behavior: after the first change `phone` is optional; `phone: '   '` is trimmed to `''` and written to the trainee profile instead of clearing it to null (`phone: null` does clear it).
+- Why it looks unintended: two "no phone" values (`''` and `null`) now exist for the same meaning.
+- Impact / who would notice: minor; anything that checks `phone !== null` (e.g. the frontend) treats the trainee as having a phone.
+
+---
+
+# Fixed
+
+Entries move here once the behavior is fixed. The tests named here now assert the corrected behavior.
+
+## attendance: 00:xx gym-local times were stored one day early on Node 20 (fixed in #38)
+- Test: `src/attendance/attendance-timezone.util.spec.ts` > `DT-01 00:xx gym-local times convert to the same day, not one day early`; `src/attendance/attendance-time.util.spec.ts` > `DT-02 a 00:xx Sofia trainedTime or zoneless trainedAt stays on its own day`
+- Old behavior: `fromGymLocalToUtc` read the Sofia wall clock with `Intl.DateTimeFormat('en-CA', { hour12: false, … })`. On Node 20 (ICU 78.2; `.nvmrc`, CI and the `node:20-alpine` image) that resolves to hour cycle `h24`, so midnight was rendered as hour **24** of the same date. Every gym-local time from 00:00 to 00:59 then converted to an instant exactly 24 h too early. Example: `trainedDate 2025-01-15` + `trainedTime 00:30` was stored as `2025-01-13T22:30Z` (Jan 14 00:30 Sofia). Zoneless `trainedAt: '…T00:xx'` was affected the same way. Node 22 resolves `h23` and was not affected. The tests were first written on Node 22, and CI on Node 20 exposed the bug.
+- Fix: the formatter now asks for `hourCycle: 'h23'` explicitly, so the result no longer depends on the runtime's locale data. Verified on Node 20 and 22: every wall-clock minute of 2025 in Sofia converts back to its original instant (except the documented fall-back overlap hour, DT-01).
+- Remaining impact: **attendance already stored by production through these inputs is still one day early.** It can't be repaired automatically. A stored 00:xx Sofia instant is either a shifted row (zoneless input) or a correct one (input with an explicit zone, or "now"), and the database doesn't record which. Settlements, TIME-pass payments and reports computed from such rows are not recalculated.
+

@@ -27,6 +27,7 @@ import { TrainerProfileEntity } from '../../src/trainer-profiles/trainer-profile
  * (`insert*`) are only for states the services cannot produce.
  */
 export class Fixtures {
+  readonly moduleRef: TestingModule;
   readonly ds: DataSource;
   readonly attendance: AttendanceService;
   readonly cashRegister: CashRegisterService;
@@ -35,6 +36,7 @@ export class Fixtures {
   readonly resolver: SubscriptionResolverService;
 
   constructor(moduleRef: TestingModule) {
+    this.moduleRef = moduleRef;
     this.ds = moduleRef.get(DataSource);
     this.attendance = moduleRef.get(AttendanceService);
     this.cashRegister = moduleRef.get(CashRegisterService);
