@@ -1,6 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
 import { freezeTime, restoreTime } from '../../test/int/clock';
-import { requireProductionHourCycle } from '../../test/intl-runtime';
 import { resolveTrainedAt } from './attendance-time.util';
 
 describe('resolveTrainedAt', () => {
@@ -146,19 +145,19 @@ describe('resolveTrainedAt (DT-02)', () => {
     ).toBe('2025-01-15T08:10:00.000Z');
   });
 
-  // CHARACTERIZATION: possibly unintended
-  it('DT-02 on Node 20 (production) a 00:xx Sofia trainedTime or zoneless trainedAt is stored one day early', () => {
-    requireProductionHourCycle();
-
-    // Correct instants would be 2025-01-14T22:00Z / 22:59Z / 22:30Z.
+  // Regression for the Node 20 midnight bug (see DT-01).
+  it('DT-02 a 00:xx Sofia trainedTime or zoneless trainedAt stays on its own day', () => {
     expect(iso({ trainedDate: '2025-01-15', trainedTime: '00:00' })).toBe(
-      '2025-01-13T22:00:00.000Z',
+      '2025-01-14T22:00:00.000Z',
     );
     expect(iso({ trainedDate: '2025-01-15', trainedTime: '00:59' })).toBe(
-      '2025-01-13T22:59:00.000Z',
+      '2025-01-14T22:59:00.000Z',
     );
     expect(iso({ trainedAt: '2025-01-15T00:30' })).toBe(
-      '2025-01-13T22:30:00.000Z',
+      '2025-01-14T22:30:00.000Z',
+    );
+    expect(iso({ trainedAt: '2025-07-15T00:30:15.5' })).toBe(
+      '2025-07-14T21:30:15.500Z',
     );
   });
 

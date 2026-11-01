@@ -18,7 +18,10 @@ function getDatePartsInTimeZone(date: Date, timeZone: string): DateParts {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false,
+    // Explicit 00-23 hours. `hour12: false` resolves to `h24` on some
+    // Node/ICU builds (incl. Node 20), which renders midnight as hour 24 and
+    // shifted every 00:xx gym-local time one day early.
+    hourCycle: 'h23',
   }).formatToParts(date);
 
   const value = (type: string) => Number(parts.find((p) => p.type === type)?.value);

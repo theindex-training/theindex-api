@@ -64,12 +64,6 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: same reasoning as SUB-22; the free credit and the unpaid visit coexist.
 - Impact / who would notice: staff; the trainee looks like they owe a visit while having a credit left.
 
-## attendance: on Node 20 (production) any 00:xx gym-local time is stored one day early
-- Test: `src/attendance/attendance-timezone.util.spec.ts` > `DT-01 on Node 20 (production) any 00:xx gym-local time resolves exactly one day early`; `src/attendance/attendance-time.util.spec.ts` > `DT-02 on Node 20 (production) a 00:xx Sofia trainedTime or zoneless trainedAt is stored one day early`
-- Current behavior: `fromGymLocalToUtc` reads the Sofia wall clock with `Intl.DateTimeFormat('en-CA', { hour12: false, … })`. On Node 20 (ICU 78.2; `.nvmrc`, CI and the `node:20-alpine` image) that resolves to hour cycle `h24`, so Sofia midnight is rendered as hour **24** of the same date. The computed offset is then +26 h/+27 h instead of +2 h/+3 h, and every gym-local time from 00:00 to 00:59 converts to an instant exactly 24 h too early. Example: `trainedDate 2025-01-15` + `trainedTime 00:30` is stored as `2025-01-13T22:30Z` (= Jan 14 00:30 Sofia) instead of `2025-01-14T22:30Z`. The same applies to a zoneless `trainedAt: '2025-01-15T00:30'`. Other hours are correct. Node 22 (ICU 78.3) resolves `h23` and converts correctly, so the result depends on the runtime. Found when CI (Node 20) failed tests written on Node 22.
-- Why it looks unintended: the function exists to convert gym-local time correctly; it is off by a whole day for one hour of the day. Nothing else in the code expects hour 24.
-- Impact / who would notice: anyone recording attendance with a 00:xx time (late sessions, or a UI default of `00:00`). The visit lands on the previous day in `/attendance/dates`, sessions and reports. On the 1st of a month it moves into the previous month's settlement. It can also fall outside a TIME pass window and be stored UNPAID or charged to a different subscription. Upgrading the production image to Node 22 would silently change this behavior; treat a Node upgrade as a behavior change and update this test with it.
-
 ## attendance: future-dated and exact duplicate attendance are accepted
 - Test: `src/attendance/attendance.service.int-spec.ts` > `ATT-08 future-dated and exact duplicate attendance are accepted; each consumes a credit`
 - Current behavior: `create` accepts any `trainedAt`, including far in the future, and the same trainee + same `trainedAt` can be recorded any number of times. Each duplicate consumes a PUNCH credit.
@@ -141,3 +135,16 @@ Ordered by impact (money and data integrity first).
 - Current behavior: after the first change `phone` is optional; `phone: '   '` is trimmed to `''` and written to the trainee profile instead of clearing it to null (`phone: null` does clear it).
 - Why it looks unintended: two "no phone" values (`''` and `null`) now exist for the same meaning.
 - Impact / who would notice: minor; anything that checks `phone !== null` (e.g. the frontend) treats the trainee as having a phone.
+
+---
+
+# Fixed
+
+Entries move here once the behavior is fixed. The tests named here now assert the corrected behavior.
+
+## attendance: 00:xx gym-local times were stored one day early on Node 20 (fixed in #38)
+- Test: `src/attendance/attendance-timezone.util.spec.ts` > `DT-01 00:xx gym-local times convert to the same day, not one day early`; `src/attendance/attendance-time.util.spec.ts` > `DT-02 a 00:xx Sofia trainedTime or zoneless trainedAt stays on its own day`
+- Old behavior: `fromGymLocalToUtc` read the Sofia wall clock with `Intl.DateTimeFormat('en-CA', { hour12: false, … })`. On Node 20 (ICU 78.2; `.nvmrc`, CI and the `node:20-alpine` image) that resolves to hour cycle `h24`, so midnight was rendered as hour **24** of the same date. Every gym-local time from 00:00 to 00:59 then converted to an instant exactly 24 h too early. Example: `trainedDate 2025-01-15` + `trainedTime 00:30` was stored as `2025-01-13T22:30Z` (Jan 14 00:30 Sofia). Zoneless `trainedAt: '…T00:xx'` was affected the same way. Node 22 resolves `h23` and was not affected. The tests were first written on Node 22, and CI on Node 20 exposed the bug.
+- Fix: the formatter now asks for `hourCycle: 'h23'` explicitly, so the result no longer depends on the runtime's locale data. Verified on Node 20 and 22: every wall-clock minute of 2025 in Sofia converts back to its original instant (except the documented fall-back overlap hour, DT-01).
+- Remaining impact: **attendance already stored by production through these inputs is still one day early.** It can't be repaired automatically. A stored 00:xx Sofia instant is either a shifted row (zoneless input) or a correct one (input with an explicit zone, or "now"), and the database doesn't record which. Settlements, TIME-pass payments and reports computed from such rows are not recalculated.
+
