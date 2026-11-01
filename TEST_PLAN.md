@@ -52,7 +52,7 @@ Risk = how much damage a regression does × how likely a change is to break it.
   - Add npm scripts `test:int` and `test:e2e`. Use `--runInBand` for DB suites.
 - [x] **INF-03** Pin timezone: run every Jest command with `TZ=UTC` (script prefix). UTC is what the `node:20-alpine` image uses unless compose overrides it; see Q1. Add a guard test that fails if `new Date(2025, 0, 1).getTimezoneOffset() !== 0`, so a misconfigured run fails loudly instead of producing wrong expectations.
 - [x] **INF-04** Clock helper. `freezeTime(iso)` = `jest.useFakeTimers({ now, doNotFake: [everything except 'Date'] })`. Fake only `Date`: faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. "now" in this codebase always comes from JS `new Date()`, never SQL `now()`, so this controls all business time. Exception: `@CreateDateColumn` values come from the DB clock, and Postgres `now()` is the *transaction start*, so rows inserted in one transaction share `createdAt`.
-- [x] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction.
+- [x] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction. Suites that need more modules pass `setupIntegrationSuite({ extraImports })`; `test/int/auth-setup.ts` has `authImports()` (AuthModule + AccountsModule with a fixed test `JWT_SECRET`) and `decodeVerifiedJwt()`. Reach other services with `fx.moduleRef.get(...)`.
 - [ ] **INF-06** e2e app factory (partly done: `test/app.e2e-spec.ts` applies the `main.ts` setup and closes the app; no shared factory or auth helpers yet). Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
 - [ ] **INF-07** Auth helpers:
   - `loginAs(email, password)` through `POST /api/auth/login`. Seed the admin through `SEED_ADMIN_EMAIL/PASSWORD`, so the real `BootstrapService` runs.
@@ -291,6 +291,7 @@ Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `ca
 
 ## 5. Auth + access control: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`auth/auth.service.int-spec.ts`: `validateUser`/`login` parts of AUTH-01–05 and AUTH-07; `auth/guards/roles.guard.spec.ts`: AUTH-10). Remaining for the module: the HTTP side of AUTH-01–07 (passport guards, `LoginDto`, status codes), AUTH-08, AUTH-09, AUTH-11.
 
 Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
 
@@ -309,7 +310,7 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
 - [ ] **AUTH-07** [E] P2. Email lookup is exact and case-sensitive (`Admin` ≠ `admin`) and not trimmed.
 - [ ] **AUTH-08** [E] P0. `GET /auth/me` returns the JWT payload as-is (incl. `iat`, `exp`). No token, a bad signature, or an expired token (sign with a past `exp`) → 401.
 - [ ] **AUTH-09** [E] P0. ⚠ Suspect: a token stays valid after the account is DISABLED or deleted, or its role/profile changes. `JwtStrategy.validate` doesn't check the DB. Assert a disabled user's old token still gets 200 on a protected route.
-- [ ] **AUTH-10** [U] P0. `RolesGuard.canActivate` with a real `Reflector` and a fake `ExecutionContext`:
+- [x] **AUTH-10** [U] P0. `RolesGuard.canActivate` with a real `Reflector` and a fake `ExecutionContext`:
   - No metadata → true.
   - Handler roles override class roles (`getAllAndOverride`).
   - Role not listed → false.
@@ -324,51 +325,55 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
 
 ## 6. Accounts: P0
 - [ ] **Module done**
+- [x] **Service layer done** (`accounts/accounts.service.int-spec.ts`). Remaining for the module: [E] ACC-05, ACC-13–17.
 
 Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 
 ### Provision (`POST /accounts/:profileType/:profileId`)
-- [ ] **ACC-01** [I] P0. Trainer:
+- [x] **ACC-01** [I] P0. Trainer:
   - Assert an account with role TRAINER, `status` from the DTO, a password that verifies with `bcrypt.compare`, `hasUpdatedInitialPassword false`, and `trainerProfileId` set.
   - Assert **and** `trainer.accountId` = the new account id (both sides linked).
-- [ ] **ACC-02** [I] P0. Trainee: same as ACC-01 with `traineeProfileId`.
-- [ ] **ACC-03** [I] P0. Validation order:
+- [x] **ACC-02** [I] P0. Trainee: same as ACC-01 with `traineeProfileId`.
+- [x] **ACC-03** [I] P0. Validation order:
   1. `password ≠ confirmPassword` → 400 `Passwords do not match`.
   2. `trainer` + role ≠ TRAINER → 400 `Trainer profile must be provisioned with TRAINER role`. Same for trainee.
   3. Unknown profileType + role ADMIN → 403 `This endpoint cannot create ADMIN accounts`. (So with `trainer` + ADMIN you get the 400 from step 2, never the 403.)
   4. Unknown profileType + TRAINER/TRAINEE → (email check, then) 400 `Invalid profile type`.
-- [ ] **ACC-04** [I] P0. Failures, each leaving no account row and the profile's `accountId` unchanged:
+- [x] **ACC-04** [I] P0. Failures, each leaving no account row and the profile's `accountId` unchanged:
   - Email already used (by any account, incl. a DISABLED one) → 400 `Email is already used by another account`.
   - Profile missing or inactive → 404 `Trainer|Trainee profile not found or inactive`.
   - Profile already linked → 400 `Trainer|Trainee already has an account`.
+  - ⚠ Suspect (found while writing it): a profile unlinked on the profile side only (`PATCH /trainers/:id { accountId: null }`, TRP-01) still has an account pointing at it, so provisioning hits the unique index and returns 400 `Cannot create account (email may already exist)`, which blames the email.
 - [ ] **ACC-05** [E] P1. Provisioned with `status: DISABLED` → login 401.
 
 ### Update / delete
-- [ ] **ACC-06** [I] P0. `update`:
+- [x] **ACC-06** [I] P0. `update`:
   - Email change checks uniqueness; keeping your own email is OK.
   - `password` requires a matching `confirmPassword` (missing or different → 400 `Passwords do not match`) and sets `hasUpdatedInitialPassword = true`.
   - `status` change works.
   - Empty body → unchanged.
   - Unknown id → 404.
-- [ ] **ACC-07** [I] P0. `delete` is a soft disable:
+- [x] **ACC-07** [I] P0. `delete` is a soft disable:
   - Assert status DISABLED, both profile ids null, and the profile's `accountId` null.
   - Assert the account row and its email are kept, and the response is the sanitized, now-DISABLED account.
   - ⚠ Suspect: the email can never be reused for a new account (ACC-04).
 
 ### Passwords
-- [ ] **ACC-08** [I] P0. Self change (`requester.id === target`):
+- [x] **ACC-08** [I] P0. Self change (`requester.id === target`):
   - `newPassword ≠ confirmPassword` → 400, checked **first**.
   - Then `currentPassword` missing → 400 `Current password is required`; wrong → 400 `Current password is invalid`; null hash → 400 `Account has no password set`.
-- [ ] **ACC-09** [I] P0. First change (`hasUpdatedInitialPassword false`) requires a non-blank `phone`: missing, `''` or `'   '` → 400 `Phone is required when changing password for the first time`. Afterwards `phone` is optional.
-- [ ] **ACC-10** [I] P0. Effects:
+- [x] **ACC-09** [I] P0. First change (`hasUpdatedInitialPassword false`) requires a non-blank `phone`: missing, `''` or `'   '` → 400 `Phone is required when changing password for the first time`. Afterwards `phone` is optional.
+- [x] **ACC-10** [I] P0. Effects:
   - Assert the response is `{ accountId, hasUpdatedInitialPassword: true }`.
   - Assert the new password logs in and the old one doesn't.
   - Assert the trainee profile `phone` is updated (trimmed) only when the account has a `traineeProfileId` and `phone` was sent; `phone: null` (after the first change) clears it; a trainer account's phone is ignored.
-- [ ] **ACC-11** [I] P0. Change by someone else (admin/trainer reset):
+  - ⚠ Suspect (found while writing it): trainer and ADMIN accounts (incl. the seeded admin) must still send a phone on their first change, and it is thrown away.
+  - ⚠ Suspect (minor, found while writing it): after the first change, `phone: '   '` is stored as `''`, not null.
+- [x] **ACC-11** [I] P0. Change by someone else (admin/trainer reset):
   - Assert no `currentPassword` is needed.
   - ⚠ Suspect: `phone` is still required when the target hasn't changed their initial password.
   - ⚠ Suspect: it sets `hasUpdatedInitialPassword = true`, so the user is never prompted to replace an admin-chosen password.
-- [ ] **ACC-12** [I] P1. `hasUpdatedInitialPassword(id)` → `{ accountId, hasUpdatedInitialPassword }`. Unknown id → 404.
+- [x] **ACC-12** [I] P1. `hasUpdatedInitialPassword(id)` → `{ accountId, hasUpdatedInitialPassword }`. Unknown id → 404.
 
 ### HTTP
 - [ ] **ACC-13** [E] P1. `GET /accounts/:id` returns the sanitized account. ⚠ Suspect: an unknown id → **200 with an empty body** (`null`), where other modules return 404.
@@ -380,14 +385,14 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 ---
 
 ## 7. Date/time utilities: P1 (do these first: no DB)
-- [ ] **Module done**
+- [x] **Module done** (DT-01–05; DT-06 is P2 and still open). Specs next to each util: `attendance-timezone.util.spec.ts`, `attendance-time.util.spec.ts`, `attendance-range.util.spec.ts`, `attendance-datetime-range.util.spec.ts`, `settlements/settlement-allocation.util.spec.ts`.
 
 Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ existing spec), `attendance-range.util.ts`, `attendance-datetime-range.util.ts`, `settlements/settlement-allocation.util.ts`. All [U]; run under `TZ=UTC`.
 
-- [ ] **DT-01** P0. `fromGymLocalToUtc`:
+- [x] **DT-01** P0. `fromGymLocalToUtc`:
   - Winter (+02:00) and summer (+03:00); ms preserved; explicit `timeZone` argument.
   - DST spring-forward gap (2025-03-30 03:30 Sofia doesn't exist) and fall-back overlap (2025-10-26 03:30 happens twice): pin whatever instant it returns today.
-- [ ] **DT-02** P0. `resolveTrainedAt` (extend the existing spec):
+- [x] **DT-02** P0. `resolveTrainedAt` (extend the existing spec):
   - Explicit `Z`/`±hh:mm` kept as-is; `T08:10` without seconds → Sofia.
   - `trainedDate` only → 12:00 Sofia; `trainedDate + trainedTime` → Sofia.
   - `trainedTime` `24:00` or `12:60` → 400 `Invalid trainedTime`.
@@ -395,14 +400,16 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Nothing given → frozen now. `trainedAt` wins over `trainedDate`. `trainedTime` without `trainedDate` is ignored (→ now).
   - ⚠ Suspect: date-only `trainedAt: '2025-01-15'` (passes `IsDateString`) → UTC midnight, not Sofia.
   - ⚠ Suspect: `trainedDate: '2025-02-30'` rolls over to 2025-03-02.
-- [ ] **DT-03** P0. `getLocalDateInterval(from, to)`:
+  - ⚠ Suspect (found while writing it): `trainedAt: '2025-01-15 08:10'` (space, no `T`) skips the Sofia branch and is parsed in **server-local** time; `trainedAt: '2025-01-15T25:00'` rolls over to the next day. Both pass the batch DTO (`IsString`).
+  - Not a rule: `hasExplicitTimeZone` never changes the result (the zoneless regex is anchored, so strings with a zone never match it). Sabotaging it is an equivalent mutant.
+- [x] **DT-03** P0. `getLocalDateInterval(from, to)`:
   - Returns `[from 00:00, to+1 00:00)` in process TZ; `from == to` OK; `from > to` → 400 `from must be <= to`; non-numeric → 400 `Invalid date`.
   - ⚠ Suspect: month 13 or day 32 roll over silently.
-- [ ] **DT-04** P0. `getLocalDateTimeInterval`:
+- [x] **DT-04** P0. `getLocalDateTimeInterval`:
   - Default times `00:00`/`23:59` → `to` = end day 23:59:59.999 + 1 ms = next day 00:00.
   - Custom times work; `24:00` → 400 `Invalid time`.
   - Start after end → 400 `start date/time must be before end date/time`; same minute → OK.
-- [ ] **DT-05** P0. `splitCents`: Σ parts == total; the extra cents go to the first parts (`10000/3 → [3334, 3333, 3333]`); `2/3 → [1, 1, 0]`; total 0 → zeros; `parts <= 0` → `[]`.
+- [x] **DT-05** P0. `splitCents`: Σ parts == total; the extra cents go to the first parts (`10000/3 → [3334, 3333, 3333]`); `2/3 → [1, 1, 0]`; total 0 → zeros; `parts <= 0` → `[]`.
 - [ ] **DT-06** P2. Optional: run DT-03/DT-04 and the session grouping cases under `TZ=Europe/Sofia` in a second Jest project to document how behavior changes with server TZ (see Q1).
 
 ---

@@ -1,3 +1,4 @@
+import { DynamicModule, Type } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -42,12 +43,17 @@ export function testDbOptions() {
   };
 }
 
+type ModuleImport = Type<unknown> | DynamicModule;
+
 /**
  * Builds the real feature modules (no mocked collaborators) on top of the
  * test database. `compile()` does not run lifecycle hooks, so the
- * subscriptions cron timer is never scheduled.
+ * subscriptions cron timer is never scheduled. `extraImports` adds feature
+ * modules a suite needs on top of the shared set (e.g. AccountsModule).
  */
-export async function createIntegrationModule(): Promise<TestingModule> {
+export async function createIntegrationModule(
+  extraImports: ModuleImport[] = [],
+): Promise<TestingModule> {
   return Test.createTestingModule({
     imports: [
       TypeOrmModule.forRoot(testDbOptions()),
@@ -64,6 +70,7 @@ export async function createIntegrationModule(): Promise<TestingModule> {
       SubscriptionsModule,
       AttendanceModule,
       SettlementsModule,
+      ...extraImports,
     ],
   }).compile();
 }
@@ -80,12 +87,14 @@ export async function truncateAll(dataSource: DataSource): Promise<void> {
  * all tables truncated before each test, real timers restored after each.
  * Returns a getter for the fixtures (they exist only after beforeAll).
  */
-export function setupIntegrationSuite(): () => Fixtures {
+export function setupIntegrationSuite(
+  opts: { extraImports?: ModuleImport[] } = {},
+): () => Fixtures {
   let moduleRef: TestingModule | undefined;
   let fixtures: Fixtures | undefined;
 
   beforeAll(async () => {
-    moduleRef = await createIntegrationModule();
+    moduleRef = await createIntegrationModule(opts.extraImports);
     fixtures = new Fixtures(moduleRef);
   });
 
