@@ -18,14 +18,14 @@ npm run build               # nest build -> dist/
 npm run start:prod          # node dist/main
 npm test                    # unit tests (src/**/*.spec.ts), DB-free
 npm run test:int            # service integration tests (src/**/*.int-spec.ts) against Postgres DB `theindex_test` (TEST_DB_* in .env.example); drops its schema
-npm run test:e2e            # test/*.e2e-spec.ts: boots AppModule, needs Postgres; add --forceExit (cron timer keeps the process alive)
+npm run test:e2e            # test/*.e2e-spec.ts: boots AppModule, needs Postgres (DB_* + JWT_SECRET); close the app in afterAll or the cron timer keeps Jest alive
 npx eslint "{src,apps,libs,test}/**/*.ts"   # lint without modifying files
 npm run lint                # NOTE: runs eslint --fix and rewrites files
 npm run format              # prettier --write
 ```
 Local Postgres matching `.env.example`: user/pass/db `theindex`, port 5432. On boot, `BootstrapService` seeds an ADMIN account from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` (`admin`/`admin` in the example). Swagger UI is at `http://localhost:3000/api/docs`. `tests.md` has a manual curl scenario for the whole domain.
 
-Known baseline on `main` (as of Oct 2026): build passes; `eslint` reports ~36 errors / 17 warnings (prettier + unsafe-any); `app.controller.spec.ts` and `test/app.e2e-spec.ts` fail because they still expect `'Hello World!'` (the service returns `'Hello TheIndex!'`). The other unit tests pass. Don't treat these as regressions you caused, and don't hide them either.
+Known baseline (as of Nov 2026): build passes and all unit, integration and e2e tests pass; `eslint` reports ~36 errors / 5 warnings (prettier + unsafe-any) in existing production files. Don't treat these lint errors as regressions you caused, and don't hide them either.
 
 ## Folder structure
 ```
@@ -63,7 +63,7 @@ Features: accounts, attendance, cash-register, gym-locations, gym-subscriptions,
 - Don't push to `main`; work on a branch and open a PR.
 - Entity changes alter the DB schema through `synchronize` (no migrations). Call out renames, drops and type changes explicitly, since they can lose data.
 - Never commit `.env` or real secrets. Add new config keys to `.env.example`.
-- Keep the module/DTO/guard patterns above. Add `*.spec.ts` next to pure logic you change (see `cash-register.service.spec.ts`, `attendance-time.util.spec.ts`).
+- Keep the module/DTO/guard patterns above. Add `*.spec.ts` next to pure logic you change (see `attendance-time.util.spec.ts`; service tests go in `*.int-spec.ts`, e.g. `cash-register.service.int-spec.ts`).
 - Run `npm run build` and `npm test` before pushing. Lint with the non-`--fix` command and don't let errors grow beyond the baseline. Keep reformat-only changes out of unrelated PRs.
 
 ## Testing rules (characterization tests)
@@ -75,7 +75,7 @@ We are adding characterization tests to a production API. `TEST_PLAN.md` lists w
 - **Mock only at boundaries** (database, external HTTP, time/dates). Never mock the code under test. Don't mock collaborators inside the app (e.g. `CashRegisterService` when testing `SubscriptionsService`).
 - **Every test must fail if the business rule it covers is broken.** No tests that only check a function was called. Assert on outcomes: returned values, persisted rows, HTTP status and body, balances.
 - **When fixing a bug in future**: first add a failing test that reproduces it, then fix it. Update the matching characterization test and `TEST_NOTES.md` entry in the same PR.
-- **Tests must pass in CI before any deploy.** Note: as of Nov 2026 the only workflow (`docker-ghcr.yml`) builds and deploys without running tests. Adding a test gate means changing `.github/workflows/`, which needs the owner's approval first (see Rules above).
+- **Tests must pass in CI before any deploy.** `docker-ghcr.yml` has a `test` job (Postgres 16 service; build, `npm test`, `npm run test:int`, `npm run test:e2e`) that runs on every push and on PRs to `main`. `build-api` and `deploy` need it and are skipped on PRs. A red test blocks the production deploy. Changing the workflow still needs the owner's approval (see Rules above).
 
 `TEST_NOTES.md` entry format:
 ```

@@ -53,13 +53,13 @@ Risk = how much damage a regression does × how likely a change is to break it.
 - [x] **INF-03** Pin timezone: run every Jest command with `TZ=UTC` (script prefix). UTC is what the `node:20-alpine` image uses unless compose overrides it; see Q1. Add a guard test that fails if `new Date(2025, 0, 1).getTimezoneOffset() !== 0`, so a misconfigured run fails loudly instead of producing wrong expectations.
 - [x] **INF-04** Clock helper. `freezeTime(iso)` = `jest.useFakeTimers({ now, doNotFake: [everything except 'Date'] })`. Fake only `Date`: faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. "now" in this codebase always comes from JS `new Date()`, never SQL `now()`, so this controls all business time. Exception: `@CreateDateColumn` values come from the DB clock, and Postgres `now()` is the *transaction start*, so rows inserted in one transaction share `createdAt`.
 - [x] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction.
-- [ ] **INF-06** e2e app factory. Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
+- [ ] **INF-06** e2e app factory (partly done: `test/app.e2e-spec.ts` applies the `main.ts` setup and closes the app; no shared factory or auth helpers yet). Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
 - [ ] **INF-07** Auth helpers:
   - `loginAs(email, password)` through `POST /api/auth/login`. Seed the admin through `SEED_ADMIN_EMAIL/PASSWORD`, so the real `BootstrapService` runs.
   - `signToken(payload)` with the same secret, for payload edge cases (TRAINEE with `traineeProfileId: null`, TRAINER without `trainerProfileId`).
-- [ ] **INF-08** Fix stale baseline tests. `src/app.controller.spec.ts` and `test/app.e2e-spec.ts` expect `'Hello World!'`, but production returns `'Hello TheIndex!'`. Update the expectations, since current behavior is the spec. The e2e must also use `/api`. This is a test-only change.
+- [x] **INF-08** Fix stale baseline tests. `src/app.controller.spec.ts` and `test/app.e2e-spec.ts` expect `'Hello World!'`, but production returns `'Hello TheIndex!'`. Update the expectations, since current behavior is the spec. The e2e must also use `/api`. This is a test-only change.
 - [x] **INF-09** Replace `src/cash-register/cash-register.service.spec.ts`. It spies on the private `applyTransaction` and only checks it wasn't called, which breaks two rules. Replace it with CR-07 [I], which asserts on rows and balance.
-- [ ] **INF-10** CI gate (**needs owner approval**: `CLAUDE.md` forbids editing `.github/workflows/` without asking). Proposal:
+- [x] **INF-10** CI gate (approved by the owner; done in `docker-ghcr.yml`: `test` job, `build-api` needs it, also runs on PRs; lint gate not added, see below). Proposal:
   - Add a `test` job: Postgres service, `npm ci`, build, lint (non-fix, error count ≤ baseline), `test`, `test:int`, `test:e2e`, all with `TZ=UTC`.
   - Make `build-api` `needs: test`.
   - Also run it on `pull_request`.
@@ -569,7 +569,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 - [ ] **BOOT-01** [I] P1. With `SEED_ADMIN_EMAIL/PASSWORD` set and no such email: assert one ADMIN, ACTIVE account whose password verifies.
 - [ ] **BOOT-02** [I] P1. Email already exists (any role/status): assert no change (password **not** reset, role not changed). Missing either env var → nothing created.
-- [ ] **APP-01** [E] P2. `GET /api` → `'Hello TheIndex!'`; `GET /api/health` → `{ ok: true }`; both work without auth.
+- [x] **APP-01** [E] P2. `GET /api` → `'Hello TheIndex!'`; `GET /api/health` → `{ ok: true }`; both work without auth.
 
 ---
 
@@ -601,7 +601,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 - **Q1. Production timezone.** The Docker image (`node:20-alpine`) runs in UTC unless the compose file (not in either repo) sets `TZ`. Settlement periods, `/attendance/dates`, `/attendance/sessions` grouping and the cron time all depend on it. This plan pins `TZ=UTC`. If production sets `TZ=Europe/Sofia`, switch INF-03 before writing date-sensitive tests, and several ⚠ items (SET-02, ATR-01, ATR-10) stop being suspects.
 - **Q2. Test DB.** The plan uses real Postgres. The code relies on `AT TIME ZONE`, `to_char`, `EXTRACT(ISODOW)`, `FOR UPDATE` locks and enum columns, which mocked repositories or `pg-mem` can't faithfully run. Mocked repos would also mean asserting on query-builder chains, which breaks the "fail if the rule breaks" rule. OK to require Docker locally and a Postgres service in CI?
-- **Q3. CI gate (INF-10).** Needs a change to `.github/workflows/docker-ghcr.yml`. Approve?
+- **Q3. CI gate (INF-10).** ✅ Approved and done (Nov 2026). Open follow-up: a lint gate (needs the existing 36 errors fixed first, or an error-count threshold).
 - **Q4. e2e setup duplication.** INF-06 copies the `main.ts` app setup into the tests. The alternative is a tiny refactor that exports a `configureApp(app)` from `main.ts` and uses it in both places. That's a production change, so it isn't done without approval.
 - **Q5. Business rules flagged ⚠ that affect money or security:** ACC-15 (TRAINER can take over ADMIN), SET-09/SET-10/SET-31 (lost, double or unreversed payouts), SUB-13 (TIME pays for out-of-window attendance), SUB-21 (deleting a sub keeps the cash). These get characterized as-is, but they deserve an owner decision soon.
 
