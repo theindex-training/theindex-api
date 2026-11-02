@@ -290,42 +290,43 @@ Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `ca
 ---
 
 ## 5. Auth + access control: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`auth/auth.service.int-spec.ts`: `validateUser`/`login` parts of AUTH-01–05 and AUTH-07; `auth/guards/roles.guard.spec.ts`: AUTH-10). Remaining for the module: the HTTP side of AUTH-01–07 (passport guards, `LoginDto`, status codes), AUTH-08, AUTH-09, AUTH-11.
+- [x] **Module done** (service layer + AUTH-10 as below; HTTP: `test/e2e/auth.e2e-spec.ts` AUTH-01–09, `test/e2e/role-matrix.e2e-spec.ts` AUTH-11)
+- [x] **Service layer done** (`auth/auth.service.int-spec.ts`: `validateUser`/`login` parts of AUTH-01–05 and AUTH-07; `auth/guards/roles.guard.spec.ts`: AUTH-10).
 
 Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
 
-- [ ] **AUTH-01** [E] P0. Login success → `{ accessToken, account }`. Assert `account` has exactly these keys: `id, email, role, status, hasUpdatedInitialPassword, trainerProfileId, traineeProfileId, createdAt, updatedAt` (no `passwordHash`).
-- [ ] **AUTH-02** [E] P0. JWT claims (cross-repo contract with the frontend):
+- [x] **AUTH-01** [E] P0. Login success → `{ accessToken, account }`. Assert `account` has exactly these keys: `id, email, role, status, hasUpdatedInitialPassword, trainerProfileId, traineeProfileId, createdAt, updatedAt` (no `passwordHash`).
+- [x] **AUTH-02** [E] P0. JWT claims (cross-repo contract with the frontend):
   - Assert exactly `sub, email, role, trainerProfileId, traineeProfileId, iat, exp`.
   - Assert profile ids are `null` when absent.
   - Assert `exp − iat` = `JWT_EXPIRES_IN` (7d default).
-- [ ] **AUTH-03** [E] P0. Wrong password and unknown email both → 401 `Invalid credentials` (same message).
-- [ ] **AUTH-04** [E] P0. DISABLED account → 401 `Account is not active (DISABLED)`. ⚠ Suspect: status is checked **before** the password, so a wrong password on a disabled account reveals that it exists and is disabled.
-- [ ] **AUTH-05** [E] P2. Account with `passwordHash null` (direct insert) → 401 `Account has no password set`.
-- [ ] **AUTH-06** [E] P1. Guards run before pipes:
+- [x] **AUTH-03** [E] P0. Wrong password and unknown email both → 401 `Invalid credentials` (same message).
+- [x] **AUTH-04** [E] P0. DISABLED account → 401 `Account is not active (DISABLED)`. ⚠ Suspect: status is checked **before** the password, so a wrong password on a disabled account reveals that it exists and is disabled.
+- [x] **AUTH-05** [E] P2. Account with `passwordHash null` (direct insert) → 401 `Account has no password set`.
+- [x] **AUTH-06** [E] P1. Guards run before pipes:
   - Missing `email` or `password` → 401 (passport-local), not 400.
   - Valid credentials + an unknown body field → 400.
   - ⚠ Suspect: valid credentials with a password shorter than 3 characters → 400 (LoginDto `MinLength(3)` runs after auth succeeds).
-- [ ] **AUTH-07** [E] P2. Email lookup is exact and case-sensitive (`Admin` ≠ `admin`) and not trimmed.
-- [ ] **AUTH-08** [E] P0. `GET /auth/me` returns the JWT payload as-is (incl. `iat`, `exp`). No token, a bad signature, or an expired token (sign with a past `exp`) → 401.
-- [ ] **AUTH-09** [E] P0. ⚠ Suspect: a token stays valid after the account is DISABLED or deleted, or its role/profile changes. `JwtStrategy.validate` doesn't check the DB. Assert a disabled user's old token still gets 200 on a protected route.
+- [x] **AUTH-07** [E] P2. Email lookup is exact and case-sensitive (`Admin` ≠ `admin`) and not trimmed.
+- [x] **AUTH-08** [E] P0. `GET /auth/me` returns the JWT payload as-is (incl. `iat`, `exp`). No token, a bad signature, or an expired token (sign with a past `exp`) → 401.
+- [x] **AUTH-09** [E] P0. ⚠ Suspect: a token stays valid after the account is DISABLED or deleted, or its role/profile changes. `JwtStrategy.validate` doesn't check the DB. Assert a disabled user's old token still gets 200 on a protected route.
 - [x] **AUTH-10** [U] P0. `RolesGuard.canActivate` with a real `Reflector` and a fake `ExecutionContext`:
   - No metadata → true.
   - Handler roles override class roles (`getAllAndOverride`).
   - Role not listed → false.
   - No `req.user` → falsy.
-- [ ] **AUTH-11** [E] P0. **Role matrix.** One table-driven test over every route in Appendix A × {anonymous, ADMIN, TRAINER, TRAINEE}:
+- [x] **AUTH-11** [E] P0. **Role matrix.** One table-driven test over every route in Appendix A × {anonymous, ADMIN, TRAINER, TRAINEE}:
   - Anonymous → 401.
   - Disallowed role → 403 (`Forbidden resource` for guard denials, the handler message for in-handler denials).
   - Allowed role → anything but 401/403.
   - This is the single highest-value test against permission regressions. Keep it data-driven so adding a route forces adding a row.
+  - Done: one row per route in `MATRIX`; a first test compares the rows with the routes Express actually registered, so a new route without a row fails. Allowed calls use a random UUID and minimal bodies, so they don't mutate data; rows whose handler check runs after the pipes (`POST /settlements`, `change-password`) send a valid body.
 
 ---
 
 ## 6. Accounts: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`accounts/accounts.service.int-spec.ts`). Remaining for the module: [E] ACC-05, ACC-13–17.
+- [x] **Module done** (service layer: `accounts.service.int-spec.ts`; HTTP: `test/e2e/accounts.e2e-spec.ts`, ACC-05, ACC-13–17)
+- [x] **Service layer done** (`accounts/accounts.service.int-spec.ts`).
 
 Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 
@@ -344,7 +345,7 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
   - Profile missing or inactive → 404 `Trainer|Trainee profile not found or inactive`.
   - Profile already linked → 400 `Trainer|Trainee already has an account`.
   - ⚠ Suspect (found while writing it): a profile unlinked on the profile side only (`PATCH /trainers/:id { accountId: null }`, TRP-01) still has an account pointing at it, so provisioning hits the unique index and returns 400 `Cannot create account (email may already exist)`, which blames the email.
-- [ ] **ACC-05** [E] P1. Provisioned with `status: DISABLED` → login 401.
+- [x] **ACC-05** [E] P1. Provisioned with `status: DISABLED` → login 401.
 
 ### Update / delete
 - [x] **ACC-06** [I] P0. `update`:
@@ -376,11 +377,11 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 - [x] **ACC-12** [I] P1. `hasUpdatedInitialPassword(id)` → `{ accountId, hasUpdatedInitialPassword }`. Unknown id → 404.
 
 ### HTTP
-- [ ] **ACC-13** [E] P1. `GET /accounts/:id` returns the sanitized account. ⚠ Suspect: an unknown id → **200 with an empty body** (`null`), where other modules return 404.
-- [ ] **ACC-14** [E] P0. TRAINEE may call `password-status` and `change-password` **only** for their own account id; others → 403 `TRAINEE can only access their own account password endpoints`. TRAINEE → 403 on PATCH, DELETE, GET and provision.
-- [ ] **ACC-15** [E] P0. ⚠ Suspect (security): TRAINER can PATCH (email/password/status) and DELETE **any** account, incl. ADMIN accounts. TRAINER can reset an ADMIN's password via `change-password` without the current password, then log in as ADMIN. TRAINER can provision accounts. Write the escalation as one scenario test and flag it prominently in TEST_NOTES.
-- [ ] **ACC-16** [E] P1. Route resolution: `POST /accounts/:id/change-password` is declared first, so it wins over `POST /accounts/:profileType/:profileId` for two-segment paths ending in `change-password`. The routes used in `tests.md` (`/accounts/provision/trainer/:id`, `PATCH /accounts/:id/status`) **don't exist** (404). `tests.md` is stale; don't use it as a spec.
-- [ ] **ACC-17** [E] P2. DTO rules that encode business rules: password `MinLength(8)` on provision/update/change, `IsEmail` on provision/update, enum checks on role/status.
+- [x] **ACC-13** [E] P1. `GET /accounts/:id` returns the sanitized account. ⚠ Suspect: an unknown id → **200 with an empty body** (`null`), where other modules return 404.
+- [x] **ACC-14** [E] P0. TRAINEE may call `password-status` and `change-password` **only** for their own account id; others → 403 `TRAINEE can only access their own account password endpoints`. TRAINEE → 403 on PATCH, DELETE, GET and provision.
+- [x] **ACC-15** [E] P0. ⚠ Suspect (security): TRAINER can PATCH (email/password/status) and DELETE **any** account, incl. ADMIN accounts. TRAINER can reset an ADMIN's password via `change-password` without the current password, then log in as ADMIN. TRAINER can provision accounts. Write the escalation as one scenario test and flag it prominently in TEST_NOTES.
+- [x] **ACC-16** [E] P1. Route resolution: `POST /accounts/:id/change-password` is declared first, so it wins over `POST /accounts/:profileType/:profileId` for two-segment paths ending in `change-password`. The routes used in `tests.md` (`/accounts/provision/trainer/:id`, `PATCH /accounts/:id/status`) **don't exist** (404). `tests.md` is stale; don't use it as a spec.
+- [x] **ACC-17** [E] P2. DTO rules that encode business rules: password `MinLength(8)` on provision/update/change, `IsEmail` on provision/update, enum checks on role/status.
 
 ---
 
@@ -416,8 +417,8 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 8. Attendance read path: P1
-- [ ] **Module done**
-- [x] **Service layer done** (`attendance/attendance-read.service.int-spec.ts`). Remaining for the module: [E] ATR-03, ATR-22.
+- [x] **Module done** (service layer: `attendance-read.service.int-spec.ts`; HTTP: `test/e2e/attendance-read.e2e-spec.ts`, ATR-03, ATR-22)
+- [x] **Service layer done** (`attendance/attendance-read.service.int-spec.ts`).
 
 ### `GET /attendance/dates`
 - [x] **ATR-01** [I] P1. ⚠ Suspect: rows are **grouped by Sofia date** (SQL `AT TIME ZONE`) but **filtered by a server-TZ range**. Under UTC:
@@ -427,7 +428,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Assert per day: `count`, `unpaidCount`, `paidCount = count − unpaidCount`, `hasUnpaid`.
   - Assert days are ordered ASC and empty days omitted.
   - Assert the `trainerId` and `traineeId` filters, and that `from/to` are echoed.
-- [ ] **ATR-03** [E] P2. Missing `from`/`to` or a bad UUID → 400.
+- [x] **ATR-03** [E] P2. Missing `from`/`to` or a bad UUID → 400.
 
 ### `GET /attendance/sessions`
 - [x] **ATR-10** [I] P1. Grouping key:
@@ -462,17 +463,17 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Lists trainees with no currently active sub (same definition), same sort.
   - ⚠ Suspect: `lastActiveSubscription` is actually the latest sub by `startsAt` **regardless of status**.
   - ⚠ Suspect: deactivated trainees are included.
-- [ ] **ATR-22** [E] P2. `skipDays` missing, negative or non-integer → 400; `'3'` is coerced.
+- [x] **ATR-22** [E] P2. `skipDays` missing, negative or non-integer → 400; `'3'` is coerced.
 
 ---
 
 ## 9. Plans: P1
-- [ ] **Module done**
-- [x] **Service layer done** (`plans/plans.service.int-spec.ts`). Remaining for the module: the [E] parts of PLN-03 (DTO 400s), PLN-07 (`?active` string parsing lives in the controller) and PLN-08 (roles).
+- [x] **Module done** (service layer: `plans.service.int-spec.ts`; HTTP: `test/e2e/plans.e2e-spec.ts`, PLN-03, PLN-07, PLN-08. Also pinned: `?active=1`, `TRUE` and an empty value are treated as `false` too)
+- [x] **Service layer done** (`plans/plans.service.int-spec.ts`).
 
 - [x] **PLN-01** [I] P0. Create PUNCH: assert `credits` stored, `durationDays` forced to null even if sent, `title` trimmed, `isActive` default true.
 - [x] **PLN-02** [I] P0. Create TIME: assert `durationDays` stored and `credits` forced to null.
-- [ ] **PLN-03** [E] P1. Create validation (service messages and the whitespace title are covered at [I]; DTO cases still open):
+- [x] **PLN-03** [E] P1. Create validation (service messages and the whitespace title are covered at [I]; DTO cases still open):
   - PUNCH with no credits → 400 `Punch plan requires credits` (service). `credits: 0` → 400 from the DTO (`Min(1)`, different message).
   - TIME with no duration → 400 `Time plan requires durationDays`.
   - Negative or float `priceCents` → 400.
@@ -484,29 +485,29 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - `credits` sent for a TIME plan is silently nulled.
 - [x] **PLN-05** [I] P0. Assert changing price/credits/duration doesn't affect existing subscriptions (`paidCents`, credits and `endsAt` are fixed at purchase).
 - [x] **PLN-06** [I] P0. DELETE = deactivate (`isActive false`, row kept). Assert an inactive plan can't be bought (SUB-05) and existing subs keep working.
-- [ ] **PLN-07** [I] P1. (Service filter + ordering done; the `?active=yes` suspect is controller parsing, left for [E].) List: `?active=true` → only active; `?active=false` → only inactive; no param → all; ordered `createdAt DESC`. ⚠ Suspect: any other value (`?active=yes`) is treated as `false`.
-- [ ] **PLN-08** [E] P1. (404 covered at [I]; roles still open.) Unknown id → 404 `Plan not found`. TRAINEE can list and get (incl. inactive plans) but gets 403 on create/update/delete.
+- [x] **PLN-07** [I] P1. (Service filter + ordering done; the `?active=yes` suspect is controller parsing, left for [E].) List: `?active=true` → only active; `?active=false` → only inactive; no param → all; ordered `createdAt DESC`. ⚠ Suspect: any other value (`?active=yes`) is treated as `false`.
+- [x] **PLN-08** [E] P1. (404 covered at [I]; roles still open.) Unknown id → 404 `Plan not found`. TRAINEE can list and get (incl. inactive plans) but gets 403 on create/update/delete.
 
 ---
 
 ## 10. Trainee profiles: P1
-- [ ] **Module done**
-- [x] **Service layer done** (`trainee-profiles/trainee-profiles.service.int-spec.ts`). Remaining for the module: [E] TRN-01 (status code), TRN-04, TRN-06 (reading own data over HTTP), TRN-09, TRN-10.
+- [x] **Module done** (service layer: `trainee-profiles.service.int-spec.ts`; HTTP: `test/e2e/trainee-profiles.e2e-spec.ts`, TRN-01, 04, 06, 09, 10)
+- [x] **Service layer done** (`trainee-profiles/trainee-profiles.service.int-spec.ts`).
 
-- [ ] **TRN-01** [E] P0. (Service side covered at [I]: any non-blank search rejects with a non-HTTP error; HTTP status still open.) ⚠ Suspect (bug): `GET /trainees?search=<non-blank>` → **500**. The `where` uses `firstName`/`lastName`, which don't exist on the entity (TypeORM 0.3 throws `EntityPropertyNotFoundError`), so search by name, nickname or phone doesn't work at all. Assert only the status code. Whitespace-only search is ignored and returns the normal list.
+- [x] **TRN-01** [E] P0. (Service side covered at [I]: any non-blank search rejects with a non-HTTP error; HTTP status still open.) ⚠ Suspect (bug): `GET /trainees?search=<non-blank>` → **500**. The `where` uses `firstName`/`lastName`, which don't exist on the entity (TypeORM 0.3 throws `EntityPropertyNotFoundError`), so search by name, nickname or phone doesn't work at all. Assert only the status code. Whitespace-only search is ignored and returns the normal list.
 - [x] **TRN-02** [I] P1. List: `active` filter (same `'true'` parsing as plans); ordered `name ASC, nickname ASC`.
 - [x] **TRN-03** [I] P0. Create:
   - `name`, `nickname` and `phone` are trimmed.
   - `accountId` already used by another trainee → 400 `This account is already linked to another trainee`.
   - Inactive/missing `gymSubscriptionId` → 400 `Gym subscription not found or inactive`.
   - ⚠ Suspect: `accountId` isn't checked to exist or to be a TRAINEE account (a TRAINER account id is accepted), and it isn't linked back on the account, so that account's JWT has `traineeProfileId: null`. Assert the account row stays unlinked. An unknown `accountId` is caught only by the DB foreign key (non-HTTP error → 500).
-- [ ] **TRN-04** [E] P0. ⚠ Suspect: PATCH **requires `name`** (`UpdateTraineeDto.name` has no `@IsOptional`). Assert `PATCH { isActive: false }` → 400.
+- [x] **TRN-04** [E] P0. ⚠ Suspect: PATCH **requires `name`** (`UpdateTraineeDto.name` has no `@IsOptional`). Assert `PATCH { isActive: false }` → 400.
 - [x] **TRN-05** [I] P1. Update:
   - `nickname`/`phone: null` clear the field.
   - `gymSubscriptionId: null` clears it; otherwise it must be active.
   - `accountId: null` unlinks (profile side only).
   - An `accountId` conflict → 400; re-sending your own `accountId` is OK.
-- [ ] **TRN-06** [I] P1. (Done at [I], incl. login still working; "read its own data" needs [E].) DELETE = deactivate. Assert an inactive trainee can't get new attendance or subscriptions (400). ⚠ Suspect: the linked account can still log in and read its own data.
+- [x] **TRN-06** [I] P1. (Done at [I], incl. login still working; "read its own data" needs [E].) DELETE = deactivate. Assert an inactive trainee can't get new attendance or subscriptions (400). ⚠ Suspect: the linked account can still log in and read its own data.
 - [x] **TRN-07** [I] P1. `overview`:
   - Returns `trainee`.
   - `subscriptions.active`: ACTIVE PUNCH with credits, or ACTIVE TIME with `endsAt > now`, ordered `startsAt ASC`.
@@ -520,8 +521,8 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - `topWeekdays` (ISO weekday number, English day name, Sofia TZ) and `topTimeSlots` (`HH:00-HH:59`, Sofia).
   - Unknown id → 404.
   - Day names depend on the DB's `lc_time`; assert `weekdayNumber` strictly and the name loosely.
-- [ ] **TRN-09** [E] P0. `/trainees/me/training-insights` is TRAINEE **only**: ADMIN/TRAINER → 403 because handler roles override class roles. TRAINEE without `traineeProfileId` → 403 `Trainee profile is not linked to account`.
-- [ ] **TRN-10** [E] P0. TRAINEE → 403 on every other `/trainees` route. TRAINER has full CRUD.
+- [x] **TRN-09** [E] P0. `/trainees/me/training-insights` is TRAINEE **only**: ADMIN/TRAINER → 403 because handler roles override class roles. TRAINEE without `traineeProfileId` → 403 `Trainee profile is not linked to account`.
+- [x] **TRN-10** [E] P0. TRAINEE → 403 on every other `/trainees` route. TRAINER has full CRUD.
 
 ---
 
@@ -541,25 +542,25 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 12. Trainer profiles: P2
-- [ ] **Module done**
-- [x] **Service layer done** (`trainer-profiles/trainer-profiles.service.int-spec.ts`). Remaining for the module: [E] TRP-02, TRP-04.
+- [x] **Module done** (service layer: `trainer-profiles.service.int-spec.ts`; HTTP: `test/e2e/trainer-profiles.e2e-spec.ts`, TRP-02, TRP-04)
+- [x] **Service layer done** (`trainer-profiles/trainer-profiles.service.int-spec.ts`).
 
 - [x] **TRP-01** [I] P1. Create/update:
   - `name`/`nickname` trimmed; `nickname: null` clears it.
   - `accountId` uniqueness → 400 `This account is already linked to another trainer`; `accountId: null` unlinks.
   - ⚠ Suspect: there's no reverse link on the account (same as TRN-03). Also pinned: any account id is accepted (even a TRAINEE account), an unknown id fails on the FK (500), and unlinking leaves the account (and its JWT claim) pointing at the trainer (see ACC-04).
-- [ ] **TRP-02** [E] P1. ⚠ Suspect: PATCH requires `name` (same as TRN-04).
+- [x] **TRP-02** [E] P1. ⚠ Suspect: PATCH requires `name` (same as TRN-04).
 - [x] **TRP-03** [I] P1. DELETE = deactivate. Assert attendance with an inactive trainer → 400 and provisioning for an inactive trainer → 404. ⚠ The trainer's account can still log in (TRAINER role + `trainerProfileId` claim).
-- [ ] **TRP-04** [E] P0. There is no class-level `@Roles`, so **any authenticated user, incl. TRAINEE**, can list and get trainers. POST/PATCH/DELETE are ADMIN only (TRAINER → 403).
+- [x] **TRP-04** [E] P0. There is no class-level `@Roles`, so **any authenticated user, incl. TRAINEE**, can list and get trainers. POST/PATCH/DELETE are ADMIN only (TRAINER → 403).
 - [x] **TRP-05** [I] P2. List `active` filter; ordered `name ASC`; unknown id → 404 `Trainer not found`.
 
 ---
 
 ## 13. Training times: P2
-- [ ] **Module done**
-- [x] **Service layer done** (`training-times/training-times.service.int-spec.ts`). Remaining for the module: [E] TT-01 (the `HH:mm` DTO regex; the `end <= start` rule is covered at the service layer, incl. midnight-crossing slots being rejected).
+- [x] **Module done** (service layer: `training-times.service.int-spec.ts`; HTTP: `test/e2e/training-times.e2e-spec.ts`, TT-01)
+- [x] **Service layer done** (`training-times/training-times.service.int-spec.ts`).
 
-- [ ] **TT-01** [E] P1. Create: `HH:mm` 24h regex; `end <= start` (incl. equal) → 400 `endTime must be after startTime`.
+- [x] **TT-01** [E] P1. Create: `HH:mm` 24h regex; `end <= start` (incl. equal) → 400 `endTime must be after startTime`.
 - [x] **TT-02** [I] P1. Partial update is validated against the stored value. Postgres `time` returns `'HH:mm:ss'`; assert updating only `endTime` to before the stored start → 400.
 - [x] **TT-03** [I] P2. List ordered `startTime ASC`. Unknown id → 404 `Training time not found`. DELETE is a **hard** delete → `{ deleted: true }`. Overlapping slots are allowed.
 - [x] **TT-04** [I] P2. Response format: POST/PATCH return the input string (`'09:00'`), GET returns `'09:00:00'`. Frontend contract; verify first, then pin. Verified: ⚠ PATCH returns the **sent** field as `HH:mm` and the untouched one as `HH:mm:ss` in the same body.
@@ -567,12 +568,12 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 14. Gym locations and gym subscriptions: P2
-- [ ] **Module done**
-- [x] **Service layer done** (`gym-locations/gym-locations.service.int-spec.ts`, `gym-subscriptions/gym-subscriptions.service.int-spec.ts`). Remaining for the module: [E] GL-02 (400s for bad query params; the `includeInactive` filter itself is covered), GL-03 (the DTO 400; the service never reactivating is covered).
+- [x] **Module done** (service layer: both `*.service.int-spec.ts`; HTTP: `test/e2e/gym-locations.e2e-spec.ts`, GL-02, GL-03, each case run against both resources)
+- [x] **Service layer done** (`gym-locations/gym-locations.service.int-spec.ts`, `gym-subscriptions/gym-subscriptions.service.int-spec.ts`).
 
 - [x] **GL-01** [I] P2. Create: `isActive true`; `address`/`notes` default null. Location `name` is **not** trimmed; gym-subscription `name` is.
-- [ ] **GL-02** [E] P1. List hides inactive unless `includeInactive=true`; `false` → active only; a non-boolean string or unknown query param → 400 (these use query DTOs, unlike plans/trainees/trainers). ⚠ Found at the service layer: `includeInactive=1` passes `IsBooleanString` but is treated as false.
-- [ ] **GL-03** [E] P1. ⚠ Suspect: there's no way to reactivate. `isActive` isn't in the update DTOs, so `PATCH { isActive: true }` → 400.
+- [x] **GL-02** [E] P1. List hides inactive unless `includeInactive=true`; `false` → active only; a non-boolean string or unknown query param → 400 (these use query DTOs, unlike plans/trainees/trainers). ⚠ Found at the service layer: `includeInactive=1` passes `IsBooleanString` but is treated as false.
+- [x] **GL-03** [E] P1. ⚠ Suspect: there's no way to reactivate. `isActive` isn't in the update DTOs, so `PATCH { isActive: true }` → 400.
 - [x] **GL-04** [I] P1. DELETE = deactivate. Assert attendance at an inactive location → 400 (ATT-06) and historical attendance is unchanged.
 - [x] **GS-01** [I] P1. Deactivated gym subscription: it can't be newly assigned to a trainee (400, TRN-03/05). Trainees who already have it keep it, and new attendance still snapshots it (ATT-05). ⚠ Re-sending the trainee's own, now inactive, gym subscription in a PATCH → 400 and the whole edit is rejected.
 - [x] **GS-02** [I] P2. CRUD + 404 messages (`Location not found`, `Gym subscription not found`).
@@ -589,16 +590,16 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 16. Cross-cutting: P1
-- [ ] **Module done**
+- [x] **Module done** (`test/e2e/cross-cutting.e2e-spec.ts`). Caveat: X-01 and X-02 exercise the `main.ts` setup that `test/e2e/e2e-app.ts` duplicates (Q4), so they would not notice a change to `main.ts` itself.
 
-- [ ] **X-01** [E] P1. Routes exist only under `/api`, e.g. `GET /plans` → 404.
-- [ ] **X-02** [E] P1. Unknown body fields → 400 with `message` as an array. Nest exception body is `{ statusCode, message, error }`; the frontend reads `message`.
-- [ ] **X-03** [E] P1. ⚠ Suspect: path ids aren't validated (no `ParseUUIDPipe`), so a non-UUID id, e.g. `GET /api/plans/abc`, reaches Postgres and returns **500**. Assert the status only, on 2–3 representative routes.
-- [ ] **X-04** [E] P0. **Money scenario.** One end-to-end story:
+- [x] **X-01** [E] P1. Routes exist only under `/api`, e.g. `GET /plans` → 404.
+- [x] **X-02** [E] P1. Unknown body fields → 400 with `message` as an array. Nest exception body is `{ statusCode, message, error }`; the frontend reads `message`.
+- [x] **X-03** [E] P1. ⚠ Suspect: path ids aren't validated (no `ParseUUIDPipe`), so a non-UUID id, e.g. `GET /api/plans/abc`, reaches Postgres and returns **500**. Assert the status only, on 2–3 representative routes.
+- [x] **X-04** [E] P0. **Money scenario.** One end-to-end story:
   - Manual IN; buy PUNCH and TIME subs (one with unpaid attendance to reconcile); record attendance by two trainers; let the TIME sub end; generate + finalize the settlement.
   - Assert the cash balance = manual + Σ `paidCents` − Σ finalized line amounts, and each trainer's line equals the hand-computed value.
   - This catches integration breaks the unit-level cases miss.
-- [ ] **X-05** [E] P2. Plans/trainees/trainers parse `?active` by hand (no DTO), so unknown query params there are **ignored** (not 400), unlike gym-locations/gym-subscriptions.
+- [x] **X-05** [E] P2. Plans/trainees/trainers parse `?active` by hand (no DTO), so unknown query params there are **ignored** (not 400), unlike gym-locations/gym-subscriptions.
 
 ---
 
