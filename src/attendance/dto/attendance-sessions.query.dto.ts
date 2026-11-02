@@ -40,5 +40,4 @@ export class AttendanceSessionsQueryDto {
   @IsOptional()
   @IsUUID()
   trainerId?: string;
-
 }

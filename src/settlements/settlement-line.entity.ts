@@ -40,5 +40,5 @@ export class SettlementLineEntity {
 
   // optional breakdown for UI later
   @Column({ type: 'jsonb', nullable: true })
-  details!: any | null;
+  details!: any;
 }

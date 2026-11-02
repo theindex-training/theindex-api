@@ -24,7 +24,8 @@ function getDatePartsInTimeZone(date: Date, timeZone: string): DateParts {
     hourCycle: 'h23',
   }).formatToParts(date);
 
-  const value = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const value = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value);
 
   return {
     year: value('year'),

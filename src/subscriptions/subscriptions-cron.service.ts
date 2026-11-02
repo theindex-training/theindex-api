@@ -35,14 +35,20 @@ export class SubscriptionsCronService implements OnModuleInit, OnModuleDestroy {
 
     const delayMs = nextRun.getTime() - now.getTime();
 
-    this.timeout = setTimeout(async () => {
-      await this.exhaustPastEndTimeSubscriptions();
-      this.scheduleNextRun();
+    this.timeout = setTimeout(() => {
+      void this.runAndScheduleNext();
     }, delayMs);
 
     this.logger.log(
       `Scheduled TIME subscription exhaustion job at ${nextRun.toISOString()}.`,
     );
+  }
+
+  // A rejection here stays unhandled, exactly as with the former async
+  // setTimeout callback (see TEST_NOTES, CRON-02).
+  private async runAndScheduleNext(): Promise<void> {
+    await this.exhaustPastEndTimeSubscriptions();
+    this.scheduleNextRun();
   }
 
   private async exhaustPastEndTimeSubscriptions(): Promise<void> {

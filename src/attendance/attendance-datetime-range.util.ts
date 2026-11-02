@@ -57,7 +57,9 @@ export function getLocalDateTimeInterval(input: {
   }
 
   if (from.getTime() > to.getTime()) {
-    throw new BadRequestException('start date/time must be before end date/time');
+    throw new BadRequestException(
+      'start date/time must be before end date/time',
+    );
   }
 
   return { from, to: new Date(to.getTime() + 1) };

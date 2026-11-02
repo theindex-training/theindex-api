@@ -11,7 +11,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: any) {
+  validate(payload: Record<string, unknown>) {
     // becomes req.user
     return payload;
   }

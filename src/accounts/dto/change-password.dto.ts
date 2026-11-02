@@ -34,7 +34,7 @@ export class ChangePasswordDto {
   @ApiPropertyOptional({
     example: '0877777777',
     description:
-      "Phone number. Required when the account changes password for the first time (hasUpdatedInitialPassword = false), optional afterwards.",
+      'Phone number. Required when the account changes password for the first time (hasUpdatedInitialPassword = false), optional afterwards.',
     nullable: true,
   })
   @IsOptional()
