@@ -417,38 +417,40 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 ## 8. Attendance read path: P1
 - [ ] **Module done**
+- [x] **Service layer done** (`attendance/attendance-read.service.int-spec.ts`). Remaining for the module: [E] ATR-03, ATR-22.
 
 ### `GET /attendance/dates`
-- [ ] **ATR-01** [I] P1. ⚠ Suspect: rows are **grouped by Sofia date** (SQL `AT TIME ZONE`) but **filtered by a server-TZ range**. Under UTC:
+- [x] **ATR-01** [I] P1. ⚠ Suspect: rows are **grouped by Sofia date** (SQL `AT TIME ZONE`) but **filtered by a server-TZ range**. Under UTC:
   - 2026-01-01 01:30 Sofia (= 2025-12-31 23:30Z) appears in a `to=2025-12-31` query under date `2026-01-01`, a date outside the requested range.
   - 2025-12-01 01:00 Sofia is missing from a `from=2025-12-01` query.
-- [ ] **ATR-02** [I] P1.
+- [x] **ATR-02** [I] P1.
   - Assert per day: `count`, `unpaidCount`, `paidCount = count − unpaidCount`, `hasUnpaid`.
   - Assert days are ordered ASC and empty days omitted.
   - Assert the `trainerId` and `traineeId` filters, and that `from/to` are echoed.
 - [ ] **ATR-03** [E] P2. Missing `from`/`to` or a bad UUID → 400.
 
 ### `GET /attendance/sessions`
-- [ ] **ATR-10** [I] P1. Grouping key:
+- [x] **ATR-10** [I] P1. Grouping key:
   - Inside a training-time slot: `${day}|slot:${trainingTimeId}|${trainerId}|${locationId}`, using the slot's start/end.
   - Outside any slot: `${day}|custom:HH:mm|...` with `end = start + 60 min`.
   - Slot match is `[start, end)`.
   - ⚠ Suspect: `day`, hours and slot matching use **server-local** time (`getHours()`), while training times are entered as gym-local. Under UTC a 18:30 Sofia attendance does not fall into an 18:00–19:00 slot.
-- [ ] **ATR-11** [I] P1.
+- [x] **ATR-11** [I] P1.
   - Assert a different trainer or location at the same time → separate sessions.
   - Assert overlapping training times → the first by `startTime ASC` wins.
   - Assert `totals { count, paid, unpaid }`.
   - Assert de-duplicated `entities { trainees, trainers, locations, gymSubscriptions }`.
   - Assert the echoed `filters` default to `'00:00'`, `'23:59'`, `trainerId: null`.
-- [ ] **ATR-12** [I] P1. Price info per attendance:
+  - ⚠ Suspect (found while writing ATR-11): `startTime`/`endTime` bound **one continuous range** from `startDate startTime` to `endDate endTime`, not a time-of-day window applied to every day. `08:00`–`09:00` over two days includes 23:00 on the first day.
+- [x] **ATR-12** [I] P1. Price info per attendance:
   - UNPAID → `{ priceCents: 0, calculation: 'UNPAID', subscriptionType: null, isFinal: true }`.
   - PUNCH → `splitCents(paidCents, initialCredits)[global index]`, `PUNCH_CREDIT`, `isFinal: true`.
   - TIME → `splitCents(paidCents, current number of PAID attendances)`, `TIME_PRORATA`, `isFinal = endsAt <= now`. The value changes as attendance is added until the sub ends.
   - PUNCH beyond credits (direct insert) → `{ 0, 'UNALLOCATED', 'PUNCH', false }`.
-- [ ] **ATR-13** [I] P1. Cross-check: for an ended TIME sub and a PUNCH sub, assert the session `priceCents` equals the settlement allocation `valueCents` for the same attendance. This guards the two copies of the allocation math against drift.
+- [x] **ATR-13** [I] P1. Cross-check: for an ended TIME sub and a PUNCH sub, assert the session `priceCents` equals the settlement allocation `valueCents` for the same attendance. This guards the two copies of the allocation math against drift.
 
 ### Reports
-- [ ] **ATR-20** [I] P1. `reports/inactive-trainees?skipDays=N`:
+- [x] **ATR-20** [I] P1. `reports/inactive-trainees?skipDays=N`:
   - Includes trainees with no attendance (`lastTrainingDate null`) or with last attendance **strictly before** `now − N×24h` (exactly at the threshold → excluded).
   - Sorted by last training DESC, never-trained last.
   - `activeSubscription` = the most recent (`startsAt DESC`) currently active sub, else null. Active = PUNCH ACTIVE with credits > 0, or TIME ACTIVE with `endsAt > now`.
@@ -456,7 +458,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Items have no trainee `id`; characterize the exact keys.
   - ⚠ Suspect: deactivated trainee profiles are included.
   - ⚠ Suspect: a TIME sub that **hasn't started** counts as active.
-- [ ] **ATR-21** [I] P1. `reports/without-active-subscription`:
+- [x] **ATR-21** [I] P1. `reports/without-active-subscription`:
   - Lists trainees with no currently active sub (same definition), same sort.
   - ⚠ Suspect: `lastActiveSubscription` is actually the latest sub by `startsAt` **regardless of status**.
   - ⚠ Suspect: deactivated trainees are included.
@@ -466,50 +468,52 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 ## 9. Plans: P1
 - [ ] **Module done**
+- [x] **Service layer done** (`plans/plans.service.int-spec.ts`). Remaining for the module: the [E] parts of PLN-03 (DTO 400s), PLN-07 (`?active` string parsing lives in the controller) and PLN-08 (roles).
 
-- [ ] **PLN-01** [I] P0. Create PUNCH: assert `credits` stored, `durationDays` forced to null even if sent, `title` trimmed, `isActive` default true.
-- [ ] **PLN-02** [I] P0. Create TIME: assert `durationDays` stored and `credits` forced to null.
-- [ ] **PLN-03** [E] P1. Create validation:
+- [x] **PLN-01** [I] P0. Create PUNCH: assert `credits` stored, `durationDays` forced to null even if sent, `title` trimmed, `isActive` default true.
+- [x] **PLN-02** [I] P0. Create TIME: assert `durationDays` stored and `credits` forced to null.
+- [ ] **PLN-03** [E] P1. Create validation (service messages and the whitespace title are covered at [I]; DTO cases still open):
   - PUNCH with no credits → 400 `Punch plan requires credits` (service). `credits: 0` → 400 from the DTO (`Min(1)`, different message).
   - TIME with no duration → 400 `Time plan requires durationDays`.
   - Negative or float `priceCents` → 400.
   - ⚠ Suspect: `title: '   '` passes `IsNotEmpty` and is stored as `''`.
-- [ ] **PLN-04** [I] P0. Update:
+- [x] **PLN-04** [I] P0. Update:
   - Partial fields work.
   - Switching PUNCH→TIME needs `durationDays` (in the DTO or already stored), else 400; the switch clears `credits`. Same for TIME→PUNCH.
   - `credits: null` on a PUNCH plan → 400.
   - `credits` sent for a TIME plan is silently nulled.
-- [ ] **PLN-05** [I] P0. Assert changing price/credits/duration doesn't affect existing subscriptions (`paidCents`, credits and `endsAt` are fixed at purchase).
-- [ ] **PLN-06** [I] P0. DELETE = deactivate (`isActive false`, row kept). Assert an inactive plan can't be bought (SUB-05) and existing subs keep working.
-- [ ] **PLN-07** [I] P1. List: `?active=true` → only active; `?active=false` → only inactive; no param → all; ordered `createdAt DESC`. ⚠ Suspect: any other value (`?active=yes`) is treated as `false`.
-- [ ] **PLN-08** [E] P1. Unknown id → 404 `Plan not found`. TRAINEE can list and get (incl. inactive plans) but gets 403 on create/update/delete.
+- [x] **PLN-05** [I] P0. Assert changing price/credits/duration doesn't affect existing subscriptions (`paidCents`, credits and `endsAt` are fixed at purchase).
+- [x] **PLN-06** [I] P0. DELETE = deactivate (`isActive false`, row kept). Assert an inactive plan can't be bought (SUB-05) and existing subs keep working.
+- [ ] **PLN-07** [I] P1. (Service filter + ordering done; the `?active=yes` suspect is controller parsing, left for [E].) List: `?active=true` → only active; `?active=false` → only inactive; no param → all; ordered `createdAt DESC`. ⚠ Suspect: any other value (`?active=yes`) is treated as `false`.
+- [ ] **PLN-08** [E] P1. (404 covered at [I]; roles still open.) Unknown id → 404 `Plan not found`. TRAINEE can list and get (incl. inactive plans) but gets 403 on create/update/delete.
 
 ---
 
 ## 10. Trainee profiles: P1
 - [ ] **Module done**
+- [x] **Service layer done** (`trainee-profiles/trainee-profiles.service.int-spec.ts`). Remaining for the module: [E] TRN-01 (status code), TRN-04, TRN-06 (reading own data over HTTP), TRN-09, TRN-10.
 
-- [ ] **TRN-01** [E] P0. ⚠ Suspect (bug): `GET /trainees?search=<non-blank>` → **500**. The `where` uses `firstName`/`lastName`, which don't exist on the entity (TypeORM 0.3 throws `EntityPropertyNotFoundError`), so search by name, nickname or phone doesn't work at all. Assert only the status code. Whitespace-only search is ignored and returns the normal list.
-- [ ] **TRN-02** [I] P1. List: `active` filter (same `'true'` parsing as plans); ordered `name ASC, nickname ASC`.
-- [ ] **TRN-03** [I] P0. Create:
+- [ ] **TRN-01** [E] P0. (Service side covered at [I]: any non-blank search rejects with a non-HTTP error; HTTP status still open.) ⚠ Suspect (bug): `GET /trainees?search=<non-blank>` → **500**. The `where` uses `firstName`/`lastName`, which don't exist on the entity (TypeORM 0.3 throws `EntityPropertyNotFoundError`), so search by name, nickname or phone doesn't work at all. Assert only the status code. Whitespace-only search is ignored and returns the normal list.
+- [x] **TRN-02** [I] P1. List: `active` filter (same `'true'` parsing as plans); ordered `name ASC, nickname ASC`.
+- [x] **TRN-03** [I] P0. Create:
   - `name`, `nickname` and `phone` are trimmed.
   - `accountId` already used by another trainee → 400 `This account is already linked to another trainee`.
   - Inactive/missing `gymSubscriptionId` → 400 `Gym subscription not found or inactive`.
-  - ⚠ Suspect: `accountId` isn't checked to exist or to be a TRAINEE account (a TRAINER account id is accepted), and it isn't linked back on the account, so that account's JWT has `traineeProfileId: null`. Assert the account row stays unlinked.
+  - ⚠ Suspect: `accountId` isn't checked to exist or to be a TRAINEE account (a TRAINER account id is accepted), and it isn't linked back on the account, so that account's JWT has `traineeProfileId: null`. Assert the account row stays unlinked. An unknown `accountId` is caught only by the DB foreign key (non-HTTP error → 500).
 - [ ] **TRN-04** [E] P0. ⚠ Suspect: PATCH **requires `name`** (`UpdateTraineeDto.name` has no `@IsOptional`). Assert `PATCH { isActive: false }` → 400.
-- [ ] **TRN-05** [I] P1. Update:
+- [x] **TRN-05** [I] P1. Update:
   - `nickname`/`phone: null` clear the field.
   - `gymSubscriptionId: null` clears it; otherwise it must be active.
   - `accountId: null` unlinks (profile side only).
   - An `accountId` conflict → 400; re-sending your own `accountId` is OK.
-- [ ] **TRN-06** [I] P1. DELETE = deactivate. Assert an inactive trainee can't get new attendance or subscriptions (400). ⚠ Suspect: the linked account can still log in and read its own data.
-- [ ] **TRN-07** [I] P1. `overview`:
+- [ ] **TRN-06** [I] P1. (Done at [I], incl. login still working; "read its own data" needs [E].) DELETE = deactivate. Assert an inactive trainee can't get new attendance or subscriptions (400). ⚠ Suspect: the linked account can still log in and read its own data.
+- [x] **TRN-07** [I] P1. `overview`:
   - Returns `trainee`.
   - `subscriptions.active`: ACTIVE PUNCH with credits, or ACTIVE TIME with `endsAt > now`, ordered `startsAt ASC`.
   - `subscriptions.recent`: at most 10, `startsAt DESC`.
   - `attendance.recent`: at most 20, with `trainer { id, name, nickname }` and `subscription { id, type } | null`.
   - Unknown id → 404.
-- [ ] **TRN-08** [I] P2. `trainingInsights`:
+- [x] **TRN-08** [I] P2. `trainingInsights`:
   - `totalAttendances`.
   - Partners = other trainees with the same trainer + location + **exact** `trainedAt`, ordered count DESC then name ASC.
   - `topTrainers` and `topGyms` with the same ordering.

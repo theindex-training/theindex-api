@@ -136,6 +136,60 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: two "no phone" values (`''` and `null`) now exist for the same meaning.
 - Impact / who would notice: minor; anything that checks `phone !== null` (e.g. the frontend) treats the trainee as having a phone.
 
+## trainee profiles: searching trainees by name, nickname or phone always fails (500)
+- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-01 any non-blank search fails with a non-HTTP error (500); blank search is ignored`
+- Current behavior: `list({ search })` builds an OR of `firstName ILIKE`, `lastName ILIKE` and `phone ILIKE`. The entity has no `firstName`/`lastName` columns (it has `name` and `nickname`), so TypeORM throws `EntityPropertyNotFoundError` for **every** non-blank search, phone searches included. It isn't an `HttpException`, so `GET /api/trainees?search=…` answers 500. A blank or whitespace-only search is ignored and returns the normal list.
+- Why it looks unintended: the columns were renamed (or never existed) and the search was not updated. Nickname isn't searched at all.
+- Impact / who would notice: staff using the trainee search box; every search shows an error. Planned [E] test TRN-01 will pin the status code.
+
+## attendance sessions: startTime/endTime are one continuous range, not a daily time window
+- Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-11 startTime/endTime bound one continuous range, not a daily time window`
+- Current behavior: `GET /attendance/sessions?startDate=2025-12-10&endDate=2025-12-11&startTime=08:00&endTime=09:00` returns everything from Dec 10 08:00 to Dec 11 09:00:59.999 (server time), including Dec 10 23:00 and Dec 11 06:00. Not listed in `TEST_PLAN.md` originally; found while writing ATR-11.
+- Why it looks unintended: separate `startTime`/`endTime` query params next to a date range read like "between 08:00 and 09:00 on each day". If the UI only ever sends one day, there's no visible difference.
+- Impact / who would notice: anyone filtering a multi-day range by time of day; the session list contains sessions outside the requested hours.
+
+## attendance sessions: grouping and training-time slots use server time, not Europe/Sofia
+- Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-10 day, hour and slot matching use server-local time (UTC), not Sofia`
+- Current behavior: the session `date`, the `custom:HH:mm` key and training-time slot matching all use `Date#getHours()`/`getDate()`, i.e. the server timezone. Under UTC (Docker default, `TEST_PLAN.md` Q1) an attendance at 18:30 Sofia (16:30Z) does **not** fall into an 18:00–19:00 training time and shows as a `custom:16:30` session; 00:30 Sofia attendance is listed under the previous day. The `startTime`/`endTime` filter is also server time (see `DT-04`).
+- Why it looks unintended: training times and `trainedTime` are entered as gym-local (Sofia) times, and `/attendance/dates` groups by Sofia date.
+- Impact / who would notice: staff viewing the sessions screen; attendance doesn't group under the configured training times and times look 2–3 h off. Not an issue if production sets `TZ=Europe/Sofia` (Q1).
+
+## attendance dates: grouped by Sofia date but filtered by a server-time range
+- Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-01 grouped by Sofia date but filtered by a server-TZ (UTC) range`
+- Current behavior: `GET /attendance/dates?from=2025-12-01&to=2025-12-31` selects rows in `[Dec 1 00:00, Jan 1 00:00)` server time (UTC) but labels each with its Sofia date. Attendance at 2026-01-01 01:30 Sofia (23:30Z Dec 31) is returned under the date `2026-01-01`, outside the requested range, and attendance at 2025-12-01 01:00 Sofia (23:00Z Nov 30) is missing.
+- Why it looks unintended: the filter and the grouping use different timezones, so the response can contain days that weren't asked for and miss early-morning rows of the first day.
+- Impact / who would notice: the calendar view (per-day counts / "has unpaid" badges) around midnight and month boundaries. Not an issue if production sets `TZ=Europe/Sofia` (Q1).
+
+## attendance reports: deactivated trainees are listed, and a TIME pass that hasn't started counts as active
+- Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-20 includes deactivated trainees and counts a not-yet-started TIME pass as active`; `ATR-21 lastActiveSubscription is the newest sub of any status; deactivated trainees are listed`
+- Current behavior: both `reports/inactive-trainees` and `reports/without-active-subscription` load **all** trainee profiles, including deactivated ones. "Active subscription" means ACTIVE + (PUNCH with credits > 0, or TIME with `endsAt > now`); `startsAt` is not checked, so a TIME pass that starts next month makes the trainee "active" today (reported with the full `remainingDays` until its end). The same definition is used by the trainee `overview` (TRN-07).
+- Why it looks unintended: a deactivated trainee is someone the gym stopped tracking, so they shouldn't show up as "inactive" or "needs a subscription". A pass that hasn't started doesn't cover today's training (the resolver wouldn't use it, RES-02).
+- Impact / who would notice: staff using the follow-up reports; former members clutter the lists, and a trainee with a pre-bought pass is hidden from "without active subscription" even though their attendance today is UNPAID.
+
+## attendance reports: `lastActiveSubscription` is the newest subscription of any status
+- Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-21 lastActiveSubscription is the newest sub of any status; deactivated trainees are listed`
+- Current behavior: for trainees without an active subscription, `lastActiveSubscription` is simply the subscription with the latest `startsAt`, whatever its status. A CANCELLED pass that was never used wins over an older EXHAUSTED one and is reported with its unused `remainingTrainings`.
+- Why it looks unintended: the field name says "last active", i.e. the last pass the trainee actually used.
+- Impact / who would notice: staff deciding what to sell next; minor today because nothing sets CANCELLED (see the cron entry), but it will matter once cancellation exists.
+
+## trainee profiles: `accountId` isn't checked against the account and is never linked back
+- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-03 accepts a TRAINER account id and never links the account back`; `TRN-03 an unknown accountId fails on the DB foreign key (non-HTTP error, 500)`
+- Current behavior: `create` (and `update`) store any `accountId` that isn't used by another trainee, including a TRAINER account. The account's own `traineeProfileId` is not set, so that account's JWT keeps `traineeProfileId: null` and the TRAINEE can't reach their own data. An unknown `accountId` is only caught by the DB foreign key, which surfaces as a 500 instead of a 400/404.
+- Why it looks unintended: the link is meant to be two-way (provisioning in `AccountsService` sets both sides), and only TRAINEE accounts should own a trainee profile.
+- Impact / who would notice: staff linking an existing account from the trainee screen; the trainee then can't log in to their data, and a typo'd id gives a generic server error.
+
+## trainee profiles: a deactivated trainee's account can still log in
+- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-06 the deactivated trainee's linked account can still log in with its profile claim`
+- Current behavior: `DELETE /trainees/:id` only sets `isActive = false` on the profile. The linked account stays ACTIVE, `validateUser` succeeds and the JWT still carries `traineeProfileId`, so the trainee keeps access to their own subscriptions, attendance and insights.
+- Why it looks unintended: deactivating a member usually means revoking their app access too.
+- Impact / who would notice: former members keep app access until someone also disables the account (`PATCH /accounts/:id`).
+
+## plans: a whitespace-only title is stored as an empty string
+- Test: `src/plans/plans.service.int-spec.ts` > `PLN-03 a whitespace-only title passes the DTO and is stored as an empty string`
+- Current behavior: `CreatePlanDto.title` is `@IsNotEmpty()`, which accepts `'   '`. The service then trims it to `''` and saves a plan with an empty title.
+- Why it looks unintended: `IsNotEmpty` plus trimming shows a non-empty title was intended.
+- Impact / who would notice: minor; a plan with a blank name in the plan picker and in reports (`planName: ''`).
+
 ---
 
 # Fixed
