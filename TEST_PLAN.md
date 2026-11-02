@@ -542,45 +542,48 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 ## 12. Trainer profiles: P2
 - [ ] **Module done**
+- [x] **Service layer done** (`trainer-profiles/trainer-profiles.service.int-spec.ts`). Remaining for the module: [E] TRP-02, TRP-04.
 
-- [ ] **TRP-01** [I] P1. Create/update:
+- [x] **TRP-01** [I] P1. Create/update:
   - `name`/`nickname` trimmed; `nickname: null` clears it.
   - `accountId` uniqueness → 400 `This account is already linked to another trainer`; `accountId: null` unlinks.
-  - ⚠ Suspect: there's no reverse link on the account (same as TRN-03).
+  - ⚠ Suspect: there's no reverse link on the account (same as TRN-03). Also pinned: any account id is accepted (even a TRAINEE account), an unknown id fails on the FK (500), and unlinking leaves the account (and its JWT claim) pointing at the trainer (see ACC-04).
 - [ ] **TRP-02** [E] P1. ⚠ Suspect: PATCH requires `name` (same as TRN-04).
-- [ ] **TRP-03** [I] P1. DELETE = deactivate. Assert attendance with an inactive trainer → 400 and provisioning for an inactive trainer → 404. The trainer's account can still log in.
+- [x] **TRP-03** [I] P1. DELETE = deactivate. Assert attendance with an inactive trainer → 400 and provisioning for an inactive trainer → 404. ⚠ The trainer's account can still log in (TRAINER role + `trainerProfileId` claim).
 - [ ] **TRP-04** [E] P0. There is no class-level `@Roles`, so **any authenticated user, incl. TRAINEE**, can list and get trainers. POST/PATCH/DELETE are ADMIN only (TRAINER → 403).
-- [ ] **TRP-05** [I] P2. List `active` filter; ordered `name ASC`; unknown id → 404 `Trainer not found`.
+- [x] **TRP-05** [I] P2. List `active` filter; ordered `name ASC`; unknown id → 404 `Trainer not found`.
 
 ---
 
 ## 13. Training times: P2
 - [ ] **Module done**
+- [x] **Service layer done** (`training-times/training-times.service.int-spec.ts`). Remaining for the module: [E] TT-01 (the `HH:mm` DTO regex; the `end <= start` rule is covered at the service layer, incl. midnight-crossing slots being rejected).
 
 - [ ] **TT-01** [E] P1. Create: `HH:mm` 24h regex; `end <= start` (incl. equal) → 400 `endTime must be after startTime`.
-- [ ] **TT-02** [I] P1. Partial update is validated against the stored value. Postgres `time` returns `'HH:mm:ss'`; assert updating only `endTime` to before the stored start → 400.
-- [ ] **TT-03** [I] P2. List ordered `startTime ASC`. Unknown id → 404 `Training time not found`. DELETE is a **hard** delete → `{ deleted: true }`. Overlapping slots are allowed.
-- [ ] **TT-04** [I] P2. Response format: POST/PATCH return the input string (`'09:00'`), GET returns `'09:00:00'`. Frontend contract; verify first, then pin.
+- [x] **TT-02** [I] P1. Partial update is validated against the stored value. Postgres `time` returns `'HH:mm:ss'`; assert updating only `endTime` to before the stored start → 400.
+- [x] **TT-03** [I] P2. List ordered `startTime ASC`. Unknown id → 404 `Training time not found`. DELETE is a **hard** delete → `{ deleted: true }`. Overlapping slots are allowed.
+- [x] **TT-04** [I] P2. Response format: POST/PATCH return the input string (`'09:00'`), GET returns `'09:00:00'`. Frontend contract; verify first, then pin. Verified: ⚠ PATCH returns the **sent** field as `HH:mm` and the untouched one as `HH:mm:ss` in the same body.
 
 ---
 
 ## 14. Gym locations and gym subscriptions: P2
 - [ ] **Module done**
+- [x] **Service layer done** (`gym-locations/gym-locations.service.int-spec.ts`, `gym-subscriptions/gym-subscriptions.service.int-spec.ts`). Remaining for the module: [E] GL-02 (400s for bad query params; the `includeInactive` filter itself is covered), GL-03 (the DTO 400; the service never reactivating is covered).
 
-- [ ] **GL-01** [I] P2. Create: `isActive true`; `address`/`notes` default null. Location `name` is **not** trimmed; gym-subscription `name` is.
-- [ ] **GL-02** [E] P1. List hides inactive unless `includeInactive=true`; `false` → active only; a non-boolean string or unknown query param → 400 (these use query DTOs, unlike plans/trainees/trainers).
+- [x] **GL-01** [I] P2. Create: `isActive true`; `address`/`notes` default null. Location `name` is **not** trimmed; gym-subscription `name` is.
+- [ ] **GL-02** [E] P1. List hides inactive unless `includeInactive=true`; `false` → active only; a non-boolean string or unknown query param → 400 (these use query DTOs, unlike plans/trainees/trainers). ⚠ Found at the service layer: `includeInactive=1` passes `IsBooleanString` but is treated as false.
 - [ ] **GL-03** [E] P1. ⚠ Suspect: there's no way to reactivate. `isActive` isn't in the update DTOs, so `PATCH { isActive: true }` → 400.
-- [ ] **GL-04** [I] P1. DELETE = deactivate. Assert attendance at an inactive location → 400 (ATT-06) and historical attendance is unchanged.
-- [ ] **GS-01** [I] P1. Deactivated gym subscription: it can't be newly assigned to a trainee (400, TRN-03/05). Trainees who already have it keep it, and new attendance still snapshots it (ATT-05).
-- [ ] **GS-02** [I] P2. CRUD + 404 messages (`Location not found`, `Gym subscription not found`).
+- [x] **GL-04** [I] P1. DELETE = deactivate. Assert attendance at an inactive location → 400 (ATT-06) and historical attendance is unchanged.
+- [x] **GS-01** [I] P1. Deactivated gym subscription: it can't be newly assigned to a trainee (400, TRN-03/05). Trainees who already have it keep it, and new attendance still snapshots it (ATT-05). ⚠ Re-sending the trainee's own, now inactive, gym subscription in a PATCH → 400 and the whole edit is rejected.
+- [x] **GS-02** [I] P2. CRUD + 404 messages (`Location not found`, `Gym subscription not found`).
 
 ---
 
 ## 15. Bootstrap and app: P2
-- [ ] **Module done**
+- [x] **Module done** (BOOT-01/02 in `bootstrap/bootstrap.service.int-spec.ts`, APP-01 in `test/app.e2e-spec.ts`)
 
-- [ ] **BOOT-01** [I] P1. With `SEED_ADMIN_EMAIL/PASSWORD` set and no such email: assert one ADMIN, ACTIVE account whose password verifies.
-- [ ] **BOOT-02** [I] P1. Email already exists (any role/status): assert no change (password **not** reset, role not changed). Missing either env var → nothing created.
+- [x] **BOOT-01** [I] P1. With `SEED_ADMIN_EMAIL/PASSWORD` set and no such email: assert one ADMIN, ACTIVE account whose password verifies.
+- [x] **BOOT-02** [I] P1. Email already exists (any role/status): assert no change (password **not** reset, role not changed). Missing either env var → nothing created. Also pinned: empty env values skip the seed, and the email match is exact (a different-case account doesn't stop it).
 - [x] **APP-01** [E] P2. `GET /api` → `'Hello TheIndex!'`; `GET /api/health` → `{ ok: true }`; both work without auth.
 
 ---

@@ -190,6 +190,36 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: `IsNotEmpty` plus trimming shows a non-empty title was intended.
 - Impact / who would notice: minor; a plan with a blank name in the plan picker and in reports (`planName: ''`).
 
+## trainer profiles: `accountId` isn't checked against the account and is never linked back
+- Test: `src/trainer-profiles/trainer-profiles.service.int-spec.ts` > `TRP-01 accepts any account id (even a TRAINEE account) and never links the account back`; `TRP-01 an unknown accountId fails on the DB foreign key (non-HTTP error, 500)`; `TRP-01 unlinking with accountId: null leaves the account pointing at the trainer (JWT keeps the claim)`
+- Current behavior: same pattern as the trainee entry above. `POST/PATCH /trainers` store any `accountId` that no other trainer uses, including a TRAINEE account. The account's `trainerProfileId` is not set, so a TRAINER account linked this way logs in with `trainerProfileId: null`. An unknown id is only caught by the DB foreign key (500). Unlinking with `accountId: null` clears only the trainer side: the account keeps `trainerProfileId`, and its JWT still carries the claim (the provisioning consequence is the ACC-04 entry above).
+- Why it looks unintended: provisioning (`AccountsService.provisionForProfile`) sets both sides of the link, and only TRAINER accounts should own a trainer profile. The two sides can drift apart through this endpoint.
+- Impact / who would notice: admins linking or unlinking trainer accounts from the trainer screen. A linked trainer gets no trainer-scoped access (settlement lines, own sessions); an "unlinked" trainer keeps it.
+
+## trainer profiles: a deactivated trainer's account can still log in
+- Test: `src/trainer-profiles/trainer-profiles.service.int-spec.ts` > `TRP-03 the deactivated trainer's account can still log in with its TRAINER role and profile claim`
+- Current behavior: `DELETE /trainers/:id` only sets `isActive = false` on the profile. The linked account stays ACTIVE, `validateUser` succeeds and the JWT still has `role: TRAINER` and `trainerProfileId`. The trainer can no longer be used for new attendance (400), but keeps every TRAINER read/write permission that doesn't go through the profile check (trainee list, subscriptions, settlement headers, training times, …).
+- Why it looks unintended: same as the trainee entry. Deactivating staff usually means revoking their access, and a TRAINER role can create and delete subscriptions.
+- Impact / who would notice: the owner, when a trainer leaves. Access lasts until someone also disables the account (`DELETE /accounts/:id`).
+
+## gym locations / gym subscriptions: `includeInactive=1` passes validation but is treated as false
+- Test: `src/gym-locations/gym-locations.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive locations`; `src/gym-subscriptions/gym-subscriptions.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive ones`
+- Current behavior: the list query DTOs use `@IsBooleanString()`, which accepts `'true'`, `'false'`, `'1'` and `'0'`. Both services then check `includeInactive === 'true'`, so `?includeInactive=1` returns 200 with only active rows.
+- Why it looks unintended: the validator explicitly allows `1` as a boolean, and the service silently treats it as false instead of rejecting it.
+- Impact / who would notice: low. Only a client that sends `1` is affected; it gets a list with the inactive rows missing and no error. Which value the front sends was not checked against the front repo.
+
+## trainee profiles: re-sending a trainee's own, now inactive, gym subscription rejects the whole edit
+- Test: `src/gym-subscriptions/gym-subscriptions.service.int-spec.ts` > `GS-01 re-sending the trainee's own (now inactive) gym subscription in an update -> 400`
+- Current behavior: after a gym subscription is deactivated, trainees that have it keep it. But `PATCH /trainees/:id` with `gymSubscriptionId` equal to the trainee's **current** value is checked like a new assignment and fails with 400 `Gym subscription not found or inactive`. The whole update is rejected (e.g. a name change in the same request is not saved). Omitting the field works.
+- Why it looks unintended: the trainee isn't being assigned anything new. An edit form that sends back every field (including the current gym subscription) can no longer save that trainee until staff pick a different gym subscription or clear it.
+- Impact / who would notice: staff editing trainees after a gym subscription method is retired, if the front sends `gymSubscriptionId` unchanged. Not verified against the front repo.
+
+## training times: PATCH returns a mix of `HH:mm` and `HH:mm:ss`
+- Test: `src/training-times/training-times.service.int-spec.ts` > `TT-04 update returns the sent field as HH:mm and the untouched one as HH:mm:ss`
+- Current behavior: Postgres `time` columns read back as `'HH:mm:ss'`. `POST` returns the input strings (`'09:00'`), `GET` returns `'09:00:00'`, and `PATCH { endTime: '11:00' }` returns `{ startTime: '09:00:00', endTime: '11:00' }`, two formats in one body.
+- Why it looks unintended: one resource, one field type, three possible shapes depending on the route and which fields were sent.
+- Impact / who would notice: low. Frontend code that compares or displays the PATCH response without normalizing (e.g. `startTime === '09:00'`) would get it wrong until the next reload.
+
 ---
 
 # Fixed
