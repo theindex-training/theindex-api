@@ -197,7 +197,7 @@ describe('AuthService (integration)', () => {
       const fx = fixtures();
       const admin = await insertAccount(fx, {});
 
-      // A bare object without profile fields, as `login` accepts `any`.
+      // A bare object without profile fields, as `login` accepts a partial account.
       const { accessToken } = await auth(fx).login({
         id: admin.id,
         email: admin.email,

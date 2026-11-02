@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import type { AccountEntity } from '../accounts/account.entity';
 import { AccountsService } from '../accounts/accounts.service';
 import { AccountStatus } from '../common/enums/account-status.enum';
 
@@ -28,7 +29,9 @@ export class AuthService {
     return acc;
   }
 
-  async login(acc: any) {
+  async login(
+    acc: Pick<AccountEntity, 'id' | 'email' | 'role'> & Partial<AccountEntity>,
+  ) {
     const payload = {
       sub: acc.id,
       email: acc.email,
@@ -39,7 +42,7 @@ export class AuthService {
 
     return {
       accessToken: await this.jwt.signAsync(payload),
-      account: this.accounts.sanitize(acc),
+      account: this.accounts.sanitize(acc as AccountEntity),
     };
   }
 }

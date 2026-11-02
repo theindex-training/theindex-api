@@ -168,10 +168,9 @@ export class AccountsService {
       if (acc.traineeProfileId && dto.phone !== undefined) {
         const normalizedPhone = dto.phone === null ? null : dto.phone.trim();
 
-        await manager.getRepository(TraineeProfileEntity).update(
-          { id: acc.traineeProfileId },
-          { phone: normalizedPhone },
-        );
+        await manager
+          .getRepository(TraineeProfileEntity)
+          .update({ id: acc.traineeProfileId }, { phone: normalizedPhone });
       }
     });
 

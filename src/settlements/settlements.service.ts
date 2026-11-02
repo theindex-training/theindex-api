@@ -88,7 +88,7 @@ export class SettlementsService {
       const subs = subscriptionIds.length
         ? await manager
             .getRepository(SubscriptionEntity)
-            .findByIds(subscriptionIds as any)
+            .findByIds(subscriptionIds)
         : [];
 
       const subsById = new Map<string, SubscriptionEntity>();
@@ -381,7 +381,7 @@ export class SettlementsService {
 
       const lines = await manager.getRepository(SettlementLineEntity).find({
         where: { settlementId: savedSettlement.id },
-        order: { amountCents: 'DESC' as any },
+        order: { amountCents: 'DESC' },
       });
 
       return {

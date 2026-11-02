@@ -165,14 +165,17 @@ export class CashRegisterService {
     return txRepo.save(tx);
   }
 
-  private async enrichTransactions(transactions: CashRegisterTransactionEntity[]) {
+  private async enrichTransactions(
+    transactions: CashRegisterTransactionEntity[],
+  ) {
     const subscriptionIds = Array.from(
       new Set(
         transactions
           .filter(
             (tx) =>
               tx.type === CashRegisterTransactionType.SUBSCRIPTION_IN &&
-              tx.sourceType === CashRegisterTransactionSourceType.SUBSCRIPTION &&
+              tx.sourceType ===
+                CashRegisterTransactionSourceType.SUBSCRIPTION &&
               !!tx.sourceId,
           )
           .map((tx) => tx.sourceId as string),

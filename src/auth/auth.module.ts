@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AccountsModule } from '../accounts/accounts.module';
 import { AuthController } from './auth.controller';
@@ -24,7 +24,8 @@ import { LocalStrategy } from './strategies/local.strategy';
         return {
           secret,
           signOptions: {
-            expiresIn: (config.get<string>('JWT_EXPIRES_IN') as any) || '7d',
+            expiresIn: (config.get<string>('JWT_EXPIRES_IN') ||
+              '7d') as JwtSignOptions['expiresIn'],
           },
         };
       },

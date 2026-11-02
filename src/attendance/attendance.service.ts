@@ -70,7 +70,7 @@ export class AttendanceService {
       throw new BadRequestException('Trainer not found or inactive');
 
     // Validate trainees exist + active
-    const trainees = await this.traineeRepo.findByIds(traineeIds as any);
+    const trainees = await this.traineeRepo.findByIds(traineeIds);
     const activeSet = new Set(
       trainees.filter((t) => t.isActive).map((t) => t.id),
     );

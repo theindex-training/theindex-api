@@ -39,16 +39,23 @@ export class SettlementsController {
   private getTrainerProfileIdOrThrow(req: AuthenticatedRequest): string {
     const trainerProfileId = req.user.trainerProfileId;
     if (!trainerProfileId) {
-      throw new ForbiddenException('Trainer profile is required for this action');
+      throw new ForbiddenException(
+        'Trainer profile is required for this action',
+      );
     }
 
     return trainerProfileId;
   }
 
   @Post()
-  generate(@Body() dto: GenerateSettlementDto, @Req() req: AuthenticatedRequest) {
+  generate(
+    @Body() dto: GenerateSettlementDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException('TRAINER cannot generate settlement reports');
+      throw new ForbiddenException(
+        'TRAINER cannot generate settlement reports',
+      );
     }
 
     return this.settlementsService.generate(dto);
@@ -81,7 +88,9 @@ export class SettlementsController {
   @Post(':id/finalize')
   finalize(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException('TRAINER cannot finalize settlement reports');
+      throw new ForbiddenException(
+        'TRAINER cannot finalize settlement reports',
+      );
     }
 
     return this.settlementsService.finalize(id);
