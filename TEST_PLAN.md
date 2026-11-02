@@ -386,7 +386,7 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 ---
 
 ## 7. Date/time utilities: P1 (do these first: no DB)
-- [x] **Module done** (DT-01–05; DT-06 is P2 and still open). Specs next to each util: `attendance-timezone.util.spec.ts`, `attendance-time.util.spec.ts`, `attendance-range.util.spec.ts`, `attendance-datetime-range.util.spec.ts`, `settlements/settlement-allocation.util.spec.ts`.
+- [x] **Module done** (DT-01–06; DT-06 runs in its own `npm run test:tz-sofia` job, see DT-06). Specs next to each util: `attendance-timezone.util.spec.ts`, `attendance-time.util.spec.ts`, `attendance-range.util.spec.ts`, `attendance-datetime-range.util.spec.ts`, `settlements/settlement-allocation.util.spec.ts`.
 
 Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ existing spec), `attendance-range.util.ts`, `attendance-datetime-range.util.ts`, `settlements/settlement-allocation.util.ts`. All [U]; run under `TZ=UTC`.
 
@@ -412,7 +412,10 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Custom times work; `24:00` → 400 `Invalid time`.
   - Start after end → 400 `start date/time must be before end date/time`; same minute → OK.
 - [x] **DT-05** P0. `splitCents`: Σ parts == total; the extra cents go to the first parts (`10000/3 → [3334, 3333, 3333]`); `2/3 → [1, 1, 0]`; total 0 → zeros; `parts <= 0` → `[]`.
-- [ ] **DT-06** P2. Optional: run DT-03/DT-04 and the session grouping cases under `TZ=Europe/Sofia` in a second Jest project to document how behavior changes with server TZ (see Q1).
+- [x] **DT-06** P2. Optional: run DT-03/DT-04 and the session grouping cases under `TZ=Europe/Sofia` in a second Jest project to document how behavior changes with server TZ (see Q1).
+  - Done as a separate run, not a Jest project: a setup file can't switch the zone (Jest gives the sandbox a copy of `process.env`). `npm run test:tz-sofia` = `TZ=Europe/Sofia jest --config test/jest-tz-sofia.json`, files `*.sofia-spec.ts` / `*.sofia-int-spec.ts` (neither suffix matches the unit or int configs), guard `test/tz-sofia-guard.ts`. Needs the `TEST_DB_*` Postgres.
+  - Covers DT-03 and DT-04 (winter, summer, DST gap/overlap, 23 h / 25 h days), ATR-01 dates, ATR-10 sessions (winter and summer), SET-02 periods and the cron run time (CRON-02). Under Sofia, SET-02, ATR-01 and ATR-10 line up with gym-local time. The cron still runs at 02:00 UTC (04:00/05:00 Sofia).
+  - ⚠ **Not in CI yet.** Adding a `npm run test:tz-sofia` step to the `test` job in `docker-ghcr.yml` needs the owner's approval. Until then, run it by hand.
 
 ---
 
@@ -527,17 +530,19 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 11. Subscriptions cron: P1
-- [x] **Module done** (CRON-01 in `subscriptions.service.int-spec.ts`; CRON-02 is P2 and still open)
+- [x] **Module done** (CRON-01 in `subscriptions.service.int-spec.ts`; CRON-02 in `subscriptions-cron.service.int-spec.ts`, plus a Sofia-TZ variant under DT-06)
 
 - [x] **CRON-01** [I] P0. `exhaustPastEndTimeSubscriptions()`:
   - TIME + ACTIVE + `endsAt < now` → **EXHAUSTED**.
   - `endsAt == now` → untouched. PUNCH and non-ACTIVE → untouched.
   - Returns the affected count.
   - ⚠ Suspect: the status is EXHAUSTED, not EXPIRED. `EXPIRED` and `CANCELLED` are never set anywhere in the codebase.
-- [ ] **CRON-02** [I] P2. Scheduling, with all timers faked (exception to INF-04; DB calls happen after advancing time):
+- [x] **CRON-02** [I] P2. Scheduling, with all timers faked (exception to INF-04; DB calls happen after advancing time):
   - Next run at 02:00 **UTC** today if now is before it, else tomorrow; exactly 02:00:00.000 → tomorrow.
   - After advancing to the run time, assert an expired TIME sub becomes EXHAUSTED and the next run is scheduled.
   - After `onModuleDestroy`, assert nothing fires.
+  - Done: `freezeTimeAndTimeouts` (`test/int/clock.ts`) fakes only `Date` + `setTimeout`/`clearTimeout`, so `pg` keeps working. `test/int/cron-harness.ts` drives the lifecycle hooks and waits for each run. Also pinned: the month/year rollover (Dec 31 → Jan 1), a third consecutive run, and destroy after a run. Every assertion checks whether an expired TIME sub is EXHAUSTED yet.
+  - ⚠ Found while writing it: a run whose DB update throws is an unhandled rejection. On Node 20 that crashes the process, and the next run is never scheduled. It isn't pinned by a test, because Jest fails any test that has an unhandled rejection. Reproduced outside Jest; see TEST_NOTES.
 
 ---
 
@@ -615,7 +620,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 ## Open questions for the owner
 
-- **Q1. Production timezone.** The Docker image (`node:20-alpine`) runs in UTC unless the compose file (not in either repo) sets `TZ`. Settlement periods, `/attendance/dates`, `/attendance/sessions` grouping and the cron time all depend on it. This plan pins `TZ=UTC`. If production sets `TZ=Europe/Sofia`, switch INF-03 before writing date-sensitive tests, and several ⚠ items (SET-02, ATR-01, ATR-10) stop being suspects.
+- **Q1. Production timezone.** The Docker image (`node:20-alpine`) runs in UTC unless the compose file (not in either repo) sets `TZ`. Settlement periods, `/attendance/dates` and `/attendance/sessions` grouping depend on it. The cron does **not**: it uses UTC setters and runs at 02:00 UTC in any zone (DT-06). This plan pins `TZ=UTC`. If production sets `TZ=Europe/Sofia`, switch INF-03 before writing date-sensitive tests, and several ⚠ items (SET-02, ATR-01, ATR-10) stop being suspects. DT-06 (`npm run test:tz-sofia`) already pins what they do under Sofia.
 - **Q2. Test DB.** The plan uses real Postgres. The code relies on `AT TIME ZONE`, `to_char`, `EXTRACT(ISODOW)`, `FOR UPDATE` locks and enum columns, which mocked repositories or `pg-mem` can't faithfully run. Mocked repos would also mean asserting on query-builder chains, which breaks the "fail if the rule breaks" rule. OK to require Docker locally and a Postgres service in CI?
 - **Q3. CI gate (INF-10).** ✅ Approved and done (Nov 2026). Open follow-up: a lint gate (needs the existing 36 errors fixed first, or an error-count threshold).
 - **Q4. e2e setup duplication.** INF-06 copies the `main.ts` app setup into the tests. The alternative is a tiny refactor that exports a `configureApp(app)` from `main.ts` and uses it in both places. That's a production change, so it isn't done without approval.

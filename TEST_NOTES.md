@@ -106,11 +106,17 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the two sides of the link disagree, and the message sends staff looking at the email instead of the real cause.
 - Impact / who would notice: staff trying to give a profile a new account; there is no API path that clears the account side except deleting (disabling) the old account.
 
+## subscriptions cron: one failed run crashes the API process (Node 20) and the daily job is never rescheduled
+- Test: none committed. Jest records the unhandled rejection as an error of the running test and fails it, and the sandbox `process` can't intercept the real event, so a passing characterization test isn't possible without a production change. Reproduced outside Jest on Node 20 against the built `dist/` (`SubscriptionsCronService` with a job that rejects): with no handler the process exits with code 1; with an `unhandledRejection` handler the process survives but no next timer is scheduled. The rescheduling that does happen after a *successful* run is pinned by `src/subscriptions/subscriptions-cron.service.int-spec.ts` > `CRON-02 after each run the next one is scheduled for 02:00 UTC the following day`.
+- Current behavior: the timer callback is `async () => { await this.exhaustPastEndTimeSubscriptions(); this.scheduleNextRun(); }` with no `try/catch`. If the UPDATE throws (DB restart, connection drop, lock timeout at 02:00 UTC), the callback's promise rejects and nothing handles it. Node 20's default `--unhandled-rejections=throw` turns that into a process crash. Even with a handler, `scheduleNextRun()` is skipped, so the job never runs again until the app restarts. ESLint already flags this callback (`@typescript-eslint/no-misused-promises` at `subscriptions-cron.service.ts:38`, part of the lint baseline).
+- Why it looks unintended: a transient DB error in a nightly housekeeping job shouldn't take down the whole API, and a scheduler normally reschedules whether or not the run succeeded.
+- Impact / who would notice: everyone, if Postgres is unreachable at 02:00 UTC: the API container exits, and only comes back if the compose restart policy restarts it (the compose file isn't in either repo). After a restart the job is scheduled again for the next 02:00 UTC. A fix would wrap the run in `try/catch`/`finally` and call `scheduleNextRun()` from `finally`. Its regression test can drive a failing run as in CRON-02, making the table unavailable at run time, and assert the next day's run still happens.
+
 ## settlements: period boundaries use server-local time, not Europe/Sofia
 - Test: `src/settlements/settlements.service.int-spec.ts` > `SET-02 attendance at 2025-12-01 01:00 Sofia (23:00Z Nov 30) lands in November, not December`
 - Current behavior: `getLocalDateInterval` builds `[periodStart 00:00, periodEnd+1 00:00)` in the **server** timezone. Under UTC (the Docker default, see `TEST_PLAN.md` Q1), attendance between 00:00 and 02:00/03:00 Sofia time on the first day of a month falls into the previous month's settlement.
 - Why it looks unintended: everything else (attendance entry, `/attendance/dates`) treats gym time as Europe/Sofia.
-- Impact / who would notice: trainers with late-night or very early sessions around month boundaries; amounts move between months. Not an issue if production sets `TZ=Europe/Sofia` (open question Q1).
+- Impact / who would notice: trainers with late-night or very early sessions around month boundaries; amounts move between months. Not an issue if production sets `TZ=Europe/Sofia` (open question Q1). The Sofia behavior is pinned by `src/settlements/settlements.service.sofia-int-spec.ts` (DT-06, `npm run test:tz-sofia`).
 
 ## subscriptions: date-only `startsAt` is UTC midnight
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-03 date-only startsAt is UTC midnight, not Europe/Sofia midnight`
@@ -170,13 +176,13 @@ Ordered by impact (money and data integrity first).
 - Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-10 day, hour and slot matching use server-local time (UTC), not Sofia`
 - Current behavior: the session `date`, the `custom:HH:mm` key and training-time slot matching all use `Date#getHours()`/`getDate()`, i.e. the server timezone. Under UTC (Docker default, `TEST_PLAN.md` Q1) an attendance at 18:30 Sofia (16:30Z) does **not** fall into an 18:00–19:00 training time and shows as a `custom:16:30` session; 00:30 Sofia attendance is listed under the previous day. The `startTime`/`endTime` filter is also server time (see `DT-04`).
 - Why it looks unintended: training times and `trainedTime` are entered as gym-local (Sofia) times, and `/attendance/dates` groups by Sofia date.
-- Impact / who would notice: staff viewing the sessions screen; attendance doesn't group under the configured training times and times look 2–3 h off. Not an issue if production sets `TZ=Europe/Sofia` (Q1).
+- Impact / who would notice: staff viewing the sessions screen; attendance doesn't group under the configured training times and times look 2–3 h off. Not an issue if production sets `TZ=Europe/Sofia` (Q1). The Sofia behavior is pinned by `src/attendance/attendance-read.service.sofia-int-spec.ts` (DT-06, `npm run test:tz-sofia`).
 
 ## attendance dates: grouped by Sofia date but filtered by a server-time range
 - Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-01 grouped by Sofia date but filtered by a server-TZ (UTC) range`
 - Current behavior: `GET /attendance/dates?from=2025-12-01&to=2025-12-31` selects rows in `[Dec 1 00:00, Jan 1 00:00)` server time (UTC) but labels each with its Sofia date. Attendance at 2026-01-01 01:30 Sofia (23:30Z Dec 31) is returned under the date `2026-01-01`, outside the requested range, and attendance at 2025-12-01 01:00 Sofia (23:00Z Nov 30) is missing.
 - Why it looks unintended: the filter and the grouping use different timezones, so the response can contain days that weren't asked for and miss early-morning rows of the first day.
-- Impact / who would notice: the calendar view (per-day counts / "has unpaid" badges) around midnight and month boundaries. Not an issue if production sets `TZ=Europe/Sofia` (Q1).
+- Impact / who would notice: the calendar view (per-day counts / "has unpaid" badges) around midnight and month boundaries. Not an issue if production sets `TZ=Europe/Sofia` (Q1). The Sofia behavior is pinned by `src/attendance/attendance-read.service.sofia-int-spec.ts` (DT-06, `npm run test:tz-sofia`).
 
 ## attendance reports: deactivated trainees are listed, and a TIME pass that hasn't started counts as active
 - Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-20 includes deactivated trainees and counts a not-yet-started TIME pass as active`; `ATR-21 lastActiveSubscription is the newest sub of any status; deactivated trainees are listed`

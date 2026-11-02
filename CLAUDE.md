@@ -19,6 +19,7 @@ npm run start:prod          # node dist/main
 npm test                    # unit tests (src/**/*.spec.ts), DB-free
 npm run test:int            # service integration tests (src/**/*.int-spec.ts) against Postgres DB `theindex_test` (TEST_DB_* in .env.example); drops its schema
 npm run test:e2e            # test/*.e2e-spec.ts: boots AppModule, needs Postgres (DB_* + JWT_SECRET); close the app in afterAll or the cron timer keeps Jest alive
+npm run test:tz-sofia       # DT-06: *.sofia-spec.ts / *.sofia-int-spec.ts under TZ=Europe/Sofia (needs the TEST_DB_* Postgres); not in CI yet
 npx eslint "{src,apps,libs,test}/**/*.ts"   # lint without modifying files
 npm run lint                # NOTE: runs eslint --fix and rewrites files
 npm run format              # prettier --write
