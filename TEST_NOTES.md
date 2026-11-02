@@ -118,6 +118,12 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: `trainedTime` is range-checked (24:00 → 400), so the same mistake in the date or in `trainedAt` was clearly meant to be an error too.
 - Impact / who would notice: a typo records attendance on another day, or a report/settlement silently covers a different period than the one typed.
 
+## settlements: an impossible period date (e.g. `2025-02-30`) returns 500 instead of 400
+- Test: `test/e2e/settlements.e2e-spec.ts` > `SET-03 impossible date 2025-02-30 passes validation but Postgres rejects it -> 500, nothing persisted`
+- Current behavior: `GenerateSettlementDto` only checks the `YYYY-MM-DD` shape, and `getLocalDateInterval` rolls `2025-02-30` over to 2025-03-02 without complaint (see the previous entry). `generate` then stores the **raw** string in the `date` columns `periodStart`/`periodEnd`, and Postgres rejects it (`22008 date/time field value out of range`). The client gets a generic 500; the transaction rolls back, so nothing is persisted. `TEST_PLAN.md` SET-03 expected a silent rollover; the observed result is a 500.
+- Why it looks unintended: a bad date in the request is a client error (400 with a message the frontend can show), and other invalid periods (`from > to`, wrong shape) do return 400.
+- Impact / who would notice: the admin generating a settlement who mistypes a date gets an unexplained server error. No data or money is affected.
+
 ## subscriptions cron: ended TIME passes become EXHAUSTED, never EXPIRED
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `CRON-01 exhausts ACTIVE TIME subs with endsAt < now only and returns the count`
 - Current behavior: the daily job sets `status = EXHAUSTED` on ACTIVE TIME subs whose `endsAt < now`. `SubscriptionStatus.EXPIRED` (and `CANCELLED`) exist in the enum but nothing in the codebase ever sets them.

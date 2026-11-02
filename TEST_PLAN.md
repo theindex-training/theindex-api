@@ -42,7 +42,7 @@ Risk = how much damage a regression does × how likely a change is to break it.
 
 ## Phase 0: Test infrastructure
 
-- [ ] **Phase 0 done**
+- [x] **Phase 0 done** (INF-01–11)
 
 - [x] **INF-01** Test database (done: `test/int/test-app.ts`, `TEST_DB_*` env vars, refuses names not ending in `_test`, `dropSchema` per suite). Use a dedicated Postgres DB (e.g. `theindex_test`), never the dev DB. Use `synchronize: true` and `TRUNCATE ... RESTART IDENTITY CASCADE` on all tables between tests. Locally: `docker run postgres:16`. In CI: a service container.
 - [x] **INF-02** Jest layout (done: `test/jest-int.json`, `npm run test:int`; e2e scripts unchanged apart from `TZ=UTC`):
@@ -53,8 +53,8 @@ Risk = how much damage a regression does × how likely a change is to break it.
 - [x] **INF-03** Pin timezone: run every Jest command with `TZ=UTC` (script prefix). UTC is what the `node:20-alpine` image uses unless compose overrides it; see Q1. Add a guard test that fails if `new Date(2025, 0, 1).getTimezoneOffset() !== 0`, so a misconfigured run fails loudly instead of producing wrong expectations. **Also run Jest on Node 20** (`.nvmrc`, same as CI and the production image). `Intl` output can differ between Node/ICU versions, which is how the DT-01 midnight bug passed locally on Node 22 and only failed in CI.
 - [x] **INF-04** Clock helper. `freezeTime(iso)` = `jest.useFakeTimers({ now, doNotFake: [everything except 'Date'] })`. Fake only `Date`: faking `setTimeout`/`nextTick` breaks the `pg` driver and Nest. "now" in this codebase always comes from JS `new Date()`, never SQL `now()`, so this controls all business time. Exception: `@CreateDateColumn` values come from the DB clock, and Postgres `now()` is the *transaction start*, so rows inserted in one transaction share `createdAt`.
 - [x] **INF-05** Data builders. Create trainers, trainees, locations, plans, subscriptions and attendance. Prefer the real services, e.g. `SubscriptionsService.createForTrainee`, so setup follows real rules. Insert directly via repositories only for states the API can't produce (e.g. `EXPIRED` status). Give every attendance a **distinct `trainedAt`** unless the test is about ties: ordering ties fall back to `createdAt`, which is identical inside one transaction. Suites that need more modules pass `setupIntegrationSuite({ extraImports })`; `test/int/auth-setup.ts` has `authImports()` (AuthModule + AccountsModule with a fixed test `JWT_SECRET`) and `decodeVerifiedJwt()`. Reach other services with `fx.moduleRef.get(...)`.
-- [ ] **INF-06** e2e app factory (partly done: `test/app.e2e-spec.ts` applies the `main.ts` setup and closes the app; no shared factory or auth helpers yet). Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
-- [ ] **INF-07** Auth helpers:
+- [x] **INF-06** e2e app factory (done: `test/e2e/e2e-app.ts` `createE2eApp()` / `setupE2eSuite()`: `main.ts` setup, refuses a `DB_NAME` not ending in `_test`, truncates all tables and re-runs the real admin seed before each test, closes the app in `afterAll`; `test:e2e` now runs `--runInBand` and the e2e config loads the TZ guard. `test/app.e2e-spec.ts` still builds its own app; it doesn't touch the DB). Build `AppModule` and then apply the same setup as `main.ts`: `setGlobalPrefix('api')` and `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. `main.ts` isn't exported, so the setup is duplicated in the test (see Q4). Always `await app.close()` in `afterAll`. That runs `SubscriptionsCronService.onModuleDestroy`, clears the cron timer, and removes the need for `--forceExit`. Set `JWT_SECRET` *before* compiling: `JwtStrategy` reads `process.env.JWT_SECRET` in its constructor.
+- [x] **INF-07** Auth helpers (done in `E2eContext`: `loginAs`, `loginAsAdmin`, `provisionAndLogin(profileType, profileId)` through the real admin provisioning route, and `signToken(payload)` via the app's `JwtService`):
   - `loginAs(email, password)` through `POST /api/auth/login`. Seed the admin through `SEED_ADMIN_EMAIL/PASSWORD`, so the real `BootstrapService` runs.
   - `signToken(payload)` with the same secret, for payload edge cases (TRAINEE with `traineeProfileId: null`, TRAINER without `trainerProfileId`).
 - [x] **INF-08** Fix stale baseline tests. `src/app.controller.spec.ts` and `test/app.e2e-spec.ts` expect `'Hello World!'`, but production returns `'Hello TheIndex!'`. Update the expectations, since current behavior is the spec. The e2e must also use `/api`. This is a test-only change.
@@ -68,8 +68,8 @@ Risk = how much damage a regression does × how likely a change is to break it.
 ---
 
 ## 1. Settlements: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`settlements.service.int-spec.ts`). Remaining for the module: [E] SET-03, SET-35, SET-40–43.
+- [x] **Module done** (service layer: `settlements.service.int-spec.ts`; HTTP: `test/e2e/settlements.e2e-spec.ts`, SET-03, SET-35, SET-40–43)
+- [x] **Service layer done** (`settlements.service.int-spec.ts`).
 
 Code: `settlements/settlements.service.ts`, `settlements.controller.ts`, `settlement-allocation.util.ts`.
 
@@ -84,11 +84,11 @@ Settlements take attendance in a period and create one **allocation** per attend
   - Assert `periodEnd T23:59:59.999Z` is included.
   - Assert `periodEnd+1 T00:00:00.000Z` is excluded.
   - ⚠ Suspect: gym-local time is Europe/Sofia everywhere else. An attendance at 2025-12-01 01:00 Sofia (= 2025-11-30 23:00Z) falls in the *November* settlement, not December.
-- [ ] **SET-03** [E] P1. Period validation:
+- [x] **SET-03** [E] P1. Period validation:
   - Assert `periodStart > periodEnd` → 400 `from must be <= to`.
   - Assert `periodStart == periodEnd` → 201 (one-day period).
   - Assert a non-`YYYY-MM-DD` value → 400 (DTO).
-  - ⚠ Suspect: `2025-02-30` is accepted and silently rolls over to 2025-03-02.
+  - ⚠ Suspect: `2025-02-30` passes the DTO and `getLocalDateInterval` rolls it over, but the raw string then fails the Postgres `date` insert. **Observed: 500** (not the silent rollover this line first predicted), nothing persisted. See TEST_NOTES.
 - [x] **SET-04** [I] P0. UNPAID attendance:
   - Assert the allocation has `valueCents 0`, `reason UNPAID`, `subscriptionId null`, `subscriptionType null`.
   - Assert it counts in `info.unpaidAttendance` and `line.unpaidAttendanceCount`.
@@ -148,19 +148,19 @@ Settlements take attendance in a period and create one **allocation** per attend
   - Assert defaults `limit 50`, `offset 0`, ordering by attendance `trainedAt ASC, id ASC`, and that `total` counts all matches regardless of paging.
   - Assert the `trainerId` filter and that each row includes the `attendance` relation.
   - Assert an unknown settlement id → `{ total: 0, rows: [] }` (no 404).
-- [ ] **SET-35** [E] P2. Allocation query validation: `limit` 0 or 501 → 400, `offset` −1 → 400, non-UUID `trainerId` → 400, and numeric strings are coerced.
+- [x] **SET-35** [E] P2. Allocation query validation: `limit` 0 or 501 → 400, `offset` −1 → 400, non-UUID `trainerId` → 400, and numeric strings are coerced.
 
 ### Access (see also Appendix A)
-- [ ] **SET-40** [E] P0. TRAINER on `POST /settlements`, `DELETE /:id` and `POST /:id/finalize` → 403 with the handler-specific messages (`TRAINER cannot generate|delete|finalize settlement reports`).
-- [ ] **SET-41** [E] P0. TRAINER `GET /:id`: assert only their own lines. TRAINER token without `trainerProfileId` → 403 `Trainer profile is required for this action`.
-- [ ] **SET-42** [E] P0. TRAINER `GET /:id/allocations?trainerId=<other>`: assert the query value is overridden with their own id and only their rows come back.
-- [ ] **SET-43** [E] P1. TRAINER `GET /settlements` lists **all** settlement headers (not filtered). Characterize as-is.
+- [x] **SET-40** [E] P0. TRAINER on `POST /settlements`, `DELETE /:id` and `POST /:id/finalize` → 403 with the handler-specific messages (`TRAINER cannot generate|delete|finalize settlement reports`).
+- [x] **SET-41** [E] P0. TRAINER `GET /:id`: assert only their own lines. TRAINER token without `trainerProfileId` → 403 `Trainer profile is required for this action`.
+- [x] **SET-42** [E] P0. TRAINER `GET /:id/allocations?trainerId=<other>`: assert the query value is overridden with their own id and only their rows come back.
+- [x] **SET-43** [E] P1. TRAINER `GET /settlements` lists **all** settlement headers (not filtered). Characterize as-is.
 
 ---
 
 ## 2. Subscriptions: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`subscriptions.service.int-spec.ts`, incl. resolver). Remaining for the module: [E] SUB-06, SUB-40, SUB-41.
+- [x] **Module done** (service layer: `subscriptions.service.int-spec.ts`, incl. resolver; HTTP: `test/e2e/subscriptions.e2e-spec.ts`, SUB-06, SUB-40, SUB-41)
+- [x] **Service layer done** (`subscriptions.service.int-spec.ts`, incl. resolver).
 
 Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.ts`, `subscriptions.controller.ts`.
 
@@ -176,7 +176,7 @@ Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.t
   - Assert `> 0` creates one `SUBSCRIPTION_IN` tx (`sourceId = subscription.id`) and raises the balance.
   - Assert `0` creates no tx and leaves the balance unchanged.
 - [x] **SUB-05** [I] P0. Inactive/missing trainee → 400 `Trainee not found or inactive`. Inactive/missing plan → 400 `Plan not found or inactive`. Assert no subscription row, no cash tx, and no attendance changes.
-- [ ] **SUB-06** [E] P1. DTO: non-UUID `planId`, negative or non-integer `paidCents`, non-ISO `startsAt`, and unknown fields → 400.
+- [x] **SUB-06** [E] P1. DTO: non-UUID `planId`, negative or non-integer `paidCents`, non-ISO `startsAt`, and unknown fields → 400.
 - [x] **SUB-07** [I] P2. Plan with a broken shape (PUNCH with no credits, TIME with no duration; only via direct DB edit) → 400 `Punch plan must have credits` / `Time plan must have durationDays`.
 
 ### Reconciliation of unpaid attendance on purchase
@@ -212,14 +212,14 @@ Test through `AttendanceService.create` (the real consumer) plus `resolveForAtte
 - [x] **RES-05** [I] P0. Another trainee's subscription is never used.
 
 ### Access
-- [ ] **SUB-40** [E] P0. ADMIN and TRAINER can create and delete subscriptions (incl. `paidCents: 0`). TRAINEE → 403.
-- [ ] **SUB-41** [E] P0. TRAINEE `GET /trainees/:ownId/subscriptions` → 200. Another trainee's id → 403 `TRAINEE can only access subscriptions for their own trainee profile`. TRAINEE token with `traineeProfileId: null` → 403.
+- [x] **SUB-40** [E] P0. ADMIN and TRAINER can create and delete subscriptions (incl. `paidCents: 0`). TRAINEE → 403.
+- [x] **SUB-41** [E] P0. TRAINEE `GET /trainees/:ownId/subscriptions` → 200. Another trainee's id → 403 `TRAINEE can only access subscriptions for their own trainee profile`. TRAINEE token with `traineeProfileId: null` → 403.
 
 ---
 
 ## 3. Attendance write path: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`attendance.service.int-spec.ts`). Remaining for the module: [E] ATT-13, ATT-31, ATT-32.
+- [x] **Module done** (service layer: `attendance.service.int-spec.ts`; HTTP: `test/e2e/attendance.e2e-spec.ts`, ATT-13, ATT-31, ATT-32)
+- [x] **Service layer done** (`attendance.service.int-spec.ts`).
 
 Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `attendance.controller.ts`.
 
@@ -240,7 +240,7 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
 - [x] **ATT-10** [I] P0. Duplicate `traineeIds` are de-duplicated. Assert `count` = unique trainees, `results` has one entry per trainee with its own payment resolution, and the response is `{ trainerId, trainedAt: ISO, count, results }`.
 - [x] **ATT-11** [I] P0. Any missing/inactive trainee → 400 with body `message: 'Some trainees are missing or inactive'` and `invalidTraineeIds: [...]`. Assert **nothing** is created for any trainee.
 - [x] **ATT-12** [I] P1. Validation order: trainer, then trainees, then location. Assert all three happen before any insert.
-- [ ] **ATT-13** [E] P1. DTO differences:
+- [x] **ATT-13** [E] P1. DTO differences:
   - Assert `traineeIds` `[]` → 400, more than 200 → 400, and non-v4 UUIDs → 400 (`IsUUID('4')`).
   - Batch `trainedAt` is only `IsString`: garbage → 400 `Invalid trainedAt` (service message).
   - Single create uses `IsDateString`: garbage → 400 from the DTO, with a different message.
@@ -258,14 +258,14 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
   - Assert ordering `trainedAt DESC, createdAt DESC`.
   - Assert relations `trainer`, `location`, `subscription`, `gymSubscription` are loaded.
   - Assert `/paid` and `/unpaid` filter and the base route returns both.
-- [ ] **ATT-31** [E] P0. TRAINEE on `/attendance/trainees/:ownId` (and `/paid`, `/unpaid`) → 200. Another trainee's id → 403 `TRAINEE can only access trainings for their own trainee profile`.
-- [ ] **ATT-32** [E] P0. TRAINEE → 403 on create, batch, delete, dates, sessions and both reports.
+- [x] **ATT-31** [E] P0. TRAINEE on `/attendance/trainees/:ownId` (and `/paid`, `/unpaid`) → 200. Another trainee's id → 403 `TRAINEE can only access trainings for their own trainee profile`.
+- [x] **ATT-32** [E] P0. TRAINEE → 403 on create, batch, delete, dates, sessions and both reports.
 
 ---
 
 ## 4. Cash register: P0
-- [ ] **Module done**
-- [x] **Service layer done** (`cash-register.service.int-spec.ts`). Remaining for the module: [E] CR-10, CR-11.
+- [x] **Module done** (service layer: `cash-register.service.int-spec.ts`; HTTP: `test/e2e/cash-register.e2e-spec.ts`, CR-10, CR-11)
+- [x] **Service layer done** (`cash-register.service.int-spec.ts`).
 
 Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `cash_register_kv` (`cash_register_balance_cents`). Each change appends a transaction with `balanceAfterCents`.
 
@@ -284,8 +284,8 @@ Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `ca
   - Assert `SETTLEMENT_OUT` → `{ periodStart, periodEnd }`.
   - Assert MANUAL or a deleted source → `null`.
 - [x] **CR-09** [I] P2. Concurrency: parallel manual OUTs that together exceed the balance. Assert the final balance ≥ 0 and equals Σ committed tx amounts. Flaky-prone, optional.
-- [ ] **CR-10** [E] P0. ADMIN only: TRAINER/TRAINEE → 403 on both routes.
-- [ ] **CR-11** [E] P1. DTO: `direction` not `IN|OUT` → 400; `amountCents` 0, negative or non-integer → 400; `notes: ''` → 400.
+- [x] **CR-10** [E] P0. ADMIN only: TRAINER/TRAINEE → 403 on both routes.
+- [x] **CR-11** [E] P1. DTO: `direction` not `IN|OUT` → 400; `amountCents` 0, negative or non-integer → 400; `notes: ''` → 400.
 
 ---
 
