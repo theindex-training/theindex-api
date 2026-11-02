@@ -23,7 +23,7 @@ import { TrainerProfileEntity } from '../../src/trainer-profiles/trainer-profile
 
 /** Admin seeded by the real BootstrapService (INF-07). */
 export const E2E_ADMIN = { email: 'e2e-admin', password: 'e2e-admin-pass' };
-const E2E_JWT_SECRET = 'e2e-test-only-secret';
+export const E2E_JWT_SECRET = 'e2e-test-only-secret';
 
 /**
  * INF-06: boots the full AppModule with the same setup as `main.ts`
@@ -180,6 +180,27 @@ export class E2eContext {
     });
   }
 
+  /**
+   * Every route registered on the Express app, as `METHOD /path` (e.g.
+   * `GET /api/plans/:id`). Used by the role matrix (AUTH-11) to fail when a
+   * route is added without a row.
+   */
+  registeredRoutes(): string[] {
+    type Layer = {
+      route?: { path: string; methods: Record<string, boolean> };
+    };
+    const express = this.app.getHttpAdapter().getInstance() as {
+      router: { stack: Layer[] };
+    };
+    return express.router.stack.flatMap((layer) =>
+      layer.route
+        ? Object.keys(layer.route.methods).map(
+            (m) => `${m.toUpperCase()} ${layer.route!.path}`,
+          )
+        : [],
+    );
+  }
+
   // ---- reference data (plain CRUD, inserted directly) ----
 
   trainer(name = 'Trainer', extra: DeepPartial<TrainerProfileEntity> = {}) {
@@ -249,6 +270,13 @@ export class E2eContext {
       .findOneBy({ key: 'cash_register_balance_cents' });
     return row ? Number(row.value) : 0;
   }
+}
+
+/** Decodes a JWT payload without verifying it (the app already did). */
+export function jwtPayload(token: string): Record<string, unknown> {
+  return JSON.parse(
+    Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
+  ) as Record<string, unknown>;
 }
 
 /** Reads `message` from a Nest error body (string or validation array). */

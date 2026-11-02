@@ -4,6 +4,18 @@ Each entry is pinned by a characterization test marked `// CHARACTERIZATION: pos
 
 Ordered by impact (money and data integrity first).
 
+## accounts: a TRAINER can take over the ADMIN account (security)
+- Test: `test/e2e/accounts.e2e-spec.ts` > `ACC-15 TRAINER resets the ADMIN password without the current one and logs in as ADMIN`; `ACC-15 TRAINER can PATCH (email/password/status) and DELETE an ADMIN account, and provision accounts`; also pinned row by row in `test/e2e/role-matrix.e2e-spec.ts` (AUTH-11)
+- Current behavior: `AccountsController` allows `ADMIN` and `TRAINER` on every route and never looks at the target account's role. A TRAINER can `POST /api/accounts/<adminId>/change-password` with only `newPassword`/`confirmPassword` (+ a `phone`, because the seeded admin hasn't changed the initial password); no current password is needed because it isn't a self change. The TRAINER can then log in as ADMIN with the new password, and the real admin is locked out. The same TRAINER can `PATCH` the admin's email, password and status, `DELETE` (disable) the admin, re-enable it, and provision new TRAINER/TRAINEE accounts.
+- Why it looks unintended: every money route that matters (cash register, settlement generate/finalize/delete, trainer CRUD) is ADMIN-only, so TRAINER is clearly meant to be the less trusted role. This path turns any trainer account into a full admin.
+- Impact / who would notice: the owner. A trainer (or anyone with a trainer's password) can take over the admin account, move cash, delete settlements and lock the owner out. Combined with the next entry, revoking access afterwards doesn't end an open session. Open question Q5.
+
+## auth: a JWT stays valid after its account is disabled or deleted
+- Test: `test/e2e/auth.e2e-spec.ts` > `AUTH-09 a token stays valid after its account is DISABLED or deleted (no DB check)`
+- Current behavior: `JwtStrategy.validate` returns the token payload without reading the database. After `DELETE /api/accounts/:id` (status DISABLED, profile links cleared) the old token still reads that trainee's subscriptions and training insights, and after the account row is deleted outright `GET /api/auth/me` still returns 200 with the old claims. Role and profile changes are likewise invisible until the token expires (7 days).
+- Why it looks unintended: disabling an account is the only "revoke access" tool the API has, and it doesn't revoke anything for up to 7 days.
+- Impact / who would notice: the owner, when removing a trainer or a former member; they keep working access (incl. TRAINER write access) until their token expires. Same root cause as the TRN-06/TRP-03 entries below, but those are about logging in again.
+
 ## attendance: concurrent creates on the same PUNCH subscription can deadlock (500)
 - Test: `src/attendance/attendance.service.int-spec.ts` > `ATT-09 parallel creates on a 1-credit sub: exactly one PAID, credits never < 0, the loser is UNPAID or fails with a deadlock`
 - Current behavior: when two `create` calls for the same trainee run at the same time against a PUNCH sub, about half the time Postgres aborts one of them with `deadlock detected` (`QueryFailedError`, so HTTP 500). Each transaction first inserts the attendance row, whose FK on `subscriptionId` takes a `FOR KEY SHARE` lock on the subscription row. Both then run `SELECT … FOR UPDATE` on that row, and `FOR UPDATE` conflicts with the other transaction's `KEY SHARE`. The rest of the time the second transaction waits, sees 0 credits and takes the "revert to UNPAID" branch, as the code intends. Either way the money invariants hold: exactly one PAID row, credits never below 0, and the aborted request leaves nothing behind.
@@ -77,7 +89,7 @@ Ordered by impact (money and data integrity first).
 - Impact / who would notice: security. Staff know working passwords for trainee accounts indefinitely. Combined with ACC-15 (TRAINER can reset any account, incl. ADMIN), a trainer can take over an admin account without the admin ever being asked to change the password.
 
 ## auth: login reveals that an account exists and is disabled, even with a wrong password
-- Test: `src/auth/auth.service.int-spec.ts` > `AUTH-04 status is checked before the password, so a wrong password reveals a disabled account`
+- Test: `src/auth/auth.service.int-spec.ts` > `AUTH-04 status is checked before the password, so a wrong password reveals a disabled account`; `test/e2e/auth.e2e-spec.ts` > `AUTH-04 a wrong password on a DISABLED account also reveals the status`
 - Current behavior: `validateUser` checks `status !== ACTIVE` before comparing the password. Any password for a DISABLED account returns 401 `Account is not active (DISABLED)`; an unknown email returns `Invalid credentials`.
 - Why it looks unintended: unknown email and wrong password deliberately share one message (AUTH-03), which suggests enumeration was meant to be avoided. The status branch undoes that for disabled accounts.
 - Impact / who would notice: low. Someone guessing emails can tell which ones belong to disabled (e.g. deleted, see next entry) accounts.
@@ -143,10 +155,10 @@ Ordered by impact (money and data integrity first).
 - Impact / who would notice: minor; anything that checks `phone !== null` (e.g. the frontend) treats the trainee as having a phone.
 
 ## trainee profiles: searching trainees by name, nickname or phone always fails (500)
-- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-01 any non-blank search fails with a non-HTTP error (500); blank search is ignored`
+- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-01 any non-blank search fails with a non-HTTP error (500); blank search is ignored`; `test/e2e/trainee-profiles.e2e-spec.ts` > `TRN-01 GET /trainees?search=%s -> 500 (the where uses columns that do not exist)`
 - Current behavior: `list({ search })` builds an OR of `firstName ILIKE`, `lastName ILIKE` and `phone ILIKE`. The entity has no `firstName`/`lastName` columns (it has `name` and `nickname`), so TypeORM throws `EntityPropertyNotFoundError` for **every** non-blank search, phone searches included. It isn't an `HttpException`, so `GET /api/trainees?search=…` answers 500. A blank or whitespace-only search is ignored and returns the normal list.
 - Why it looks unintended: the columns were renamed (or never existed) and the search was not updated. Nickname isn't searched at all.
-- Impact / who would notice: staff using the trainee search box; every search shows an error. Planned [E] test TRN-01 will pin the status code.
+- Impact / who would notice: staff using the trainee search box; every search shows an error. Confirmed over HTTP: `GET /api/trainees?search=Ivan` (or a phone number) answers 500.
 
 ## attendance sessions: startTime/endTime are one continuous range, not a daily time window
 - Test: `src/attendance/attendance-read.service.int-spec.ts` > `ATR-11 startTime/endTime bound one continuous range, not a daily time window`
@@ -185,13 +197,13 @@ Ordered by impact (money and data integrity first).
 - Impact / who would notice: staff linking an existing account from the trainee screen; the trainee then can't log in to their data, and a typo'd id gives a generic server error.
 
 ## trainee profiles: a deactivated trainee's account can still log in
-- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-06 the deactivated trainee's linked account can still log in with its profile claim`
+- Test: `src/trainee-profiles/trainee-profiles.service.int-spec.ts` > `TRN-06 the deactivated trainee's linked account can still log in with its profile claim`; `test/e2e/trainee-profiles.e2e-spec.ts` > `TRN-06 after DELETE the linked account still logs in and reads its own data; no new attendance or subscriptions`
 - Current behavior: `DELETE /trainees/:id` only sets `isActive = false` on the profile. The linked account stays ACTIVE, `validateUser` succeeds and the JWT still carries `traineeProfileId`, so the trainee keeps access to their own subscriptions, attendance and insights.
 - Why it looks unintended: deactivating a member usually means revoking their app access too.
 - Impact / who would notice: former members keep app access until someone also disables the account (`PATCH /accounts/:id`).
 
 ## plans: a whitespace-only title is stored as an empty string
-- Test: `src/plans/plans.service.int-spec.ts` > `PLN-03 a whitespace-only title passes the DTO and is stored as an empty string`
+- Test: `src/plans/plans.service.int-spec.ts` > `PLN-03 a whitespace-only title passes the DTO and is stored as an empty string`; `test/e2e/plans.e2e-spec.ts` > `PLN-03 a whitespace-only title passes the DTO and is stored as ""`
 - Current behavior: `CreatePlanDto.title` is `@IsNotEmpty()`, which accepts `'   '`. The service then trims it to `''` and saves a plan with an empty title.
 - Why it looks unintended: `IsNotEmpty` plus trimming shows a non-empty title was intended.
 - Impact / who would notice: minor; a plan with a blank name in the plan picker and in reports (`planName: ''`).
@@ -209,7 +221,7 @@ Ordered by impact (money and data integrity first).
 - Impact / who would notice: the owner, when a trainer leaves. Access lasts until someone also disables the account (`DELETE /accounts/:id`).
 
 ## gym locations / gym subscriptions: `includeInactive=1` passes validation but is treated as false
-- Test: `src/gym-locations/gym-locations.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive locations`; `src/gym-subscriptions/gym-subscriptions.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive ones`
+- Test: `src/gym-locations/gym-locations.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive locations`; `src/gym-subscriptions/gym-subscriptions.service.int-spec.ts` > `GL-02 includeInactive '1' passes query validation but still hides inactive ones`; `test/e2e/gym-locations.e2e-spec.ts` > `GL-02 includeInactive=1 passes the DTO but is treated as false` (both resources)
 - Current behavior: the list query DTOs use `@IsBooleanString()`, which accepts `'true'`, `'false'`, `'1'` and `'0'`. Both services then check `includeInactive === 'true'`, so `?includeInactive=1` returns 200 with only active rows.
 - Why it looks unintended: the validator explicitly allows `1` as a boolean, and the service silently treats it as false instead of rejecting it.
 - Impact / who would notice: low. Only a client that sends `1` is affected; it gets a list with the inactive rows missing and no error. Which value the front sends was not checked against the front repo.
@@ -225,6 +237,42 @@ Ordered by impact (money and data integrity first).
 - Current behavior: Postgres `time` columns read back as `'HH:mm:ss'`. `POST` returns the input strings (`'09:00'`), `GET` returns `'09:00:00'`, and `PATCH { endTime: '11:00' }` returns `{ startTime: '09:00:00', endTime: '11:00' }`, two formats in one body.
 - Why it looks unintended: one resource, one field type, three possible shapes depending on the route and which fields were sent.
 - Impact / who would notice: low. Frontend code that compares or displays the PATCH response without normalizing (e.g. `startTime === '09:00'`) would get it wrong until the next reload.
+
+## trainee/trainer profiles: PATCH requires `name`, so partial updates fail
+- Test: `test/e2e/trainee-profiles.e2e-spec.ts` > `TRN-04 PATCH { isActive: false } without name -> 400; the trainee stays active`; `test/e2e/trainer-profiles.e2e-spec.ts` > `TRP-02 PATCH { nickname } without name -> 400; nothing changes`
+- Current behavior: `UpdateTraineeDto.name` and `UpdateTrainerDto.name` have no `@IsOptional()`, so every PATCH without `name` is rejected with 400 (`name must be longer than or equal to 2 characters`, `name must be a string`). Every other field on those DTOs is optional, and the services handle `name` being absent.
+- Why it looks unintended: a PATCH DTO whose other fields are all optional, next to services written for partial updates, reads like a copy of the create DTO where one decorator was missed.
+- Impact / who would notice: frontend or integration code that sends only the changed field (e.g. an "activate/deactivate" toggle) gets a 400. Not visible if the front always sends the whole form; not checked against the front repo.
+
+## plans: `?active=` values other than `true` are treated as `false`
+- Test: `test/e2e/plans.e2e-spec.ts` > `PLN-07 ?active=%s is treated as false (inactive only), not 400`
+- Current behavior: the plans controller parses `active` by hand: missing → all plans, `'true'` → active only, **anything else** (`yes`, `1`, `TRUE`, an empty value) → inactive only. Trainees and trainers use the same parsing (TRN-02, TRP-05). Gym locations/subscriptions validate the same kind of flag with a DTO and answer 400 instead (GL-02).
+- Why it looks unintended: a typo or a different boolean spelling silently returns the opposite set instead of an error.
+- Impact / who would notice: low; a client sending `active=1` gets only the inactive plans and no error.
+
+## accounts: `GET /accounts/:id` for an unknown id answers 200 with an empty body
+- Test: `test/e2e/accounts.e2e-spec.ts` > `ACC-13 an unknown id -> 200 with an empty body, not 404`
+- Current behavior: the controller returns `null` when `findById` finds nothing, and Nest sends `200` with an empty body (no JSON). Every other "get by id" route, including `GET /accounts/:id/password-status`, answers 404.
+- Why it looks unintended: inconsistent with the rest of the API and with the service's own `Account not found` 404 used by update/delete/password routes.
+- Impact / who would notice: frontend code that calls `res.json()` or reads fields on the result gets a parse error or `null` instead of a 404 it can handle.
+
+## gym locations / gym subscriptions: a deactivated row can't be reactivated
+- Test: `test/e2e/gym-locations.e2e-spec.ts` > `GL-03 there is no way to reactivate: PATCH { isActive: true } -> 400, still inactive` (both resources)
+- Current behavior: `DELETE` sets `isActive = false`, but `isActive` isn't on either update DTO, so `PATCH { isActive: true }` is rejected (`property isActive should not exist`) and no other route turns it back on. Renaming an inactive row works and keeps it inactive.
+- Why it looks unintended: soft delete is normally paired with a way to undo it; plans, trainees and trainers all accept `isActive` on PATCH.
+- Impact / who would notice: staff who deactivate a location or gym subscription by mistake must create a new one (losing the link to historical attendance) or fix it in the DB.
+
+## cross-cutting: non-UUID path ids return 500 instead of 400/404
+- Test: `test/e2e/cross-cutting.e2e-spec.ts` > `X-03 non-UUID path id on %s %s reaches Postgres -> 500`
+- Current behavior: no route uses `ParseUUIDPipe`, so a path id like `abc` reaches Postgres, which rejects it (`invalid input syntax for type uuid`), and the client gets a generic 500. Checked on `GET /plans/:id`, `GET /trainees/:id`, `DELETE /subscriptions/:id` and `GET /settlements/:id`.
+- Why it looks unintended: a malformed id is a client error; the same request with a well-formed unknown UUID answers 404 with a useful message.
+- Impact / who would notice: low. Mostly noise in error logs and monitoring; a frontend bug that builds a wrong URL shows a generic server error.
+
+## auth: a valid login with a password shorter than 3 characters gets 400
+- Test: `test/e2e/auth.e2e-spec.ts` > `AUTH-06 valid credentials with a password shorter than 3 chars -> 400 (MinLength runs after auth)`
+- Current behavior: `LocalAuthGuard` authenticates before the `ValidationPipe` runs. For an account whose real password is 1–2 characters, the right password passes the guard and then fails `LoginDto`'s `MinLength(3)` (400), while a wrong short password gets 401. Such passwords can't be set through the API today (`MinLength(8)` everywhere), only through the seed (`SEED_ADMIN_PASSWORD`) or the DB.
+- Why it looks unintended: the DTO check can never protect anything, because authentication already happened; it only produces a confusing 400 for a correct password. It also tells a caller that a short password was right.
+- Impact / who would notice: very low; only an admin seeded with a 1–2 character password (the example `.env` uses `admin`, 5 characters).
 
 ---
 
