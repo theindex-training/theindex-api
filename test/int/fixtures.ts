@@ -224,7 +224,9 @@ export async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
     await promise;
   } catch (err) {
     if (err instanceof Error) return err;
-    throw new Error(`Rejected with a non-Error value: ${String(err)}`);
+    throw new Error(`Rejected with a non-Error value: ${String(err)}`, {
+      cause: err,
+    });
   }
   throw new Error('Expected promise to reject, but it resolved');
 }

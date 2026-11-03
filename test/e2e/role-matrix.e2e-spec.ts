@@ -180,10 +180,7 @@ describe('AUTH-11 role matrix (e2e)', () => {
   async function call(row: Row, path: string, token?: string) {
     const c = ctx();
     const method = row.route.split(' ')[0].toLowerCase() as
-      | 'get'
-      | 'post'
-      | 'patch'
-      | 'delete';
+      'get' | 'post' | 'patch' | 'delete';
     let req = c.http()[method](path);
     if (token) req = req.set('Authorization', `Bearer ${token}`);
     if (row.body) req = req.send(row.body);
