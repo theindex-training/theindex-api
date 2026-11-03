@@ -20,7 +20,7 @@ describe('fromGymLocalToUtc (DT-01)', () => {
 
   // Regression: on Node 20, Intl's hour12:false resolved to hourCycle h24,
   // so midnight read as hour 24 and every 00:xx time came out one day early.
-  // These must hold on every Node version (CI and production run Node 20).
+  // These must hold on every Node version (CI and production use `.nvmrc`).
   it('DT-01 00:xx gym-local times convert to the same day, not one day early', () => {
     expect(iso(2026, 1, 1, 0, 0)).toBe('2025-12-31T22:00:00.000Z');
     expect(iso(2026, 1, 1, 0, 30)).toBe('2025-12-31T22:30:00.000Z');
