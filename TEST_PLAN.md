@@ -530,7 +530,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 ---
 
 ## 11. Subscriptions cron: P1
-- [x] **Module done** (CRON-01 in `subscriptions.service.int-spec.ts`; CRON-02 in `subscriptions-cron.service.int-spec.ts`, plus a Sofia-TZ variant under DT-06)
+- [x] **Module done** (CRON-01 in `subscriptions.service.int-spec.ts`; CRON-02 and CRON-03 in `subscriptions-cron.service.int-spec.ts`, plus a Sofia-TZ variant under DT-06)
 
 - [x] **CRON-01** [I] P0. `exhaustPastEndTimeSubscriptions()`:
   - TIME + ACTIVE + `endsAt < now` → **EXHAUSTED**.
@@ -542,7 +542,8 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - After advancing to the run time, assert an expired TIME sub becomes EXHAUSTED and the next run is scheduled.
   - After `onModuleDestroy`, assert nothing fires.
   - Done: `freezeTimeAndTimeouts` (`test/int/clock.ts`) fakes only `Date` + `setTimeout`/`clearTimeout`, so `pg` keeps working. `test/int/cron-harness.ts` drives the lifecycle hooks and waits for each run. Also pinned: the month/year rollover (Dec 31 → Jan 1), a third consecutive run, and destroy after a run. Every assertion checks whether an expired TIME sub is EXHAUSTED yet.
-  - ⚠ Found while writing it: a run whose DB update throws is an unhandled rejection. On Node 20 and 24 (default `--unhandled-rejections=throw`) that crashes the process, and the next run is never scheduled. It isn't pinned by a test, because Jest fails any test that has an unhandled rejection. Reproduced outside Jest; see TEST_NOTES.
+  - ✅ Fixed (found while writing it): a run whose DB update threw was an unhandled rejection. On Node 20 and 24 (default `--unhandled-rejections=throw`) that crashed the process, and the next run was never scheduled. See CRON-03 and TEST_NOTES § Fixed.
+- [x] **CRON-03** [I] P1. A failed run (the job's UPDATE throws) is logged, doesn't reject, and the next run is still scheduled for 02:00 UTC the following day; also when the failure follows a successful run. In `subscriptions-cron.service.int-spec.ts`; the failure is a real DB error (`withSubscriptionsTableOffline` in `test/int/cron-harness.ts` renames the `subscriptions` table during the run), and `runOutcomes()` checks that the failed run really happened.
 
 ---
 

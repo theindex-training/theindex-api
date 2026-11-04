@@ -51,6 +51,27 @@ export function setupCronHarness(fixtures: () => Fixtures) {
   return {
     cron: () => cron,
 
+    /** Outcome of every job run started so far (in start order). */
+    runOutcomes,
+
+    /**
+     * Makes the job's UPDATE fail (as with a DB outage) while `fn` runs, by
+     * renaming the `subscriptions` table away and back.
+     */
+    withSubscriptionsTableOffline: async (fn: () => Promise<void>) => {
+      const ds = fixtures().ds;
+      await ds.query(
+        'ALTER TABLE "subscriptions" RENAME TO "subscriptions_offline"',
+      );
+      try {
+        await fn();
+      } finally {
+        await ds.query(
+          'ALTER TABLE "subscriptions_offline" RENAME TO "subscriptions"',
+        );
+      }
+    },
+
     /** Advances fake time (firing due timeouts) and waits for the job. */
     advance: async (ms: number): Promise<void> => {
       await jest.advanceTimersByTimeAsync(ms);

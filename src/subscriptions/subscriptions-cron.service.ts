@@ -44,11 +44,20 @@ export class SubscriptionsCronService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  // A rejection here stays unhandled, exactly as with the former async
-  // setTimeout callback (see TEST_NOTES, CRON-02).
+  // Never rejects: a failed run (e.g. the DB is unreachable at 02:00 UTC) is
+  // logged, and the next run is scheduled whether or not this one succeeded.
+  // An unhandled rejection here would crash the process (CRON-03).
   private async runAndScheduleNext(): Promise<void> {
-    await this.exhaustPastEndTimeSubscriptions();
-    this.scheduleNextRun();
+    try {
+      await this.exhaustPastEndTimeSubscriptions();
+    } catch (error) {
+      this.logger.error(
+        'Daily TIME subscription exhaustion job failed; it will run again at the next scheduled time.',
+        error instanceof Error ? error.stack : String(error),
+      );
+    } finally {
+      this.scheduleNextRun();
+    }
   }
 
   private async exhaustPastEndTimeSubscriptions(): Promise<void> {
