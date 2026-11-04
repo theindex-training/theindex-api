@@ -14,7 +14,14 @@ const { ACTIVE, EXHAUSTED } = SubscriptionStatus;
  */
 describe('SubscriptionsCronService scheduling (integration)', () => {
   const fixtures = setupIntegrationSuite();
-  const { cron, advance, timeSub, statusOf } = setupCronHarness(fixtures);
+  const {
+    cron,
+    advance,
+    timeSub,
+    statusOf,
+    runOutcomes,
+    withSubscriptionsTableOffline,
+  } = setupCronHarness(fixtures);
 
   it('CRON-02 started before 02:00 UTC: the first run is today at exactly 02:00:00.000 UTC', async () => {
     const expired = await timeSub('2026-01-09T12:00:00.000Z');
@@ -118,5 +125,52 @@ describe('SubscriptionsCronService scheduling (integration)', () => {
 
     await advance(3 * DAY_MS);
     expect(await statusOf(endsAfterRun1.id)).toBe(ACTIVE);
+  });
+
+  it('CRON-03 a failed run is handled and the next run is still scheduled for 02:00 UTC the following day', async () => {
+    const expired = await timeSub('2026-01-09T12:00:00.000Z');
+    freezeTimeAndTimeouts('2026-01-10T01:00:00.000Z');
+
+    cron().onModuleInit();
+
+    // run 1 at 2026-01-10T02:00Z: the UPDATE fails. Before the fix this was
+    // an unhandled rejection (Jest fails the test; Node exits the process)
+    // and no further run was scheduled.
+    await withSubscriptionsTableOffline(() => advance(HOUR_MS));
+    const [run1] = await runOutcomes();
+    expect(run1.status).toBe('rejected');
+    expect(await statusOf(expired.id)).toBe(ACTIVE);
+
+    await advance(DAY_MS - 1); // 2026-01-11T01:59:59.999Z
+    expect(await statusOf(expired.id)).toBe(ACTIVE);
+
+    await advance(1); // run 2: 2026-01-11T02:00Z
+    expect(await statusOf(expired.id)).toBe(EXHAUSTED);
+    expect((await runOutcomes()).map((r) => r.status)).toEqual([
+      'rejected',
+      'fulfilled',
+    ]);
+  });
+
+  it('CRON-03 a failure after a successful run does not stop the schedule either', async () => {
+    const endedBeforeRun1 = await timeSub('2026-01-09T12:00:00.000Z');
+    const endsBeforeRun2 = await timeSub('2026-01-10T12:00:00.000Z');
+    freezeTimeAndTimeouts('2026-01-10T01:00:00.000Z');
+
+    cron().onModuleInit();
+
+    await advance(HOUR_MS); // run 1: 2026-01-10T02:00Z succeeds
+    expect(await statusOf(endedBeforeRun1.id)).toBe(EXHAUSTED);
+
+    await withSubscriptionsTableOffline(() => advance(DAY_MS)); // run 2 fails
+    expect(await statusOf(endsBeforeRun2.id)).toBe(ACTIVE);
+
+    await advance(DAY_MS); // run 3: 2026-01-12T02:00Z
+    expect(await statusOf(endsBeforeRun2.id)).toBe(EXHAUSTED);
+    expect((await runOutcomes()).map((r) => r.status)).toEqual([
+      'fulfilled',
+      'rejected',
+      'fulfilled',
+    ]);
   });
 });
