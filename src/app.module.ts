@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountsModule } from './accounts/accounts.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ArticleCategoriesModule } from './article-categories/article-categories.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
@@ -54,6 +55,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     TrainingTimesModule,
     SettlementsModule,
     MediaModule,
+    ArticleCategoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
