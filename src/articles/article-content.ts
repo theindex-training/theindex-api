@@ -253,6 +253,68 @@ function caption(value: unknown, where: string): string {
   return sanitizeInline(value);
 }
 
+/**
+ * The text of an article without markup, one block per paragraph: for search, the description
+ * fallback and digest emails. Headings, paragraphs, list items, quotes and captions count.
+ */
+export function contentToPlainText(content: ArticleContent): string {
+  const parts: string[] = [];
+  const add = (html: string) => {
+    const text = htmlToText(html);
+    if (text) parts.push(text);
+  };
+  const addItems = (items: ListItem[]) => {
+    for (const item of items) {
+      add(item.content);
+      addItems(item.items);
+    }
+  };
+
+  for (const block of content.blocks) {
+    switch (block.type) {
+      case 'paragraph':
+      case 'header':
+        add(block.data.text);
+        break;
+      case 'list':
+        addItems(block.data.items);
+        break;
+      case 'quote':
+        add(block.data.text);
+        add(block.data.caption);
+        break;
+      case 'image':
+      case 'embed':
+        add(block.data.caption);
+        break;
+    }
+  }
+  return parts.join('\n\n');
+}
+
+const ENTITIES: Readonly<Record<string, string>> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+  nbsp: ' ',
+};
+
+/** Sanitized inline HTML to plain text: tags dropped, entities decoded, spaces collapsed. */
+function htmlToText(html: string): string {
+  return sanitizeHtml(html.replace(/<br\s*\/?>/gi, ' '), {
+    allowedTags: [],
+    allowedAttributes: {},
+  })
+    .replace(
+      /&(amp|lt|gt|quot|#39|nbsp);/g,
+      (_, name: string) => ENTITIES[name],
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** The video id from a YouTube link (watch, youtu.be, embed, shorts), or undefined. */
 export function youtubeVideoId(link: unknown): string | undefined {
   if (typeof link !== 'string') return undefined;

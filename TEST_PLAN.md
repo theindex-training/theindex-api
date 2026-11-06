@@ -721,3 +721,5 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | GET / POST | `/articles` | ✅ | 🔒 | 🔒 |
 | GET | `/articles/:id` | ✅ | 🔒 | 🔒 |
 | PATCH | `/articles/:id/draft` | ✅ | 🔒 | 🔒 |
+| POST | `/articles/:id/publish`, `/articles/:id/unpublish`, `/articles/:id/discard-draft` | ✅ | 🔒 | 🔒 |
+| DELETE | `/articles/:id` | ✅ | 🔒 | 🔒 |

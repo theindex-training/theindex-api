@@ -12,6 +12,7 @@ import {
   InvalidContentError,
   normalizeContent,
 } from './article-content';
+import { ArticleCategoryLinkEntity } from './article-category-link.entity';
 import { ArticleDraft, ArticleEntity, ArticleStatus } from './article.entity';
 import { CreateArticleDto } from './dto/create-article.dto';
 import {
@@ -31,6 +32,8 @@ export interface PublishedVersion {
   featuredMediaId: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  /** The published categories (the links), as opposed to the draft's categoryIds. */
+  categoryIds: string[];
 }
 
 export interface ArticleResponse {
@@ -79,13 +82,15 @@ export interface ArticlePage {
 
 /**
  * Articles in the back office (ADMIN): creating drafts, the list, and autosave. Publishing and
- * the rest of the lifecycle come next (backlog item 6, second part).
+ * the rest of the lifecycle are in ArticlePublishingService.
  */
 @Injectable()
 export class ArticlesService {
   constructor(
     @InjectRepository(ArticleEntity)
     private readonly repo: Repository<ArticleEntity>,
+    @InjectRepository(ArticleCategoryLinkEntity)
+    private readonly links: Repository<ArticleCategoryLinkEntity>,
   ) {}
 
   async create(dto: CreateArticleDto, accountId: string | null) {
@@ -146,7 +151,15 @@ export class ArticlesService {
   }
 
   async get(id: string): Promise<ArticleResponse> {
-    return toResponse(await this.findOrFail(id));
+    const article = await this.findOrFail(id);
+    const links = await this.links.find({
+      where: { articleId: id },
+      order: { categoryId: 'ASC' },
+    });
+    return toResponse(
+      article,
+      links.map((l) => l.categoryId),
+    );
   }
 
   /**
@@ -163,22 +176,26 @@ export class ArticlesService {
       );
     }
 
-    const draft: ArticleDraft = { ...article.draft };
-    if (dto.title !== undefined) draft.title = dto.title;
-    if (dto.excerpt !== undefined) draft.excerpt = dto.excerpt || null;
-    if (dto.content !== undefined)
-      draft.content = contentOrBadRequest(dto.content);
+    // Only the fields that were sent. They are merged into the stored draft by the UPDATE
+    // itself, so a change made to other fields meanwhile (e.g. a deleted category dropped from
+    // drafts) is never written back over.
+    const changes: Partial<ArticleDraft> = {};
+    if (dto.title !== undefined) changes.title = dto.title;
+    if (dto.excerpt !== undefined) changes.excerpt = dto.excerpt || null;
+    if (dto.content !== undefined) {
+      changes.content = contentOrBadRequest(dto.content);
+    }
     if (dto.featuredMediaId !== undefined) {
-      draft.featuredMediaId = dto.featuredMediaId?.toLowerCase() ?? null;
+      changes.featuredMediaId = dto.featuredMediaId?.toLowerCase() ?? null;
     }
     if (dto.categoryIds !== undefined) {
-      draft.categoryIds = dto.categoryIds.map((c) => c.toLowerCase());
+      changes.categoryIds = dto.categoryIds.map((c) => c.toLowerCase());
     }
-    if (dto.seoTitle !== undefined) draft.seoTitle = dto.seoTitle || null;
+    if (dto.seoTitle !== undefined) changes.seoTitle = dto.seoTitle || null;
     if (dto.seoDescription !== undefined) {
-      draft.seoDescription = dto.seoDescription || null;
+      changes.seoDescription = dto.seoDescription || null;
     }
-    if (dto.slug !== undefined) draft.slug = dto.slug || null;
+    if (dto.slug !== undefined) changes.slug = dto.slug || null;
 
     // Only if the draft is still at the revision the client saw: a stale tab, or a concurrent
     // save that got in first, loses (409) instead of silently overwriting.
@@ -186,7 +203,7 @@ export class ArticlesService {
       .createQueryBuilder()
       .update(ArticleEntity)
       .set({
-        draft,
+        draft: () => '"draft" || :changes::jsonb',
         draftRevision: () => '"draftRevision" + 1',
         draftUpdatedAt: () => 'now()',
         hasUnpublishedChanges: true,
@@ -196,6 +213,7 @@ export class ArticlesService {
         id,
         base: dto.baseRevision,
       })
+      .setParameter('changes', JSON.stringify(changes))
       .execute();
 
     if (!result.affected) {
@@ -223,7 +241,7 @@ function contentOrBadRequest(input: unknown) {
 }
 
 /** 409 with the current revision, so the client can tell the user and reload. */
-function staleRevision(currentRevision: number) {
+export function staleRevision(currentRevision: number) {
   return new ConflictException({
     statusCode: HttpStatus.CONFLICT,
     error: 'Conflict',
@@ -238,7 +256,10 @@ function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-function toResponse(a: ArticleEntity): ArticleResponse {
+function toResponse(
+  a: ArticleEntity,
+  publishedCategoryIds: string[],
+): ArticleResponse {
   return {
     id: a.id,
     language: a.language,
@@ -252,6 +273,7 @@ function toResponse(a: ArticleEntity): ArticleResponse {
           featuredMediaId: a.featuredMediaId,
           seoTitle: a.seoTitle,
           seoDescription: a.seoDescription,
+          categoryIds: publishedCategoryIds,
         }
       : null,
     draft: a.draft,

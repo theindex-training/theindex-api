@@ -4,7 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
+import { ArticleCategoryLinkEntity } from '../articles/article-category-link.entity';
+import { ArticleEntity, ArticleStatus } from '../articles/article.entity';
+import { violatedUniqueIndex } from '../common/utils/db-errors';
 import { slugify, uniqueSlug } from '../common/utils/slug.util';
 import {
   ArticleCategoryEntity,
@@ -21,15 +24,13 @@ export const DEFAULT_LANGUAGE = 'bg';
 /** Slug for a name that gives none (e.g. only emoji): "kategoria", "kategoria-2", ... */
 const FALLBACK_SLUG = 'kategoria';
 
-/** Postgres error code for a unique constraint violation. */
-const UNIQUE_VIOLATION = '23505';
-
 /**
  * Article categories for the back office (ADMIN). The public endpoints come with the articles
  * (backlog item 7): a category is only public once it has a published article.
  *
  * Slugs and names (ignoring case) are unique per language. The unique indexes decide both,
- * so two concurrent requests can't both win; a violation is answered with 409.
+ * so two concurrent requests can't both win; a violation is answered with 409. A slug is fixed
+ * while a published article uses the category, so its page doesn't move under readers.
  */
 @Injectable()
 export class ArticleCategoriesService {
@@ -80,7 +81,12 @@ export class ArticleCategoriesService {
       category.name = dto.name;
       category.nameKey = nameKeyOf(dto.name);
     }
-    if (dto.slug !== undefined) {
+    if (dto.slug !== undefined && dto.slug !== category.slug) {
+      if (await this.usedByPublishedArticle(category.id)) {
+        throw new ConflictException(
+          "The slug can't change while published articles use this category",
+        );
+      }
       category.slug = dto.slug;
     }
     if (dto.description !== undefined) {
@@ -94,10 +100,31 @@ export class ArticleCategoriesService {
     return this.get(category.id);
   }
 
+  /**
+   * Deletes the category. Articles stay: their published links go with it (ON DELETE CASCADE),
+   * and it is dropped from drafts' categoryIds, so the next publish doesn't fail over it.
+   */
   async delete(id: string) {
     const category = await this.get(id);
-    await this.repo.delete(category.id);
+    await this.repo.manager.transaction(async (m) => {
+      await m.query(
+        `UPDATE "articles"
+            SET "draft" = jsonb_set("draft", '{categoryIds}', ("draft" -> 'categoryIds') - $1::text)
+          WHERE "draft" -> 'categoryIds' @> jsonb_build_array($1::text)`,
+        [category.id],
+      );
+      await m.delete(ArticleCategoryEntity, { id: category.id });
+    });
     return { deleted: true };
+  }
+
+  private usedByPublishedArticle(categoryId: string): Promise<boolean> {
+    return this.repo.manager
+      .createQueryBuilder(ArticleCategoryLinkEntity, 'l')
+      .innerJoin(ArticleEntity, 'a', 'a.id = l.articleId')
+      .where('l.categoryId = :categoryId', { categoryId })
+      .andWhere('a.status = :status', { status: ArticleStatus.PUBLISHED })
+      .getExists();
   }
 
   /** Slugs in use for the language. There are only a handful of categories, so all of them. */
@@ -142,16 +169,4 @@ export class ArticleCategoriesService {
       throw error;
     }
   }
-}
-
-/** The name of the unique index a failed save violated, if that is why it failed. */
-function violatedUniqueIndex(error: unknown): string | undefined {
-  if (!(error instanceof QueryFailedError)) return undefined;
-  const driverError = error.driverError as {
-    code?: string;
-    constraint?: string;
-  };
-  return driverError.code === UNIQUE_VIOLATION
-    ? driverError.constraint
-    : undefined;
 }

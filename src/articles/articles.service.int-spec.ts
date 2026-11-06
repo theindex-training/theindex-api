@@ -233,6 +233,44 @@ describe('ArticlesService (integration)', () => {
       expect(article.draft.title).toBe(won.value.draft.title);
     });
 
+    it('writes only the fields it was sent, so it cannot undo a change made meanwhile', async () => {
+      const fx = fixtures();
+      const created = await svc(fx).create({ title: 'Заглавие' }, null);
+      await svc(fx).saveDraft(
+        created.id,
+        { baseRevision: 0, categoryIds: [CATEGORY_A, CATEGORY_B] },
+        null,
+      );
+      // Hold the row, so the autosave below reads the draft and then waits to write it.
+      const tx = fx.ds.createQueryRunner();
+      await tx.startTransaction();
+      await tx.query('SELECT 1 FROM "articles" WHERE "id" = $1 FOR UPDATE', [
+        created.id,
+      ]);
+
+      const save = svc(fx).saveDraft(
+        created.id,
+        { baseRevision: 1, title: 'Ново' },
+        null,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Meanwhile, what deleting category B does to drafts (no new revision).
+      await tx.query(
+        `UPDATE "articles"
+            SET "draft" = jsonb_set("draft", '{categoryIds}', ("draft" -> 'categoryIds') - $2::text)
+          WHERE "id" = $1`,
+        [created.id, CATEGORY_B],
+      );
+      await tx.commitTransaction();
+      await tx.release();
+      const saved = await save;
+
+      expect(saved.draft).toMatchObject({
+        title: 'Ново',
+        categoryIds: [CATEGORY_A],
+      });
+    });
+
     it('records who saved last', async () => {
       const fx = fixtures();
       const first = await admin(fx, 'first@example.com');
