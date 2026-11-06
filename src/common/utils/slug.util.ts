@@ -48,6 +48,11 @@ const BULGARIAN_TO_LATIN: Readonly<Record<string, string>> = {
   ь: 'y',
   ю: 'yu',
   я: 'ya',
+  // Bulgarian also writes "ѝ" (the pronoun) and, rarely, "ѐ" with a grave accent to tell
+  // words apart; the accent is not transliterated. NFC (see slugify) turns a base letter plus a
+  // combining grave into these characters too.
+  ѝ: 'i',
+  ѐ: 'e',
 };
 
 /** Matches when no letter or digit follows, i.e. at the end of a word. */

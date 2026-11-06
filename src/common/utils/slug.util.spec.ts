@@ -50,6 +50,14 @@ describe('slugify', () => {
     expect(slugify('It’s Rock ’n’ Roll')).toBe('its-rock-n-roll');
   });
 
+  it('keeps the accented "ѝ" and "ѐ" as "i" and "e"', () => {
+    expect(slugify('Тренировката ѝ')).toBe('trenirovkata-i');
+    expect(slugify('ѝ')).toBe('i');
+    expect(slugify('Ѝ сѐ още')).toBe('i-se-oshte');
+    // Typed as a base letter plus a combining grave accent.
+    expect(slugify('\u0438\u0300 \u0435\u0300')).toBe('i-e');
+  });
+
   it('treats a decomposed "й" (и + combining breve) like "й"', () => {
     expect(slugify('Чйт')).toBe('chyt');
     expect(slugify('Чйт')).toBe('chyt');
