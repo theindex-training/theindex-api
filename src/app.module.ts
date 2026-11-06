@@ -5,6 +5,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ArticleCategoriesModule } from './article-categories/article-categories.module';
+import { ArticlesModule } from './articles/articles.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
@@ -56,6 +57,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     SettlementsModule,
     MediaModule,
     ArticleCategoriesModule,
+    ArticlesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

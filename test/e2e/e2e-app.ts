@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -7,6 +8,7 @@ import { DataSource, DeepPartial } from 'typeorm';
 import { AppModule } from '../../src/app.module';
 import { AttendanceEntity } from '../../src/attendance/attendance.entity';
 import { BootstrapService } from '../../src/bootstrap/bootstrap.service';
+import { JSON_BODY_LIMIT } from '../../src/common/http/body-limit';
 import { CashRegisterKvEntity } from '../../src/cash-register/cash-register-kv.entity';
 import { CashRegisterTransactionEntity } from '../../src/cash-register/cash-register-transaction.entity';
 import { AccountRole } from '../../src/common/enums/account-role.enum';
@@ -27,7 +29,7 @@ export const E2E_JWT_SECRET = 'e2e-test-only-secret';
 
 /**
  * INF-06: boots the full AppModule with the same setup as `main.ts`
- * (`setGlobalPrefix('api')` + the global ValidationPipe options). `main.ts`
+ * (`setGlobalPrefix('api')`, the global ValidationPipe options and the JSON body limit). `main.ts`
  * is not exported, so the setup is duplicated here (TEST_PLAN Q4).
  *
  * DB settings come from DB_* (CI sets them to the test database). Env vars
@@ -49,6 +51,9 @@ export async function createE2eApp(): Promise<INestApplication<App>> {
   // Errors/warnings only: the per-request route and seed logs drown the output.
   const app = moduleRef.createNestApplication<INestApplication<App>>({
     logger: ['error', 'warn'],
+  });
+  (app as unknown as NestExpressApplication).useBodyParser('json', {
+    limit: JSON_BODY_LIMIT,
   });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(

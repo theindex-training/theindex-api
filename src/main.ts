@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { JSON_BODY_LIMIT } from './common/http/body-limit';
 import {
   DEV_MEDIA_ROUTE,
   isProduction,
@@ -20,6 +21,7 @@ function parseOrigins(value?: string) {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
 
   // Development only: serve uploaded images from the local storage folder, as nginx at
   // media.theindex.training does in production (MEDIA_PUBLIC_URL points here by default).

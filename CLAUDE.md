@@ -46,11 +46,13 @@ src/
   bootstrap/            # seeds the admin account on startup
 test/                   # e2e specs + jest-e2e.json
 ```
-Features: accounts, article-categories, attendance, cash-register, gym-locations, gym-subscriptions, media, plans, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`), trainee-profiles, trainer-profiles, training-times.
+Features: accounts, article-categories, articles, attendance, cash-register, gym-locations, gym-subscriptions, media, plans, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`), trainee-profiles, trainer-profiles, training-times.
 
 `media` holds images for the public site's articles (theindex-web `docs/decision-record.md`). `POST /api/media` takes a multipart upload (`file` + `altText`, ADMIN only). sharp turns it upright, strips its metadata (EXIF/GPS) and writes a master, WebP variants and a 1200×630 social preview under `MEDIA_STORAGE_DIR/<id>/`; responses give URLs under `MEDIA_PUBLIC_URL`. Settings are read on first use: without them in production, media requests answer 503 but the API still starts. In development the API serves `./media-storage` at `/media-files`.
 
 `article-categories` are the public site's article categories (ADMIN CRUD at `/api/article-categories`). The slug comes from the name through `common/utils/slug.util.ts` unless the admin chooses one, and renaming keeps it. Unique indexes on `(language, slug)` and `(language, nameKey)` (the lowercased name, never returned) decide clashes, concurrent ones included (409). The public endpoints come with the articles (theindex-web backlog item 7).
+
+`articles` are the public site's articles (ADMIN at `/api/articles`). Each row has a **published version** (columns, empty until the first publish) and a **working copy** (`draft` jsonb) that autosave (`PATCH /api/articles/:id/draft`) writes to, so half-written text never goes live. A save names the `draftRevision` it is based on and is applied with a conditional `UPDATE`, so a stale tab or a concurrent save gets 409 (with `currentRevision`). The body is Editor.js JSON, checked and sanitized by `articles/article-content.ts` (allowlisted blocks; inline HTML cut down to `b`, `i`, `a[href]`, `br`; images and YouTube stored as `mediaId`/`videoId`). The slug is set at the first publish and fixed after it. JSON bodies may be up to 1 MB (`common/http/body-limit.ts`, set in `main.ts` and the e2e app).
 
 ## API conventions
 - Every route is under `/api` (`app.setGlobalPrefix('api')`). Resources are kebab-case plurals: `/api/plans`, `/api/gym-locations`, `/api/trainees/:traineeId/subscriptions`, `/api/trainees/me/training-insights`.
