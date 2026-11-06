@@ -157,6 +157,12 @@ const MATRIX: Row[] = [
     r(`PATCH /${res}/:id`, ALLOW, ALLOW, GUARD),
     r(`DELETE /${res}/:id`, ALLOW, ALLOW, GUARD),
   ]),
+
+  // Media library (article images): ADMIN only in the MVP.
+  r('POST /media', ALLOW, GUARD, GUARD),
+  r('GET /media', ALLOW, GUARD, GUARD),
+  r('GET /media/:id', ALLOW, GUARD, GUARD),
+  r('PATCH /media/:id', ALLOW, GUARD, GUARD),
 ];
 
 /** A well-formed UUID that matches no row, so allowed calls can't mutate. */

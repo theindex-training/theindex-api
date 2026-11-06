@@ -714,3 +714,5 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | GET / PATCH / DELETE | `/gym-subscriptions/:id` | ✅ | ✅ | 🔒 |
 | GET / POST | `/training-times` | ✅ | ✅ | 🔒 |
 | GET / PATCH / DELETE | `/training-times/:id` | ✅ | ✅ | 🔒 |
+| GET / POST | `/media` | ✅ | 🔒 | 🔒 |
+| GET / PATCH | `/media/:id` | ✅ | 🔒 | 🔒 |
