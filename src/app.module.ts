@@ -10,6 +10,7 @@ import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { CashRegisterModule } from './cash-register/cash-register.module';
 import { GymLocationsModule } from './gym-locations/gym-locations.module';
 import { GymSubscriptionsModule } from './gym-subscriptions/gym-subscriptions.module';
+import { MediaModule } from './media/media.module';
 import { PlansModule } from './plans/plans.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -52,6 +53,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     AttendanceModule,
     TrainingTimesModule,
     SettlementsModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

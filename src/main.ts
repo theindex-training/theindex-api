@@ -1,7 +1,13 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import {
+  DEV_MEDIA_ROUTE,
+  isProduction,
+  loadMediaConfig,
+} from './media/media.config';
 
 function parseOrigins(value?: string) {
   if (!value) return true; // allow all if not set (ok for early dev)
@@ -13,7 +19,23 @@ function parseOrigins(value?: string) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Development only: serve uploaded images from the local storage folder, as nginx at
+  // media.theindex.training does in production (MEDIA_PUBLIC_URL points here by default).
+  if (!isProduction(process.env)) {
+    try {
+      const { storageDir } = loadMediaConfig(process.env, {
+        production: false,
+      });
+      app.useStaticAssets(storageDir, {
+        prefix: DEV_MEDIA_ROUTE,
+        index: false,
+      });
+    } catch {
+      // Invalid media settings: media requests answer 503 and log the problem.
+    }
+  }
 
   app.setGlobalPrefix('api');
 
