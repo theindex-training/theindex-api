@@ -7,13 +7,24 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/** Unique index names, so a violation can be told apart (the service answers 409 for each). */
+export const CATEGORY_SLUG_INDEX = 'UQ_article_categories_language_slug';
+export const CATEGORY_NAME_INDEX = 'UQ_article_categories_language_name_key';
+
+/** Names are unique per language ignoring case: the index compares this key. */
+export function nameKeyOf(name: string): string {
+  return name.toLowerCase();
+}
+
 /**
  * A category of articles on the public site, e.g. "Тренировки"
  * (theindex-web docs/decision-record.md, D12 and section 6). An article can be in several.
- * Its page is /articles/category/<slug>, so the slug is unique per language.
+ * Its page is /articles/category/<slug>, so the slug is unique per language; so is the name,
+ * ignoring case.
  */
 @Entity('article_categories')
-@Index(['language', 'slug'], { unique: true })
+@Index(CATEGORY_SLUG_INDEX, ['language', 'slug'], { unique: true })
+@Index(CATEGORY_NAME_INDEX, ['language', 'nameKey'], { unique: true })
 export class ArticleCategoryEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -24,6 +35,10 @@ export class ArticleCategoryEntity {
 
   @Column({ type: 'varchar', length: 60 })
   name!: string;
+
+  /** nameKeyOf(name). Internal: not selected, so it never appears in responses. */
+  @Column({ type: 'varchar', length: 60, select: false })
+  nameKey!: string;
 
   /** Latin, from the name by default (common/utils/slug.util.ts). */
   @Column({ type: 'varchar', length: 80 })

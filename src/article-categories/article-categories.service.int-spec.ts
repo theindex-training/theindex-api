@@ -222,11 +222,42 @@ describe('ArticleCategoriesService (integration)', () => {
     }
   });
 
+  it('lets only one of two concurrent creates have the same name, ignoring case (409 for the other)', async () => {
+    const fx = fixtures();
+
+    // Different slugs, so only the unique index on (language, nameKey) can tell them apart.
+    const results = await Promise.allSettled([
+      svc(fx).create({ name: 'Мобилност', slug: 'mobilnost-a' }),
+      svc(fx).create({ name: 'МОБИЛНОСТ', slug: 'mobilnost-b' }),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const [rejected] = results.filter((r) => r.status === 'rejected');
+    expect(rejected.reason).toBeInstanceOf(ConflictException);
+    expect((rejected.reason as Error).message).toMatch(
+      /^A category named "(Мобилност|МОБИЛНОСТ)" already exists$/,
+    );
+    expect(await rows(fx)).toHaveLength(1);
+  });
+
+  it('does not return its internal name key', async () => {
+    const fx = fixtures();
+    const created = await svc(fx).create({ name: 'Хранене' });
+    const updated = await svc(fx).update(created.id, { name: 'Сън' });
+
+    // As the HTTP response sends it: JSON leaves out undefined properties.
+    for (const category of [created, updated, ...(await svc(fx).list())]) {
+      expect(JSON.parse(JSON.stringify(category))).not.toHaveProperty(
+        'nameKey',
+      );
+    }
+  });
+
   it('lets only one of two concurrent creates have the same slug (409 for the other)', async () => {
     const fx = fixtures();
 
-    // Both can pass the "slug is free" check before either saves; the unique index on
-    // (language, slug) then rejects the second save, which the service turns into a 409.
+    // The unique index on (language, slug) rejects the second save; the service turns that
+    // into a 409.
     const results = await Promise.allSettled([
       svc(fx).create({ name: 'Първа', slug: 'edna-i-sashta' }),
       svc(fx).create({ name: 'Втора', slug: 'edna-i-sashta' }),

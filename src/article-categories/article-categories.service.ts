@@ -6,7 +6,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { slugify, uniqueSlug } from '../common/utils/slug.util';
-import { ArticleCategoryEntity } from './article-category.entity';
+import {
+  ArticleCategoryEntity,
+  CATEGORY_NAME_INDEX,
+  CATEGORY_SLUG_INDEX,
+  nameKeyOf,
+} from './article-category.entity';
 import { CreateArticleCategoryDto } from './dto/create-article-category.dto';
 import { UpdateArticleCategoryDto } from './dto/update-article-category.dto';
 
@@ -22,6 +27,9 @@ const UNIQUE_VIOLATION = '23505';
 /**
  * Article categories for the back office (ADMIN). The public endpoints come with the articles
  * (backlog item 7): a category is only public once it has a published article.
+ *
+ * Slugs and names (ignoring case) are unique per language. The unique indexes decide both,
+ * so two concurrent requests can't both win; a violation is answered with 409.
  */
 @Injectable()
 export class ArticleCategoriesService {
@@ -46,35 +54,31 @@ export class ArticleCategoriesService {
 
   async create(dto: CreateArticleCategoryDto) {
     const language = DEFAULT_LANGUAGE;
-    await this.assertNameFree(language, dto.name);
-
-    // A chosen slug is checked by the unique index on (language, slug) when saving (409).
-    let slug: string;
-    if (dto.slug) {
-      slug = dto.slug;
-    } else {
-      slug = uniqueSlug(slugify(dto.name), await this.slugsInUse(language), {
+    const slug =
+      dto.slug ||
+      uniqueSlug(slugify(dto.name), await this.slugsInUse(language), {
         fallback: FALLBACK_SLUG,
       });
-    }
 
-    return this.saveOrConflict(
+    const saved = await this.saveOrConflict(
       this.repo.create({
         language,
         name: dto.name,
+        nameKey: nameKeyOf(dto.name),
         slug,
         description: dto.description || null,
         sortOrder: dto.sortOrder ?? (await this.nextSortOrder(language)),
       }),
     );
+    return this.get(saved.id);
   }
 
   async update(id: string, dto: UpdateArticleCategoryDto) {
     const category = await this.get(id);
 
-    if (dto.name !== undefined && dto.name !== category.name) {
-      await this.assertNameFree(category.language, dto.name, category.id);
+    if (dto.name !== undefined) {
       category.name = dto.name;
+      category.nameKey = nameKeyOf(dto.name);
     }
     if (dto.slug !== undefined) {
       category.slug = dto.slug;
@@ -86,31 +90,14 @@ export class ArticleCategoriesService {
       category.sortOrder = dto.sortOrder;
     }
 
-    return this.saveOrConflict(category);
+    await this.saveOrConflict(category);
+    return this.get(category.id);
   }
 
   async delete(id: string) {
     const category = await this.get(id);
     await this.repo.delete(category.id);
     return { deleted: true };
-  }
-
-  /** Names are unique per language, ignoring case. */
-  private async assertNameFree(
-    language: string,
-    name: string,
-    exceptId?: string,
-  ) {
-    const clash = await this.repo
-      .createQueryBuilder('c')
-      .where('c.language = :language', { language })
-      .andWhere('lower(c.name) = lower(:name)', { name })
-      .getOne();
-    if (clash && clash.id !== exceptId) {
-      throw new ConflictException(
-        `A category named "${clash.name}" already exists`,
-      );
-    }
   }
 
   /** Slugs in use for the language. There are only a handful of categories, so all of them. */
@@ -133,20 +120,38 @@ export class ArticleCategoriesService {
       : Number(row.max) + 1;
   }
 
-  /** The unique index on (language, slug) decides slug clashes, including concurrent ones. */
+  /** Saves, answering 409 when a unique index (slug or name) refuses the row. */
   private async saveOrConflict(category: ArticleCategoryEntity) {
     try {
       return await this.repo.save(category);
     } catch (error) {
-      if (
-        error instanceof QueryFailedError &&
-        (error.driverError as { code?: string }).code === UNIQUE_VIOLATION
-      ) {
+      const index = violatedUniqueIndex(error);
+      if (index === CATEGORY_SLUG_INDEX) {
         throw new ConflictException(
           `The slug "${category.slug}" is already in use`,
+        );
+      }
+      if (index === CATEGORY_NAME_INDEX) {
+        const existing = await this.repo.findOne({
+          where: { language: category.language, nameKey: category.nameKey },
+        });
+        throw new ConflictException(
+          `A category named "${existing?.name ?? category.name}" already exists`,
         );
       }
       throw error;
     }
   }
+}
+
+/** The name of the unique index a failed save violated, if that is why it failed. */
+function violatedUniqueIndex(error: unknown): string | undefined {
+  if (!(error instanceof QueryFailedError)) return undefined;
+  const driverError = error.driverError as {
+    code?: string;
+    constraint?: string;
+  };
+  return driverError.code === UNIQUE_VIOLATION
+    ? driverError.constraint
+    : undefined;
 }
