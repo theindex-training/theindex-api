@@ -96,6 +96,12 @@ export class ArticlesController {
     return this.publishing.discardDraft(id, dto.baseRevision, req.user.sub);
   }
 
+  /** A 30-minute token for the public site's draft preview (`/preview?token=…`). */
+  @Post(':id/preview-token')
+  createPreviewToken(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.createPreviewToken(id);
+  }
+
   /** Permanent; refused (409) while the article is published. */
   @Delete(':id')
   delete(@Param('id', ParseUUIDPipe) id: string) {

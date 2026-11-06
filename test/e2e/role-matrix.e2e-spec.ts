@@ -179,7 +179,16 @@ const MATRIX: Row[] = [
   r('POST /articles/:id/publish', ALLOW, GUARD, GUARD),
   r('POST /articles/:id/unpublish', ALLOW, GUARD, GUARD),
   r('POST /articles/:id/discard-draft', ALLOW, GUARD, GUARD),
+  r('POST /articles/:id/preview-token', ALLOW, GUARD, GUARD),
   r('DELETE /articles/:id', ALLOW, GUARD, GUARD),
+
+  // The public site (theindex-web): published content, and the draft preview behind its token.
+  r('GET /public/articles', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /public/articles/:slug', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /public/article-categories', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /public/article-categories/:slug', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /public/sitemap', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /public/preview', PUBLIC, PUBLIC, PUBLIC),
 ];
 
 /** A well-formed UUID that matches no row, so allowed calls can't mutate. */

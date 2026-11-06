@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   ListMediaQueryDto,
   MEDIA_PAGE_SIZE_DEFAULT,
@@ -53,6 +53,21 @@ export interface MediaResponse {
   uploadedByAccountId: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * An image as the public site gets it: the URLs, sizes and alt text, without the back office's
+ * fields (file name, uploader).
+ */
+export interface PublicMedia {
+  url: string;
+  width: number;
+  height: number;
+  altText: string;
+  /** WebP versions for `srcset`, narrowest first. */
+  variants: MediaFileResponse[];
+  /** 1200×630 JPEG crop for social previews. */
+  ogImage: MediaFileResponse;
 }
 
 export interface MediaPage {
@@ -153,6 +168,24 @@ export class MediaService {
     const media = await this.findOrFail(id);
     media.altText = dto.altText;
     return this.toResponse(await this.repo.save(media));
+  }
+
+  /**
+   * The public view of the given images, by id; ids that match no image are left out. Needs the
+   * media settings only when there is something to resolve, so articles without images work
+   * even before media is configured.
+   */
+  async publicMedia(ids: string[]): Promise<Map<string, PublicMedia>> {
+    const unique = [...new Set(ids)];
+    const result = new Map<string, PublicMedia>();
+    if (!unique.length) return result;
+    const rows = await this.repo.find({ where: { id: In(unique) } });
+    for (const media of rows) {
+      const { url, width, height, altText, variants, ogImage } =
+        this.toResponse(media);
+      result.set(media.id, { url, width, height, altText, variants, ogImage });
+    }
+    return result;
   }
 
   private async findOrFail(id: string): Promise<MediaEntity> {

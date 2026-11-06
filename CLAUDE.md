@@ -46,11 +46,11 @@ src/
   bootstrap/            # seeds the admin account on startup
 test/                   # e2e specs + jest-e2e.json
 ```
-Features: accounts, article-categories, articles, attendance, cash-register, gym-locations, gym-subscriptions, media, plans, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`), trainee-profiles, trainer-profiles, training-times.
+Features: accounts, article-categories, articles, attendance, cash-register, gym-locations, gym-subscriptions, media, plans, public-content, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`), trainee-profiles, trainer-profiles, training-times.
 
 `media` holds images for the public site's articles (theindex-web `docs/decision-record.md`). `POST /api/media` takes a multipart upload (`file` + `altText`, ADMIN only). sharp turns it upright, strips its metadata (EXIF/GPS) and writes a master, WebP variants and a 1200×630 social preview under `MEDIA_STORAGE_DIR/<id>/`; responses give URLs under `MEDIA_PUBLIC_URL`. Settings are read on first use: without them in production, media requests answer 503 but the API still starts. In development the API serves `./media-storage` at `/media-files`.
 
-`article-categories` are the public site's article categories (ADMIN CRUD at `/api/article-categories`). The slug comes from the name through `common/utils/slug.util.ts` unless the admin chooses one, and renaming keeps it. Unique indexes on `(language, slug)` and `(language, nameKey)` (the lowercased name, never returned) decide clashes, concurrent ones included (409). A slug is fixed while a published article uses the category. The public endpoints come with the articles (theindex-web backlog item 7).
+`article-categories` are the public site's article categories (ADMIN CRUD at `/api/article-categories`). The slug comes from the name through `common/utils/slug.util.ts` unless the admin chooses one, and renaming keeps it. Unique indexes on `(language, slug)` and `(language, nameKey)` (the lowercased name, never returned) decide clashes, concurrent ones included (409). A slug is fixed while a published article uses the category. Only categories with a published article are public (see `public-content`).
 
 `articles` are the public site's articles (ADMIN at `/api/articles`). Each row has a **published version** (columns, empty until the first publish) and a **working copy** (`draft` jsonb) that autosave (`PATCH /api/articles/:id/draft`) writes to, so half-written text never goes live. A save names the `draftRevision` it is based on and is applied with a conditional `UPDATE` that merges only the sent fields into the stored draft (`"draft" || :changes`), so a stale tab or a concurrent save gets 409 (with `currentRevision`) and a change made to other fields meanwhile is never written back over. The body is Editor.js JSON, checked and sanitized by `articles/article-content.ts` (allowlisted blocks; inline HTML cut down to `b`, `i`, `a[href]`, `br`; images and YouTube stored as `mediaId`/`videoId`). JSON bodies may be up to 1 MB (`common/http/body-limit.ts`, set in `main.ts` and the e2e app).
 
@@ -60,6 +60,14 @@ The lifecycle is in `articles/article-publishing.service.ts`, and each step lock
 - `POST /:id/discard-draft` (with `baseRevision`) puts the published version back into the draft.
 - `DELETE /:id` is permanent, and refused (409) while the article is published.
 - In `article-categories`, a category's slug is fixed while a published article uses it, and deleting a category drops it from links and drafts.
+- `POST /:id/preview-token` gives a 30-minute token for the site's draft preview (`articles/preview-token.ts`). It is a JWT signed with a key derived from `JWT_SECRET` for this purpose, with its own audience, so it never works as a login token and a login token never works as a preview token.
+
+`public-content` is what the public site (theindex-web) reads, under `/api/public/...` with **no guard**, in its own controllers so a missing guard elsewhere can't expose drafts. Every query in `public-content.service.ts` starts from `PUBLISHED` articles of the language and returns the published version only, shaped by the pure helpers in `public-content.ts` (no ids, drafts, revisions, account ids or file names; image blocks resolved to URLs through `MediaService.publicMedia`, and dropped if the image is gone; excerpt and SEO fallbacks):
+- `GET /public/articles?category&q&page&pageSize`: summaries, newest first publish first (an update doesn't move an article); `category` is a slug, `q` searches title, excerpt and `plainText` with `ILIKE` (wildcards escaped by `common/utils/like.util.ts`). `{ items, total, page, pageSize }`, page size 12 by default, up to 50.
+- `GET /public/articles/:slug`: one article with its blocks, featured image and published categories; 404 unless published.
+- `GET /public/article-categories` and `/:slug`: categories with at least one published article and their `articleCount`; 404 otherwise.
+- `GET /public/sitemap`: article and category slugs with `lastmod`.
+- `GET /public/preview?token=`: the current draft of the token's article, any status (`no-store`, `noindex`); 401 for a bad or expired token.
 
 ## API conventions
 - Every route is under `/api` (`app.setGlobalPrefix('api')`). Resources are kebab-case plurals: `/api/plans`, `/api/gym-locations`, `/api/trainees/:traineeId/subscriptions`, `/api/trainees/me/training-insights`.

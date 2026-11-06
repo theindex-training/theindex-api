@@ -14,6 +14,7 @@ import { GymLocationsModule } from './gym-locations/gym-locations.module';
 import { GymSubscriptionsModule } from './gym-subscriptions/gym-subscriptions.module';
 import { MediaModule } from './media/media.module';
 import { PlansModule } from './plans/plans.module';
+import { PublicContentModule } from './public-content/public-content.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TraineeProfilesModule } from './trainee-profiles/trainee-profiles.module';
@@ -58,6 +59,7 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     MediaModule,
     ArticleCategoriesModule,
     ArticlesModule,
+    PublicContentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

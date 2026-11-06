@@ -721,5 +721,6 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | GET / POST | `/articles` | ✅ | 🔒 | 🔒 |
 | GET | `/articles/:id` | ✅ | 🔒 | 🔒 |
 | PATCH | `/articles/:id/draft` | ✅ | 🔒 | 🔒 |
-| POST | `/articles/:id/publish`, `/articles/:id/unpublish`, `/articles/:id/discard-draft` | ✅ | 🔒 | 🔒 |
+| POST | `/articles/:id/publish`, `/articles/:id/unpublish`, `/articles/:id/discard-draft`, `/articles/:id/preview-token` | ✅ | 🔒 | 🔒 |
 | DELETE | `/articles/:id` | ✅ | 🔒 | 🔒 |
+| GET | `/public/articles`, `/public/articles/:slug`, `/public/article-categories`, `/public/article-categories/:slug`, `/public/sitemap`, `/public/preview` | — | — | — |
