@@ -210,7 +210,8 @@ function normalizeBlock(block: unknown, index: number): ArticleBlock {
 }
 
 function listItems(items: unknown[], where: string, depth: number): ListItem[] {
-  if (depth > MAX_LIST_DEPTH) {
+  // Only actual items count: the deepest level's empty `items: []` is not another level.
+  if (items.length && depth > MAX_LIST_DEPTH) {
     throw new InvalidContentError(
       `${where}: lists can be nested at most ${MAX_LIST_DEPTH} levels deep`,
     );

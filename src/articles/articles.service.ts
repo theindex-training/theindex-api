@@ -125,7 +125,8 @@ export class ArticlesService {
     if (q.status) query.andWhere('a.status = :status', { status: q.status });
     if (q.categoryId) {
       query.andWhere(`a.draft -> 'categoryIds' @> :categoryIds::jsonb`, {
-        categoryIds: JSON.stringify([q.categoryId]),
+        // Stored ids are lowercase (saveDraft); JSON containment compares strings exactly.
+        categoryIds: JSON.stringify([q.categoryId.toLowerCase()]),
       });
     }
     if (q.search) {

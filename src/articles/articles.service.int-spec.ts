@@ -14,7 +14,7 @@ import { ArticlesService } from './articles.service';
 
 const UNKNOWN_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
 const CATEGORY_A = '11111111-1111-4111-8111-111111111111';
-const CATEGORY_B = '22222222-2222-4222-8222-222222222222';
+const CATEGORY_B = 'bbbbbbbb-2222-4222-8222-22222222abcd';
 const MEDIA_ID = '3aaf0a13-2e90-4392-a840-42e0b70ec513';
 
 describe('ArticlesService (integration)', () => {
@@ -364,6 +364,17 @@ describe('ArticlesService (integration)', () => {
         .sort();
 
       expect(titles).toEqual(['100% усилие', 'Хранене преди тренировка']);
+    });
+
+    it('matches the category however the UUID is cased', async () => {
+      const fx = fixtures();
+      await seed(fx);
+
+      const upper = await svc(fx).list({
+        categoryId: CATEGORY_B.toUpperCase(),
+      });
+
+      expect(upper.total).toBe(2);
     });
 
     it('searches the draft title ignoring case, with % and _ taken literally', async () => {

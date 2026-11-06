@@ -238,6 +238,64 @@ describe('normalizeContent', () => {
     );
   });
 
+  it(`accepts lists exactly ${MAX_LIST_DEPTH} levels deep, in both list formats`, () => {
+    const nested = {
+      type: 'list',
+      data: {
+        style: 'ordered',
+        items: [
+          {
+            content: '1',
+            items: [{ content: '2', items: [{ content: '3', items: [] }] }],
+          },
+        ],
+      },
+    };
+    const v1 = {
+      type: 'list',
+      data: { style: 'ordered', items: ['едно', 'две'] },
+    };
+
+    expect(normalizeContent(blocks(nested)).blocks[0]).toEqual({
+      type: 'list',
+      data: {
+        style: 'ordered',
+        items: [
+          {
+            content: '1',
+            items: [{ content: '2', items: [{ content: '3', items: [] }] }],
+          },
+        ],
+      },
+    });
+    expect(normalizeContent(blocks(v1)).blocks).toHaveLength(1);
+  });
+
+  it('gives the same result when its own output is saved again', () => {
+    const once = normalizeContent(
+      blocks(
+        {
+          type: 'paragraph',
+          data: { text: '<strong>a</strong><script>b</script>' },
+        },
+        {
+          type: 'list',
+          data: {
+            style: 'unordered',
+            items: [{ content: '1', items: [{ content: '2', items: ['3'] }] }],
+          },
+        },
+        { type: 'image', data: { file: { mediaId: MEDIA_ID } } },
+        {
+          type: 'embed',
+          data: { service: 'youtube', source: 'https://youtu.be/dQw4w9WgXcQ' },
+        },
+      ),
+    );
+
+    expect(normalizeContent(once)).toEqual(once);
+  });
+
   it('requires an uploaded image (a media id), never a bare URL', () => {
     rejects(
       blocks({
