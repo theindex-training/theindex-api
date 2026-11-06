@@ -176,6 +176,10 @@ const MATRIX: Row[] = [
   r('POST /articles', ALLOW, GUARD, GUARD),
   r('GET /articles/:id', ALLOW, GUARD, GUARD),
   r('PATCH /articles/:id/draft', ALLOW, GUARD, GUARD),
+  r('POST /articles/:id/publish', ALLOW, GUARD, GUARD),
+  r('POST /articles/:id/unpublish', ALLOW, GUARD, GUARD),
+  r('POST /articles/:id/discard-draft', ALLOW, GUARD, GUARD),
+  r('DELETE /articles/:id', ALLOW, GUARD, GUARD),
 ];
 
 /** A well-formed UUID that matches no row, so allowed calls can't mutate. */

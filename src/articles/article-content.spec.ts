@@ -1,5 +1,6 @@
 import {
   InvalidContentError,
+  contentToPlainText,
   MAX_BLOCKS,
   MAX_LIST_DEPTH,
   normalizeContent,
@@ -378,5 +379,43 @@ describe('youtubeVideoId', () => {
     42,
   ])('finds no video in %s', (link) => {
     expect(youtubeVideoId(link)).toBeUndefined();
+  });
+});
+
+describe('contentToPlainText', () => {
+  it('joins the text of every block without markup, one block per paragraph', () => {
+    const content = normalizeContent(
+      blocks(
+        { type: 'header', data: { text: 'Защо <i>клек</i>', level: 2 } },
+        {
+          type: 'paragraph',
+          data: { text: 'Сила&nbsp;и<br>техника &amp; &quot;дишане&quot;' },
+        },
+        {
+          type: 'list',
+          data: {
+            style: 'ordered',
+            items: [
+              { content: 'Едно', items: [{ content: 'Под', items: [] }] },
+            ],
+          },
+        },
+        { type: 'quote', data: { text: 'Цитат', caption: 'Автор' } },
+        { type: 'image', data: { mediaId: MEDIA_ID, caption: 'Надпис' } },
+        {
+          type: 'embed',
+          data: { service: 'youtube', videoId: 'dQw4w9WgXcQ', caption: '' },
+        },
+        { type: 'delimiter', data: {} },
+      ),
+    );
+
+    expect(contentToPlainText(content)).toBe(
+      'Защо клек\n\nСила и техника & "дишане"\n\nЕдно\n\nПод\n\nЦитат\n\nАвтор\n\nНадпис',
+    );
+  });
+
+  it('is empty for empty content', () => {
+    expect(contentToPlainText({ blocks: [] })).toBe('');
   });
 });

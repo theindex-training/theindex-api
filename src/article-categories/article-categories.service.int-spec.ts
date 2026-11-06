@@ -1,6 +1,9 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
+import { ArticlePublishingService } from '../articles/article-publishing.service';
+import { ArticlesModule } from '../articles/articles.module';
+import { ArticlesService } from '../articles/articles.service';
 import { ArticleCategoriesModule } from './article-categories.module';
 import { ArticleCategoriesService } from './article-categories.service';
 import { ArticleCategoryEntity } from './article-category.entity';
@@ -8,8 +11,9 @@ import { ArticleCategoryEntity } from './article-category.entity';
 const UNKNOWN_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
 
 describe('ArticleCategoriesService (integration)', () => {
+  // ArticlesModule: the category rules look at articles (and their media) too.
   const fixtures = setupIntegrationSuite({
-    extraImports: [ArticleCategoriesModule],
+    extraImports: [ArticleCategoriesModule, ArticlesModule],
   });
   const svc = (fx: Fixtures) => fx.moduleRef.get(ArticleCategoriesService);
   const rows = (fx: Fixtures) =>
@@ -194,6 +198,86 @@ describe('ArticleCategoriesService (integration)', () => {
       expect(
         (await svc(fx).update(b.id, { description: '' })).description,
       ).toBeNull();
+    });
+  });
+
+  describe('with articles', () => {
+    const articles = (fx: Fixtures) => fx.moduleRef.get(ArticlesService);
+    const publishing = (fx: Fixtures) =>
+      fx.moduleRef.get(ArticlePublishingService);
+
+    async function publishedIn(fx: Fixtures, categoryId: string) {
+      const a = await articles(fx).create({ title: 'Статия' }, null);
+      await articles(fx).saveDraft(
+        a.id,
+        {
+          baseRevision: 0,
+          categoryIds: [categoryId],
+          content: { blocks: [{ type: 'paragraph', data: { text: 'Текст' } }] },
+        },
+        null,
+      );
+      await publishing(fx).publish(a.id, 1, null);
+      return a.id;
+    }
+
+    it('keeps the slug fixed while a published article uses the category', async () => {
+      const fx = fixtures();
+      const category = await svc(fx).create({ name: 'Хранене' });
+      await publishedIn(fx, category.id);
+
+      const error = await rejectionOf(
+        svc(fx).update(category.id, { slug: 'hrana' }),
+      );
+      // Renaming and other fields are still fine, and so is sending the same slug.
+      const renamed = await svc(fx).update(category.id, {
+        name: 'Хранене и добавки',
+        slug: 'hranene',
+      });
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.message).toBe(
+        "The slug can't change while published articles use this category",
+      );
+      expect(renamed).toMatchObject({
+        name: 'Хранене и добавки',
+        slug: 'hranene',
+      });
+    });
+
+    it('frees the slug again once those articles are unpublished', async () => {
+      const fx = fixtures();
+      const category = await svc(fx).create({ name: 'Хранене' });
+      const articleId = await publishedIn(fx, category.id);
+      await publishing(fx).unpublish(articleId, null);
+
+      const moved = await svc(fx).update(category.id, { slug: 'hrana' });
+
+      expect(moved.slug).toBe('hrana');
+    });
+
+    it('on delete, keeps the articles and drops the category from links and drafts', async () => {
+      const fx = fixtures();
+      const gone = await svc(fx).create({ name: 'Изтрита' });
+      const kept = await svc(fx).create({ name: 'Остава' });
+      const publishedId = await publishedIn(fx, gone.id);
+      const draft = await articles(fx).create({ title: 'Чернова' }, null);
+      await articles(fx).saveDraft(
+        draft.id,
+        { baseRevision: 0, categoryIds: [kept.id, gone.id] },
+        null,
+      );
+
+      await svc(fx).delete(gone.id);
+
+      const published = await articles(fx).get(publishedId);
+      expect(published.status).toBe('PUBLISHED');
+      expect(published.published?.categoryIds).toEqual([]);
+      expect(published.draft.categoryIds).toEqual([]);
+      const cleaned = await articles(fx).get(draft.id);
+      expect(cleaned.draft.categoryIds).toEqual([kept.id]);
+      // Not a new revision: an editor open on the draft can keep saving.
+      expect(cleaned.draftRevision).toBe(1);
     });
   });
 

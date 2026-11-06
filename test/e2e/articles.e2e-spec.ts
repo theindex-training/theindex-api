@@ -244,4 +244,129 @@ describe('Articles (e2e)', () => {
       .send({ baseRevision: 0 })
       .expect(404);
   });
+
+  describe('lifecycle', () => {
+    async function readyDraft(auth: object, title = 'Готова') {
+      const article = await createArticle(auth, title);
+      await ctx()
+        .http()
+        .patch(`/api/articles/${article.id}/draft`)
+        .set(auth)
+        .send({
+          baseRevision: 0,
+          content: { blocks: [{ type: 'paragraph', data: { text: 'Текст' } }] },
+        })
+        .expect(200);
+      return article.id;
+    }
+
+    it('publishes, unpublishes, discards and deletes over HTTP', async () => {
+      const c = ctx();
+      const auth = await adminAuth();
+      const id = await readyDraft(auth, 'Как да започнем');
+      const post = (path: string, body: object = {}) =>
+        c.http().post(`/api/articles/${id}/${path}`).set(auth).send(body);
+
+      const published = await post('publish', { baseRevision: 1 }).expect(200);
+      expect(published.body).toMatchObject({
+        status: 'PUBLISHED',
+        slug: 'kak-da-zapochnem',
+        hasUnpublishedChanges: false,
+      });
+
+      await c
+        .http()
+        .patch(`/api/articles/${id}/draft`)
+        .set(auth)
+        .send({ baseRevision: 1, title: 'Промяна' })
+        .expect(200);
+      const discarded = await post('discard-draft', { baseRevision: 2 }).expect(
+        200,
+      );
+      expect(discarded.body).toMatchObject({
+        draftRevision: 3,
+        draft: { title: 'Как да започнем' },
+      });
+
+      await c.http().delete(`/api/articles/${id}`).set(auth).expect(409);
+      const down = await post('unpublish').expect(200);
+      expect(down.body).toMatchObject({ status: 'UNPUBLISHED' });
+      await post('unpublish').expect(409);
+
+      const deleted = await c
+        .http()
+        .delete(`/api/articles/${id}`)
+        .set(auth)
+        .expect(200);
+      expect(deleted.body).toEqual({ deleted: true });
+      await c.http().get(`/api/articles/${id}`).set(auth).expect(404);
+    });
+
+    it('answers 400 with every problem when the draft is not ready', async () => {
+      const c = ctx();
+      const auth = await adminAuth();
+      const article = await createArticle(auth, 'Празна');
+
+      const res = await c
+        .http()
+        .post(`/api/articles/${article.id}/publish`)
+        .set(auth)
+        .send({ baseRevision: 0 })
+        .expect(400);
+
+      expect(res.body).toEqual({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: ['The article needs some content'],
+      });
+    });
+
+    it('requires the revision for publish and discard, and answers 409 when it is stale', async () => {
+      const c = ctx();
+      const auth = await adminAuth();
+      const id = await readyDraft(auth);
+
+      const missing = await c
+        .http()
+        .post(`/api/articles/${id}/publish`)
+        .set(auth)
+        .send({})
+        .expect(400);
+      expect(messageOf(missing.body)).toContain(
+        'baseRevision must be an integer number',
+      );
+      await c
+        .http()
+        .post(`/api/articles/${id}/discard-draft`)
+        .set(auth)
+        .send({})
+        .expect(400);
+
+      const stale = await c
+        .http()
+        .post(`/api/articles/${id}/publish`)
+        .set(auth)
+        .send({ baseRevision: 0 })
+        .expect(409);
+      expect(stale.body).toMatchObject({ statusCode: 409, currentRevision: 1 });
+    });
+
+    it('validates ids', async () => {
+      const c = ctx();
+      const auth = await adminAuth();
+
+      await c
+        .http()
+        .post(`/api/articles/${UNKNOWN_ID}/publish`)
+        .set(auth)
+        .send({ baseRevision: 0 })
+        .expect(404);
+      await c
+        .http()
+        .post(`/api/articles/${UNKNOWN_ID}/unpublish`)
+        .set(auth)
+        .expect(404);
+      await c.http().delete('/api/articles/not-a-uuid').set(auth).expect(400);
+    });
+  });
 });

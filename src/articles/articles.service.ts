@@ -12,6 +12,7 @@ import {
   InvalidContentError,
   normalizeContent,
 } from './article-content';
+import { ArticleCategoryLinkEntity } from './article-category-link.entity';
 import { ArticleDraft, ArticleEntity, ArticleStatus } from './article.entity';
 import { CreateArticleDto } from './dto/create-article.dto';
 import {
@@ -31,6 +32,8 @@ export interface PublishedVersion {
   featuredMediaId: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
+  /** The published categories (the links), as opposed to the draft's categoryIds. */
+  categoryIds: string[];
 }
 
 export interface ArticleResponse {
@@ -79,13 +82,15 @@ export interface ArticlePage {
 
 /**
  * Articles in the back office (ADMIN): creating drafts, the list, and autosave. Publishing and
- * the rest of the lifecycle come next (backlog item 6, second part).
+ * the rest of the lifecycle are in ArticlePublishingService.
  */
 @Injectable()
 export class ArticlesService {
   constructor(
     @InjectRepository(ArticleEntity)
     private readonly repo: Repository<ArticleEntity>,
+    @InjectRepository(ArticleCategoryLinkEntity)
+    private readonly links: Repository<ArticleCategoryLinkEntity>,
   ) {}
 
   async create(dto: CreateArticleDto, accountId: string | null) {
@@ -146,7 +151,15 @@ export class ArticlesService {
   }
 
   async get(id: string): Promise<ArticleResponse> {
-    return toResponse(await this.findOrFail(id));
+    const article = await this.findOrFail(id);
+    const links = await this.links.find({
+      where: { articleId: id },
+      order: { categoryId: 'ASC' },
+    });
+    return toResponse(
+      article,
+      links.map((l) => l.categoryId),
+    );
   }
 
   /**
@@ -223,7 +236,7 @@ function contentOrBadRequest(input: unknown) {
 }
 
 /** 409 with the current revision, so the client can tell the user and reload. */
-function staleRevision(currentRevision: number) {
+export function staleRevision(currentRevision: number) {
   return new ConflictException({
     statusCode: HttpStatus.CONFLICT,
     error: 'Conflict',
@@ -238,7 +251,10 @@ function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-function toResponse(a: ArticleEntity): ArticleResponse {
+function toResponse(
+  a: ArticleEntity,
+  publishedCategoryIds: string[],
+): ArticleResponse {
   return {
     id: a.id,
     language: a.language,
@@ -252,6 +268,7 @@ function toResponse(a: ArticleEntity): ArticleResponse {
           featuredMediaId: a.featuredMediaId,
           seoTitle: a.seoTitle,
           seoDescription: a.seoDescription,
+          categoryIds: publishedCategoryIds,
         }
       : null,
     draft: a.draft,
