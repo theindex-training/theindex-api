@@ -171,6 +171,36 @@ describe('Article categories (e2e)', () => {
       .expect(404);
   });
 
+  it('rejects null for the fields that always have a value (description may be null)', async () => {
+    const c = ctx();
+    const auth = await adminAuth();
+    const created = (
+      await c
+        .http()
+        .post('/api/article-categories')
+        .set(auth)
+        .send({ name: 'Хранене' })
+        .expect(201)
+    ).body as CategoryBody;
+    const patch = (body: object) =>
+      c
+        .http()
+        .patch(`/api/article-categories/${created.id}`)
+        .set(auth)
+        .send(body);
+
+    expect(messageOf((await patch({ name: null }).expect(400)).body)).toContain(
+      'name must be a string',
+    );
+    expect(messageOf((await patch({ slug: null }).expect(400)).body)).toContain(
+      'slug must be a string',
+    );
+    expect(
+      messageOf((await patch({ sortOrder: null }).expect(400)).body),
+    ).toContain('sortOrder must be an integer number');
+    await patch({ description: null }).expect(200);
+  });
+
   it('validates ids', async () => {
     const c = ctx();
     const auth = await adminAuth();

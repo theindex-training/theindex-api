@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, ValidateIf } from 'class-validator';
+import { ValidateIf } from 'class-validator';
 import { SLUG_MAX_LENGTH } from '../../common/utils/slug.util';
 import {
   CATEGORY_DESCRIPTION_MAX_LENGTH,
@@ -10,15 +10,21 @@ import {
   CategorySortOrder,
 } from './category-fields';
 
-/** Every field is optional. Renaming keeps the slug: change `slug` explicitly to move the page. */
+/** Fields that are sent are validated, so `null` is a 400 for them (not just skipped). */
+const IfPresent = () => ValidateIf((_, value) => value !== undefined);
+
+/**
+ * Every field is optional. Renaming keeps the slug: change `slug` explicitly to move the page.
+ * Only `description` can be `null` (to remove it).
+ */
 export class UpdateArticleCategoryDto {
   @ApiPropertyOptional({ maxLength: CATEGORY_NAME_MAX_LENGTH })
-  @IsOptional()
+  @IfPresent()
   @CategoryName()
   name?: string;
 
   @ApiPropertyOptional({ maxLength: SLUG_MAX_LENGTH })
-  @IsOptional()
+  @IfPresent()
   @CategorySlug()
   slug?: string;
 
@@ -32,7 +38,7 @@ export class UpdateArticleCategoryDto {
   description?: string | null;
 
   @ApiPropertyOptional({ minimum: 0 })
-  @IsOptional()
+  @IfPresent()
   @CategorySortOrder()
   sortOrder?: number;
 }
