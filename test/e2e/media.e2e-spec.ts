@@ -129,6 +129,17 @@ describe('Media (e2e)', () => {
       .attach('file', Buffer.from('plain text'), 'notes.txt')
       .expect(400);
     expect(messageOf(notImage.body)).toBe('The file is not a readable image');
+
+    const truncated = await c
+      .http()
+      .post('/api/media')
+      .set('Authorization', `Bearer ${admin}`)
+      .field('altText', 'Alt')
+      .attach('file', photo.subarray(0, photo.length / 2), 'cut.jpg')
+      .expect(400);
+    expect(messageOf(truncated.body)).toBe(
+      'The image file is damaged or incomplete',
+    );
   });
 
   it('rejects unknown form fields', async () => {

@@ -72,7 +72,15 @@ export async function processImage(input: Buffer): Promise<ProcessedImage> {
       : format === 'png'
         ? upright.png()
         : upright.webp({ quality: 90 });
-  const master = await toFile(`master.${MASTER_EXTENSION[format]}`, encoded);
+  // Decoding the pixels happens here, the first time the upload itself is read in full. The
+  // header can be fine while the data is cut off or corrupt: that is the client's file, not an
+  // error of ours. Later steps read our own master, so their failures stay server errors.
+  let master: ProcessedFile;
+  try {
+    master = await toFile(`master.${MASTER_EXTENSION[format]}`, encoded);
+  } catch {
+    throw new UnsupportedImageError('The image file is damaged or incomplete');
+  }
 
   const variants: ProcessedFile[] = [];
   for (const width of variantWidths(master.width)) {

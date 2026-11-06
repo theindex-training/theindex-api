@@ -168,6 +168,17 @@ describe('processImage', () => {
     );
   });
 
+  it('rejects an image whose header is readable but whose pixel data is cut off', async () => {
+    const whole = await phonePhoto(1200, 800);
+    const truncated = whole.subarray(0, Math.floor(whole.length / 2));
+    // The header (and so the format) is still readable; decoding the pixels is what fails.
+    expect((await metaOf(truncated)).format).toBe('jpeg');
+
+    await expect(processImage(truncated)).rejects.toThrow(
+      new UnsupportedImageError('The image file is damaged or incomplete'),
+    );
+  });
+
   it('rejects files that are not images', async () => {
     await expect(
       processImage(Buffer.from('definitely not an image')),
