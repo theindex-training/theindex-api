@@ -170,6 +170,12 @@ const MATRIX: Row[] = [
   r('GET /article-categories/:id', ALLOW, GUARD, GUARD),
   r('PATCH /article-categories/:id', ALLOW, GUARD, GUARD),
   r('DELETE /article-categories/:id', ALLOW, GUARD, GUARD),
+
+  // Articles (back office): ADMIN only in the MVP.
+  r('GET /articles', ALLOW, GUARD, GUARD),
+  r('POST /articles', ALLOW, GUARD, GUARD),
+  r('GET /articles/:id', ALLOW, GUARD, GUARD),
+  r('PATCH /articles/:id/draft', ALLOW, GUARD, GUARD),
 ];
 
 /** A well-formed UUID that matches no row, so allowed calls can't mutate. */

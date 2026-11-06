@@ -718,3 +718,6 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | GET / PATCH | `/media/:id` | ✅ | 🔒 | 🔒 |
 | GET / POST | `/article-categories` | ✅ | 🔒 | 🔒 |
 | GET / PATCH / DELETE | `/article-categories/:id` | ✅ | 🔒 | 🔒 |
+| GET / POST | `/articles` | ✅ | 🔒 | 🔒 |
+| GET | `/articles/:id` | ✅ | 🔒 | 🔒 |
+| PATCH | `/articles/:id/draft` | ✅ | 🔒 | 🔒 |
