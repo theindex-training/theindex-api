@@ -176,22 +176,26 @@ export class ArticlesService {
       );
     }
 
-    const draft: ArticleDraft = { ...article.draft };
-    if (dto.title !== undefined) draft.title = dto.title;
-    if (dto.excerpt !== undefined) draft.excerpt = dto.excerpt || null;
-    if (dto.content !== undefined)
-      draft.content = contentOrBadRequest(dto.content);
+    // Only the fields that were sent. They are merged into the stored draft by the UPDATE
+    // itself, so a change made to other fields meanwhile (e.g. a deleted category dropped from
+    // drafts) is never written back over.
+    const changes: Partial<ArticleDraft> = {};
+    if (dto.title !== undefined) changes.title = dto.title;
+    if (dto.excerpt !== undefined) changes.excerpt = dto.excerpt || null;
+    if (dto.content !== undefined) {
+      changes.content = contentOrBadRequest(dto.content);
+    }
     if (dto.featuredMediaId !== undefined) {
-      draft.featuredMediaId = dto.featuredMediaId?.toLowerCase() ?? null;
+      changes.featuredMediaId = dto.featuredMediaId?.toLowerCase() ?? null;
     }
     if (dto.categoryIds !== undefined) {
-      draft.categoryIds = dto.categoryIds.map((c) => c.toLowerCase());
+      changes.categoryIds = dto.categoryIds.map((c) => c.toLowerCase());
     }
-    if (dto.seoTitle !== undefined) draft.seoTitle = dto.seoTitle || null;
+    if (dto.seoTitle !== undefined) changes.seoTitle = dto.seoTitle || null;
     if (dto.seoDescription !== undefined) {
-      draft.seoDescription = dto.seoDescription || null;
+      changes.seoDescription = dto.seoDescription || null;
     }
-    if (dto.slug !== undefined) draft.slug = dto.slug || null;
+    if (dto.slug !== undefined) changes.slug = dto.slug || null;
 
     // Only if the draft is still at the revision the client saw: a stale tab, or a concurrent
     // save that got in first, loses (409) instead of silently overwriting.
@@ -199,7 +203,7 @@ export class ArticlesService {
       .createQueryBuilder()
       .update(ArticleEntity)
       .set({
-        draft,
+        draft: () => '"draft" || :changes::jsonb',
         draftRevision: () => '"draftRevision" + 1',
         draftUpdatedAt: () => 'now()',
         hasUnpublishedChanges: true,
@@ -209,6 +213,7 @@ export class ArticlesService {
         id,
         base: dto.baseRevision,
       })
+      .setParameter('changes', JSON.stringify(changes))
       .execute();
 
     if (!result.affected) {
