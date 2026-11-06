@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { containsPattern } from '../common/utils/like.util';
 import {
   EMPTY_CONTENT,
   InvalidContentError,
@@ -20,6 +21,7 @@ import {
   ListArticlesQueryDto,
 } from './dto/list-articles.query.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
+import { PreviewToken, signPreviewToken } from './preview-token';
 
 /** All content is Bulgarian for now (theindex-web docs/decision-record.md, D14). */
 export const DEFAULT_LANGUAGE = 'bg';
@@ -136,7 +138,7 @@ export class ArticlesService {
     }
     if (q.search) {
       query.andWhere(`a.draft ->> 'title' ILIKE :search ESCAPE '\\'`, {
-        search: `%${escapeLike(q.search)}%`,
+        search: containsPattern(q.search),
       });
     }
 
@@ -222,6 +224,15 @@ export class ArticlesService {
     return this.get(id);
   }
 
+  /**
+   * A 30-minute token for the public site's draft preview (`/preview?token=…`). It shows the
+   * draft as it is when the page is loaded, so a reload shows the latest autosave.
+   */
+  async createPreviewToken(id: string): Promise<PreviewToken> {
+    await this.findOrFail(id);
+    return signPreviewToken(id, process.env.JWT_SECRET ?? '');
+  }
+
   private async findOrFail(id: string): Promise<ArticleEntity> {
     const article = await this.repo.findOne({ where: { id } });
     if (!article) throw new NotFoundException('Article not found');
@@ -249,11 +260,6 @@ export function staleRevision(currentRevision: number) {
       'The article was changed in another tab or by someone else. Reload it to continue.',
     currentRevision,
   });
-}
-
-/** Escapes LIKE wildcards so a search for "100%" matches the text "100%". */
-function escapeLike(term: string): string {
-  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 function toResponse(
