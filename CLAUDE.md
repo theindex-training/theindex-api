@@ -42,6 +42,7 @@ src/
     enums/, *.util.ts   # feature-local enums and pure helpers (+ *.spec.ts)
   auth/                 # login, JWT strategy, JwtAuthGuard, RolesGuard, @Roles()
   common/enums/         # shared enums (AccountRole, PlanType, statuses…)
+  common/utils/         # shared pure helpers (+ *.spec.ts), e.g. slug.util.ts: Latin URL slugs for public content
   bootstrap/            # seeds the admin account on startup
 test/                   # e2e specs + jest-e2e.json
 ```
