@@ -10,6 +10,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { CashRegisterModule } from './cash-register/cash-register.module';
+import { ExercisesModule } from './exercises/exercises.module';
 import { GymLocationsModule } from './gym-locations/gym-locations.module';
 import { GymSubscriptionsModule } from './gym-subscriptions/gym-subscriptions.module';
 import { MediaModule } from './media/media.module';
@@ -20,6 +21,8 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TraineeProfilesModule } from './trainee-profiles/trainee-profiles.module';
 import { TrainingTimesModule } from './training-times/training-times.module';
 import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.module';
+import { WorkoutTypesModule } from './workout-types/workout-types.module';
+import { WorkoutsModule } from './workouts/workouts.module';
 
 @Module({
   imports: [
@@ -60,6 +63,9 @@ import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.modul
     ArticleCategoriesModule,
     ArticlesModule,
     PublicContentModule,
+    ExercisesModule,
+    WorkoutTypesModule,
+    WorkoutsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

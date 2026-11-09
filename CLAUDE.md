@@ -46,7 +46,7 @@ src/
   bootstrap/            # seeds the admin account on startup
 test/                   # e2e specs + jest-e2e.json
 ```
-Features: accounts, article-categories, articles, attendance, cash-register, gym-locations, gym-subscriptions, media, plans, public-content, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`, and `GET /api/subscription-renewals`, ADMIN/TRAINER: active trainees by PUNCH/TIME, exhausted vs still active, ranked by the pure `subscription-renewals.ts`), trainee-profiles, trainer-profiles, training-times.
+Features: accounts, article-categories, articles, attendance, cash-register, exercises, gym-locations, gym-subscriptions, media, plans, public-content, settlements, subscriptions (incl. a daily cron in `subscriptions-cron.service.ts`, and `GET /api/subscription-renewals`, ADMIN/TRAINER: active trainees by PUNCH/TIME, exhausted vs still active, ranked by the pure `subscription-renewals.ts`), trainee-profiles, trainer-profiles, training-times, workout-types, workouts.
 
 `media` holds images for the public site's articles (theindex-web `docs/decision-record.md`). `POST /api/media` takes a multipart upload (`file` + `altText`, ADMIN only). sharp turns it upright, strips its metadata (EXIF/GPS) and writes a master, WebP variants and a 1200×630 social preview under `MEDIA_STORAGE_DIR/<id>/`; responses give URLs under `MEDIA_PUBLIC_URL`. Settings are read on first use: without them in production, media requests answer 503 but the API still starts. In development the API serves `./media-storage` at `/media-files`.
 
@@ -68,6 +68,23 @@ The lifecycle is in `articles/article-publishing.service.ts`, and each step lock
 - `GET /public/article-categories` and `/:slug`: categories with at least one published article and their `articleCount`; 404 otherwise.
 - `GET /public/sitemap`: article and category slugs with `lastmod`.
 - `GET /public/preview?token=`: the current draft of the token's article, any status (`no-store`, `noindex`); 401 for a bad or expired token.
+
+`exercises`, `workout-types` and `workouts` are the workout of the day (WOD), for ADMIN and TRAINER; trainees have no access yet (they are to see the next day's workout from 20:00 the evening before, in a later step). Everything is structured, never free text, so results, personal bests and leaderboards can be built on it.
+
+- `exercises` (`/api/exercises`): the movement catalogue. A name and its `aliases` share one namespace of keys (`exercises/exercise-key.ts`: lowercase, hyphens and plurals dropped, `KB` → kettlebell), so "Pull-ups" can't be added beside "Pull-up" (409) and the PDF import finds a movement by any spelling. `modality` (WEIGHTLIFTING, GYMNASTICS, MONOSTRUCTURAL, OTHER) and `defaultMeasure` (REPS, DISTANCE, TIME, CALORIES). An exercise a workout uses can't be deleted (409), only made inactive. On boot, an **empty** table gets a starter library (`exercise-library.ts`).
+- `workout-types` (`/api/workout-types`): name, optional description and the `scoreType` workouts of the type start with (TIME, ROUNDS_REPS, REPS, LOAD, CALORIES, DISTANCE, NONE). Six built-in types carry a `code` (FOR_TIME, AMRAP, EMOM, TABATA, FOR_LOAD, QUALITY), are re-added on boot when missing, and can be renamed but not deleted; trainers add their own (`code` null). A type in use can't be deleted.
+- `workouts` (`/api/workouts`, `?from&to` for a date range): four tables, saved and returned as one tree (`workouts/workout.entity.ts`):
+  - **workout**: `date` (gym-local day), optional `title` and `notes`.
+  - **part**: what is done and how it is scored: `workoutTypeId`, `scoreType` (the type's unless sent), optional `title`. Most days have one part; a skill or strength piece is another.
+  - **variant**: one per level (`RX` required; `INTERMEDIATE`, `BEGINNER` only when they differ) with the structure: `rounds`, `repScheme` (21-15-9), `durationSeconds` (AMRAP 12 → 720), `timeCapSeconds`, `intervalSeconds` (EMOM → 60), `workSeconds`, `restSeconds`, `notes`.
+  - **item**: `exerciseId`, `measure`, `quantity` in the measure's unit (reps, metres, seconds, calories), `quantityMax` (a range), `quantityFemale`, `maxEffort`, `loadKg`, `loadFemaleKg`, `loadPercent` (of 1RM), `slot` (EMOM minute), `notes`. `quantity` may be null only when the reps come from the variant's rep scheme or the item is a max effort.
+  - The rules across fields are the pure `workout-rules.ts` (a 400 lists every problem). `PATCH` with `parts` replaces the content; a part sent with its `id` keeps it (results will reference parts).
+- `POST /api/workouts/import-pdf` (multipart `file`) reads a CrossFit lesson-plan PDF into a draft shaped like the create body, and **saves nothing**: the form shows it for review. Only the band at the top is read (heading, RX / INTERMEDIATE / BEGINNER / SKILL columns):
+  - `import/pdf-text.ts` gets the first page's text with positions from pdf.js (`pdfjs-dist`, ESM-only, loaded with `import()` on first use).
+  - `import/sheet-layout.ts` (pure) finds the heading and the four columns; it also drops the repeated and shifted copies of the text some of these PDFs carry.
+  - `import/sheet-parser.ts` (pure) turns the lines into parts, variants and items: the type from the header line ("3 rounds for time:", "AMRAP 12:", "EMOM 20:", a lift with a rep scheme), amounts, women's/men's pairs, pounds and feet converted to whole kilograms and metres, "Same as Rx'd" as no variant, the SKILL column as an unscored part. What it can't place becomes a note or a warning.
+  - `import/workout-import.service.ts` resolves exercise names and type codes to ids; movements the catalogue lacks come back with `exerciseId: null` and in `unknownExercises`.
+  - The lesson plans are CrossFit's copyrighted material: don't commit them. Tests build their own PDFs (`test/int/pdf-fixture.ts`).
 
 ## API conventions
 - Every route is under `/api` (`app.setGlobalPrefix('api')`). Resources are kebab-case plurals: `/api/plans`, `/api/gym-locations`, `/api/trainees/:traineeId/subscriptions`, `/api/trainees/me/training-insights`.
