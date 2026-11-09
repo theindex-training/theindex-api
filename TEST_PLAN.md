@@ -215,6 +215,10 @@ Test through `AttendanceService.create` (the real consumer) plus `resolveForAtte
 - [x] **SUB-40** [E] P0. ADMIN and TRAINER can create and delete subscriptions (incl. `paidCents: 0`). TRAINEE → 403.
 - [x] **SUB-41** [E] P0. TRAINEE `GET /trainees/:ownId/subscriptions` → 200. Another trainee's id → 403 `TRAINEE can only access subscriptions for their own trainee profile`. TRAINEE token with `traineeProfileId: null` → 403.
 
+### Renewals overview (`GET /subscription-renewals`)
+New feature, tested as built (not characterization). Rules in `subscription-renewals.ts`, unit-tested in `subscription-renewals.spec.ts`; queries in `subscription-renewals.service.int-spec.ts`.
+- [x] **SUB-50** [U][I][E] P1. Active trainees with at least one non-cancelled subscription, each in one tab: the type of their latest active subscription, else of their latest one. PUNCH exhausted by most unpaid trainings; PUNCH active by fewest remaining credits (summed over active subscriptions); TIME exhausted by most Sofia days since the latest end (not by status, since the cron runs at 02:00 UTC); TIME active by soonest latest end. Ties by name (Bulgarian collation). ADMIN and TRAINER only.
+
 ---
 
 ## 3. Attendance write path: P0
@@ -695,6 +699,7 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/trainees/:traineeId/subscriptions` | ✅ | ✅ | 🔒 |
 | GET | `/trainees/:traineeId/subscriptions` | ✅ | ✅ | 👤 |
 | DELETE | `/subscriptions/:id` | ✅ | ✅ | 🔒 |
+| GET | `/subscription-renewals` | ✅ | ✅ | 🔒 |
 | POST | `/attendance`, `/attendance/batch` | ✅ | ✅ | 🔒 |
 | GET | `/attendance/dates`, `/attendance/sessions` | ✅ | ✅ | 🔒 |
 | GET | `/attendance/reports/inactive-trainees`, `/attendance/reports/without-active-subscription` | ✅ | ✅ | 🔒 |
