@@ -274,6 +274,23 @@ describe('WorkoutsService (integration)', () => {
       expect(await svc(fx).list()).toEqual([]);
     });
 
+    it('refuses a part id on a new workout (400), leaving the workout that owns the part untouched', async () => {
+      const fx = fixtures();
+      const c = await catalogue(fx);
+      const original = await svc(fx).create(helen(c), null);
+      // The body of an existing workout sent back as a new one, part ids included.
+      const copy = helen(c);
+      copy.date = '2026-11-10';
+      copy.parts[0].id = original.parts[0].id;
+
+      const error = await rejectionOf(svc(fx).create(copy, null));
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(error.message).toBe("A new workout's parts can't have an id");
+      expect(await svc(fx).get(original.id)).toEqual(original);
+      expect((await svc(fx).list()).map((w) => w.id)).toEqual([original.id]);
+    });
+
     it('answers 404 for an unknown workout', async () => {
       const fx = fixtures();
 

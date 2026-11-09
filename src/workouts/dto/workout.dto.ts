@@ -188,7 +188,7 @@ export class WorkoutPartDto {
   @ApiPropertyOptional({
     format: 'uuid',
     description:
-      'On update: the id of the part this one replaces, so it keeps its identity',
+      'On update only: the id of the part of this workout that this one replaces, so it keeps its identity. Refused on create.',
   })
   @IsOptional()
   @IsUUID()

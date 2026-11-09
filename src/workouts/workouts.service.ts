@@ -66,6 +66,11 @@ export class WorkoutsService {
   }
 
   async create(dto: CreateWorkoutDto, accountId: string | null) {
+    // An id names an existing part to keep, which only an update can do: taking it here would
+    // move another workout's part into this one and wipe its content.
+    if (dto.parts.some((part) => part.id)) {
+      throw new BadRequestException("A new workout's parts can't have an id");
+    }
     const types = await this.checkParts(dto.parts);
     const id = await this.repo.manager.transaction(async (m) => {
       const workout = await m.save(
