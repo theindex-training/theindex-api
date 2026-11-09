@@ -2,7 +2,8 @@ import { AttendancePaymentStatus } from '../../src/common/enums/attendance-payme
 import { messageOf, setupE2eSuite } from './e2e-app';
 
 /**
- * Subscriptions over HTTP: DTO rules (SUB-06) and access (SUB-40, SUB-41).
+ * Subscriptions over HTTP: DTO rules (SUB-06), access (SUB-40, SUB-41) and
+ * the renewals overview (SUB-50).
  * Purchase/reconciliation/delete rules are covered in
  * `subscriptions.service.int-spec.ts`.
  */
@@ -268,5 +269,73 @@ describe('Subscriptions (e2e)', () => {
     const [att] = await c.attendanceRows();
     expect(att.paymentStatus).toBe(AttendancePaymentStatus.PAID);
     expect(att.subscriptionId).toBe((res.body as { id: string }).id);
+  });
+
+  it('SUB-50 GET /subscription-renewals: TRAINER gets the four lists with ISO dates; TRAINEE gets 403', async () => {
+    const c = ctx();
+    const admin = await c.loginAsAdmin();
+    const trainee = await c.trainee('Ana');
+    const trainer = await c.trainer();
+    const location = await c.location();
+    const plan = await c.punchPlan(1, 1000);
+
+    await c
+      .http()
+      .post(`/api/trainees/${trainee.id}/subscriptions`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ planId: plan.id })
+      .expect(201);
+    for (const trainedAt of [
+      '2025-12-01T10:00:00.000Z',
+      '2025-12-02T10:00:00.000Z',
+    ]) {
+      await c
+        .http()
+        .post('/api/attendance')
+        .set('Authorization', `Bearer ${admin}`)
+        .send({
+          traineeId: trainee.id,
+          trainerId: trainer.id,
+          locationId: location.id,
+          trainedAt,
+        })
+        .expect(201);
+    }
+
+    const trainerToken = await c.provisionAndLogin('trainer', trainer.id);
+    const res = await c
+      .http()
+      .get('/api/subscription-renewals')
+      .set('Authorization', `Bearer ${trainerToken}`)
+      .expect(200);
+
+    expect(res.body).toEqual({
+      punch: {
+        exhausted: [
+          {
+            traineeId: trainee.id,
+            name: 'Ana',
+            nickname: null,
+            planTitle: plan.title,
+            activeSubscriptions: 0,
+            remainingCredits: null,
+            endsAt: null,
+            daysLeft: null,
+            daysSinceEnd: null,
+            unpaidTrainings: 1,
+            lastTrainedAt: '2025-12-02T10:00:00.000Z',
+          },
+        ],
+        active: [],
+      },
+      time: { exhausted: [], active: [] },
+    });
+
+    const traineeToken = await c.provisionAndLogin('trainee', trainee.id);
+    await c
+      .http()
+      .get('/api/subscription-renewals')
+      .set('Authorization', `Bearer ${traineeToken}`)
+      .expect(403);
   });
 });

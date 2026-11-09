@@ -112,6 +112,7 @@ const MATRIX: Row[] = [
   r('POST /trainees/:traineeId/subscriptions', ALLOW, ALLOW, GUARD),
   r('GET /trainees/:traineeId/subscriptions', ALLOW, ALLOW, OWN_SUBSCRIPTIONS),
   r('DELETE /subscriptions/:id', ALLOW, ALLOW, GUARD),
+  r('GET /subscription-renewals', ALLOW, ALLOW, GUARD),
 
   r('POST /attendance', ALLOW, ALLOW, GUARD),
   r('POST /attendance/batch', ALLOW, ALLOW, GUARD),

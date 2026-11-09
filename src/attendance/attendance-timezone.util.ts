@@ -78,3 +78,30 @@ export function fromGymLocalToUtc(
 
   return new Date(utcInstant);
 }
+
+/** The gym-local calendar date of an instant, as `YYYY-MM-DD`. */
+export function toGymLocalDate(
+  date: Date,
+  timeZone = DEFAULT_GYM_TIMEZONE,
+): string {
+  const { year, month, day } = getDatePartsInTimeZone(date, timeZone);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+/**
+ * Whole gym-local calendar days from `from` to `to` (negative when `to` is
+ * earlier). Two instants on the same gym-local date are 0 days apart, and the
+ * DST changes don't shift the count.
+ */
+export function gymLocalDaysBetween(
+  from: Date,
+  to: Date,
+  timeZone = DEFAULT_GYM_TIMEZONE,
+): number {
+  const dayNumber = (date: Date) => {
+    const [y, m, d] = toGymLocalDate(date, timeZone).split('-').map(Number);
+    return Date.UTC(y, m - 1, d) / (24 * 60 * 60 * 1000);
+  };
+  return dayNumber(to) - dayNumber(from);
+}
