@@ -35,6 +35,14 @@ export class ExerciseEntity {
   @Column({ type: 'jsonb', default: () => "'[]'", select: false })
   aliasKeys!: string[];
 
+  /** How the movement is done, in the trainers' own words. Optional, never pre-filled. */
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
+  /** A YouTube video of the movement, stored as https://www.youtube.com/watch?v=<id>. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  videoUrl!: string | null;
+
   @Column({ type: 'enum', enum: ExerciseModality })
   modality!: ExerciseModality;
 

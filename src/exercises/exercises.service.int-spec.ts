@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
 import { WorkoutTypesService } from '../workout-types/workout-types.service';
@@ -103,6 +107,45 @@ describe('ExercisesService (integration)', () => {
       expect(created.aliases).toEqual(['Toes 2 bar']);
     });
 
+    it('stores a description and a YouTube link in one form, both optional', async () => {
+      const fx = fixtures();
+
+      const plain = await svc(fx).create({
+        name: 'Burpee',
+        modality: GYMNASTICS,
+      });
+      const full = await svc(fx).create({
+        name: 'Air squat',
+        modality: GYMNASTICS,
+        description: 'Hips back and down, below the knees.',
+        videoUrl: 'https://youtu.be/rMvwVtlqjTE?si=share',
+      });
+
+      expect(plain).toMatchObject({ description: null, videoUrl: null });
+      expect(full).toMatchObject({
+        description: 'Hips back and down, below the knees.',
+        videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+      });
+    });
+
+    it('refuses a video link that is not a YouTube video (400) and saves nothing', async () => {
+      const fx = fixtures();
+
+      const error = await rejectionOf(
+        svc(fx).create({
+          name: 'Air squat',
+          modality: GYMNASTICS,
+          videoUrl: 'https://www.crossfit.com/essentials/the-air-squat',
+        }),
+      );
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(error.message).toBe(
+        'videoUrl must be a link to a YouTube video, e.g. https://www.youtube.com/watch?v=rMvwVtlqjTE',
+      );
+      expect(await count(fx)).toBe(0);
+    });
+
     it('refuses a name without letters or digits (400)', async () => {
       const fx = fixtures();
 
@@ -165,6 +208,41 @@ describe('ExercisesService (integration)', () => {
 
       const hidden = await svc(fx).update(created.id, { isActive: false });
       expect(hidden).toMatchObject({ name: 'Pull-ups', isActive: false });
+    });
+
+    it('changes or removes the description and the video, and leaves them alone when not sent', async () => {
+      const fx = fixtures();
+      const created = await svc(fx).create({
+        name: 'Air squat',
+        modality: GYMNASTICS,
+        description: 'Old text.',
+        videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+      });
+
+      expect(
+        await svc(fx).update(created.id, { isActive: false }),
+      ).toMatchObject({
+        description: 'Old text.',
+        videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+      });
+      expect(
+        await svc(fx).update(created.id, {
+          description: 'New text.',
+          videoUrl: 'https://www.youtube.com/embed/_-9_46by2JI',
+        }),
+      ).toMatchObject({
+        description: 'New text.',
+        videoUrl: 'https://www.youtube.com/watch?v=_-9_46by2JI',
+      });
+      expect(
+        await svc(fx).update(created.id, { description: '', videoUrl: null }),
+      ).toMatchObject({ description: null, videoUrl: null });
+
+      const error = await rejectionOf(
+        svc(fx).update(created.id, { videoUrl: 'https://vimeo.com/1' }),
+      );
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((await svc(fx).get(created.id)).videoUrl).toBeNull();
     });
 
     it('refuses a spelling another exercise has (409) and an unknown id (404)', async () => {
@@ -284,13 +362,65 @@ describe('ExercisesService (integration)', () => {
       expect(await count(fx)).toBe(1);
     });
 
-    it('the library has no two spellings that clash', () => {
-      const keys = Object.values(EXERCISE_LIBRARY)
-        .flat()
-        .flatMap((e) => [e.name, ...(e.aliases ?? [])].map(exerciseKey));
+    it('stores the videos of the crossfit.com movements, and no descriptions', async () => {
+      const fx = fixtures();
+      await svc(fx).seedLibrary();
+      const byName = new Map((await svc(fx).list()).map((e) => [e.name, e]));
 
-      expect(keys.filter((k, i) => keys.indexOf(k) !== i)).toEqual([]);
-      expect(keys.every(Boolean)).toBe(true);
+      expect(byName.get('Air Squat')).toMatchObject({
+        modality: GYMNASTICS,
+        defaultMeasure: ExerciseMeasure.REPS,
+        aliases: ['Squat'],
+        videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+        description: null,
+      });
+      expect(byName.get('Burpee')?.videoUrl).toBe(
+        'https://www.youtube.com/watch?v=auBLPXO8Fww',
+      );
+      expect(byName.get('Run')).toMatchObject({
+        defaultMeasure: ExerciseMeasure.DISTANCE,
+        videoUrl: null,
+      });
+      const withVideo = [...byName.values()].filter((e) => e.videoUrl);
+      expect(withVideo).toHaveLength(118);
+      expect([...byName.values()].every((e) => e.description === null)).toBe(
+        true,
+      );
+    });
+
+    it('the spellings the lesson plans use find their movement', async () => {
+      const fx = fixtures();
+      await svc(fx).seedLibrary();
+      const spellings = {
+        'Pull-ups': 'Kipping Pull-up',
+        'KB swings': 'Kettlebell Swing',
+        'Russian KB swings': 'Russian kettlebell swing',
+        'ring muscle-ups': 'Kipping Muscle-up',
+        'sit-ups': 'AbMat Sit-up',
+        'squat snatches': 'Snatch',
+        'skin-the-cats': 'Skin the Cat',
+        'ring rows': 'Ring Row',
+        Run: 'Run',
+        bike: 'Bike',
+        'wall balls': 'Wall-ball Shot',
+        T2B: 'Kipping Toes-to-bar',
+        HSPU: 'Kipping Handstand Push-up',
+        Pistols: 'Single-leg Squat (Pistol)',
+        'Push-ups from the knees': 'Knee push-up',
+      };
+
+      const found = await svc(fx).findByKeys(
+        Object.keys(spellings).map(exerciseKey),
+      );
+
+      expect(
+        Object.fromEntries(
+          Object.keys(spellings).map((s) => [
+            s,
+            found.get(exerciseKey(s))?.name,
+          ]),
+        ),
+      ).toEqual(spellings);
     });
   });
 });

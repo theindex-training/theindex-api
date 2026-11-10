@@ -10,6 +10,8 @@ import {
 
 export const EXERCISE_NAME_MAX_LENGTH = 80;
 export const EXERCISE_ALIASES_MAX = 20;
+export const EXERCISE_DESCRIPTION_MAX_LENGTH = 2000;
+export const EXERCISE_VIDEO_URL_MAX_LENGTH = 300;
 
 const trim = Transform(({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value,
@@ -40,5 +42,26 @@ export function ExerciseAliases() {
     IsString({ each: true }),
     IsNotEmpty({ each: true, message: 'aliases must not be empty' }),
     MaxLength(EXERCISE_NAME_MAX_LENGTH, { each: true }),
+  );
+}
+
+/** Description: trimmed, at most 2000 characters; empty or null removes it. */
+export function ExerciseDescription() {
+  return applyDecorators(
+    trim,
+    IsString(),
+    MaxLength(EXERCISE_DESCRIPTION_MAX_LENGTH),
+  );
+}
+
+/**
+ * Video link: trimmed, at most 300 characters; empty or null removes it. That it is a YouTube
+ * video is checked by the service (youtube-url.ts), which stores it in one form.
+ */
+export function ExerciseVideoUrl() {
+  return applyDecorators(
+    trim,
+    IsString(),
+    MaxLength(EXERCISE_VIDEO_URL_MAX_LENGTH),
   );
 }

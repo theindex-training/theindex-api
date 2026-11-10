@@ -113,6 +113,59 @@ describe('Exercises, workout types and workouts (e2e)', () => {
       .expect(404);
   });
 
+  it('exercises: takes an optional description and a YouTube link, and validates both', async () => {
+    const { auth, post } = await staff();
+
+    const created = await post('exercises', {
+      name: 'Air squat',
+      modality: 'GYMNASTICS',
+      description: '  Hips back and down.  ',
+      videoUrl: '  https://youtu.be/rMvwVtlqjTE  ',
+    }).expect(201);
+    expect(created.body).toMatchObject({
+      description: 'Hips back and down.',
+      videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+    });
+
+    expect(
+      messageOf(
+        (
+          await post('exercises', {
+            name: 'Burpee',
+            modality: 'GYMNASTICS',
+            description: 'x'.repeat(2001),
+            videoUrl: 42,
+          }).expect(400)
+        ).body,
+      ),
+    ).toEqual([
+      'description must be shorter than or equal to 2000 characters',
+      'videoUrl must be a string',
+      'videoUrl must be shorter than or equal to 300 characters',
+    ]);
+    expect(
+      messageOf(
+        (
+          await post('exercises', {
+            name: 'Burpee',
+            modality: 'GYMNASTICS',
+            videoUrl: 'https://vimeo.com/1',
+          }).expect(400)
+        ).body,
+      ),
+    ).toBe(
+      'videoUrl must be a link to a YouTube video, e.g. https://www.youtube.com/watch?v=rMvwVtlqjTE',
+    );
+
+    const cleared = await ctx()
+      .http()
+      .patch(`/api/exercises/${(created.body as Named).id}`)
+      .set(auth)
+      .send({ description: null, videoUrl: '' })
+      .expect(200);
+    expect(cleared.body).toMatchObject({ description: null, videoUrl: null });
+  });
+
   it('workout types: lists the built-in ones, takes new ones and guards names and deletes', async () => {
     const { auth, post, type } = await staff();
 

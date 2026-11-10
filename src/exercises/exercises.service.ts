@@ -17,6 +17,7 @@ import { exerciseKey } from './exercise-key';
 import { DEFAULT_LIBRARY_MEASURE, EXERCISE_LIBRARY } from './exercise-library';
 import { ExerciseEntity, EXERCISE_NAME_INDEX } from './exercise.entity';
 import { ExerciseMeasure, ExerciseModality } from './exercise.enums';
+import { youtubeVideoId, youtubeWatchUrl } from './youtube-url';
 
 /**
  * The movement catalogue (ADMIN and TRAINER). A movement is found by any of its spellings: names
@@ -51,6 +52,8 @@ export class ExercisesService implements OnModuleInit {
           modality: modality as ExerciseModality,
           defaultMeasure: entry.measure ?? DEFAULT_LIBRARY_MEASURE,
           isActive: true,
+          description: null,
+          videoUrl: entry.videoId ? youtubeWatchUrl(entry.videoId) : null,
         });
       }),
     );
@@ -88,6 +91,8 @@ export class ExercisesService implements OnModuleInit {
       modality: dto.modality,
       defaultMeasure: dto.defaultMeasure ?? ExerciseMeasure.REPS,
       isActive: dto.isActive ?? true,
+      description: dto.description || null,
+      videoUrl: videoUrlOf(dto.videoUrl),
     });
     await this.applyNames(exercise, dto.name, dto.aliases ?? []);
     const saved = await this.saveOrConflict(exercise);
@@ -101,6 +106,11 @@ export class ExercisesService implements OnModuleInit {
       exercise.defaultMeasure = dto.defaultMeasure;
     }
     if (dto.isActive !== undefined) exercise.isActive = dto.isActive;
+    if (dto.description !== undefined) {
+      exercise.description = dto.description || null;
+    }
+    if (dto.videoUrl !== undefined)
+      exercise.videoUrl = videoUrlOf(dto.videoUrl);
     if (dto.name !== undefined || dto.aliases !== undefined) {
       await this.applyNames(
         exercise,
@@ -216,4 +226,16 @@ export class ExercisesService implements OnModuleInit {
       throw error;
     }
   }
+}
+
+/** A sent video link as stored: the watch link of its YouTube video, or null when empty. */
+function videoUrlOf(link: string | null | undefined): string | null {
+  if (!link) return null;
+  const id = youtubeVideoId(link);
+  if (!id) {
+    throw new BadRequestException(
+      'videoUrl must be a link to a YouTube video, e.g. https://www.youtube.com/watch?v=rMvwVtlqjTE',
+    );
+  }
+  return youtubeWatchUrl(id);
 }
