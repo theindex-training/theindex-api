@@ -542,6 +542,256 @@ describe('AttendanceService write path (integration)', () => {
     });
   });
 
+  describe('previewBatch', () => {
+    const TRAINED_AT = '2025-12-10T18:00:00Z';
+
+    async function previewWorld(fx: Fixtures) {
+      const { trainee: ana, trainer, loc } = await world(fx);
+      const [bob, cara, dan] = await Promise.all([
+        fx.trainee('Bob', { nickname: 'Bobby' }),
+        fx.trainee('Cara'),
+        fx.trainee('Dan'),
+      ]);
+      const body = (traineeIds: string[]) => ({
+        trainerId: trainer.id,
+        locationId: loc.id,
+        traineeIds,
+        trainedAt: TRAINED_AT,
+      });
+      return { ana, bob, cara, dan, trainer, loc, body };
+    }
+
+    it('ATT-40 shows what is left per trainee after the training, attention first', async () => {
+      const fx = fixtures();
+      freezeTime('2025-12-10T09:00:00Z');
+      const { ana, bob, cara, dan, trainer, loc, body } =
+        await previewWorld(fx);
+      const anaSub = await fx.buy(ana.id, (await fx.punchPlan(10, 10000)).id);
+      const bobSub = await fx.buy(bob.id, (await fx.punchPlan(1, 1000)).id);
+      const caraSub = await fx.buy(cara.id, (await fx.timePlan(30, 6000)).id, {
+        startsAt: '2025-12-01T00:00:00Z',
+      });
+
+      const res = await fx.attendance.previewBatch(
+        body([ana.id, bob.id, cara.id, dan.id, ana.id]),
+      );
+
+      expect(res).toEqual({
+        trainerId: trainer.id,
+        locationId: loc.id,
+        trainedAt: '2025-12-10T18:00:00.000Z',
+        count: 4,
+        trainees: [
+          {
+            traineeId: dan.id,
+            name: 'Dan',
+            nickname: null,
+            paymentStatus: UNPAID,
+            level: 'UNPAID',
+            subscription: null,
+          },
+          {
+            traineeId: bob.id,
+            name: 'Bob',
+            nickname: 'Bobby',
+            paymentStatus: PAID,
+            level: 'LAST',
+            subscription: {
+              id: bobSub.id,
+              type: 'PUNCH',
+              planTitle: 'Punch 1',
+              remainingCreditsAfter: 0,
+              endsAt: null,
+              daysLeft: null,
+            },
+          },
+          {
+            traineeId: ana.id,
+            name: 'Ana',
+            nickname: null,
+            paymentStatus: PAID,
+            level: 'OK',
+            subscription: {
+              id: anaSub.id,
+              type: 'PUNCH',
+              planTitle: 'Punch 10',
+              remainingCreditsAfter: 9,
+              endsAt: null,
+              daysLeft: null,
+            },
+          },
+          {
+            traineeId: cara.id,
+            name: 'Cara',
+            nickname: null,
+            paymentStatus: PAID,
+            level: 'OK',
+            subscription: {
+              id: caraSub.id,
+              type: 'TIME',
+              planTitle: 'Time 30d',
+              remainingCreditsAfter: null,
+              endsAt: caraSub.endsAt,
+              daysLeft: 21,
+            },
+          },
+        ],
+      });
+    });
+
+    it('ATT-41 saves nothing: no attendance, credits and statuses unchanged', async () => {
+      const fx = fixtures();
+      const { ana, body } = await previewWorld(fx);
+      const sub = await fx.buy(ana.id, (await fx.punchPlan(1, 1000)).id);
+
+      await fx.attendance.previewBatch(body([ana.id]));
+      await fx.attendance.previewBatch(body([ana.id]));
+
+      expect(await fx.attendanceRows()).toHaveLength(0);
+      expect(await fx.sub(sub.id)).toMatchObject({
+        remainingCredits: 1,
+        status: SubscriptionStatus.ACTIVE,
+      });
+    });
+
+    it('ATT-42 agrees with what createBatch then does for the same body', async () => {
+      const fx = fixtures();
+      const { ana, bob, cara, dan, trainer, loc, body } =
+        await previewWorld(fx);
+      const punch = await fx.punchPlan(2, 2000);
+      // Ana: two cards, the earlier started one pays. Bob: an exhausted card
+      // and a period that is over. Cara: a card and a period, the period
+      // started first. Dan: a period that has not started yet.
+      await fx.buy(ana.id, punch.id, { startsAt: '2025-11-02T00:00:00Z' });
+      await fx.buy(ana.id, punch.id, { startsAt: '2025-11-01T00:00:00Z' });
+      const used = await fx.buy(bob.id, (await fx.punchPlan(1, 1000)).id);
+      await fx.attend(bob.id, trainer.id, loc.id, '2025-11-20T10:00:00Z');
+      expect((await fx.sub(used.id)).status).toBe(SubscriptionStatus.EXHAUSTED);
+      await fx.buy(bob.id, (await fx.timePlan(7, 1000)).id, {
+        startsAt: '2025-11-01T00:00:00Z',
+      });
+      await fx.buy(cara.id, (await fx.timePlan(30, 6000)).id, {
+        startsAt: '2025-12-01T00:00:00Z',
+      });
+      await fx.buy(cara.id, punch.id, { startsAt: '2025-12-05T00:00:00Z' });
+      await fx.buy(dan.id, (await fx.timePlan(30, 6000)).id, {
+        startsAt: '2025-12-11T00:00:00Z',
+      });
+      const ids = [ana.id, bob.id, cara.id, dan.id];
+
+      const preview = await fx.attendance.previewBatch(body(ids));
+      const saved = await fx.attendance.createBatch(body(ids));
+
+      const savedByTrainee = new Map(
+        (
+          saved.results as Array<{
+            attendance: {
+              traineeId: string;
+              paymentStatus: string;
+              subscriptionId: string | null;
+            };
+          }>
+        ).map((r) => [r.attendance.traineeId, r.attendance]),
+      );
+      expect(preview.trainees).toHaveLength(4);
+      for (const row of preview.trainees) {
+        const attendance = savedByTrainee.get(row.traineeId)!;
+        expect([
+          row.name,
+          row.paymentStatus,
+          row.subscription?.id ?? null,
+        ]).toEqual([
+          row.name,
+          attendance.paymentStatus,
+          attendance.subscriptionId,
+        ]);
+      }
+      expect(
+        new Map(preview.trainees.map((r) => [r.name, r.paymentStatus])),
+      ).toEqual(
+        new Map([
+          ['Ana', PAID],
+          ['Bob', UNPAID],
+          ['Cara', PAID],
+          ['Dan', UNPAID],
+        ]),
+      );
+
+      // Ana had 2 + 2 trainings; the preview said 3 would be left.
+      const anaRow = preview.trainees.find((r) => r.traineeId === ana.id)!;
+      const anaLeft = (await fx.subscriptionRows())
+        .filter((s) => s.traineeId === ana.id)
+        .reduce((sum, s) => sum + (s.remainingCredits ?? 0), 0);
+      expect(anaRow.subscription?.remainingCreditsAfter).toBe(3);
+      expect(anaLeft).toBe(3);
+    });
+
+    it('ATT-43 fails like createBatch: trainer, then trainees, then location', async () => {
+      const fx = fixtures();
+      const { ana, trainer } = await previewWorld(fx);
+      const badTrainer = await fx.trainer('Off', { isActive: false });
+      const badLoc = await fx.location('Closed', { isActive: false });
+      const inactive = await fx.trainee('Off', { isActive: false });
+      const missing = randomUUID();
+      const preview = (
+        trainerId: string,
+        traineeIds: string[],
+        locationId: string,
+      ) =>
+        rejectionOf(
+          fx.attendance.previewBatch({
+            trainerId,
+            traineeIds,
+            locationId,
+            trainedAt: TRAINED_AT,
+          }),
+        );
+
+      expect((await preview(badTrainer.id, [missing], badLoc.id)).message).toBe(
+        'Trainer not found or inactive',
+      );
+      const err = await preview(
+        trainer.id,
+        [ana.id, inactive.id, missing],
+        badLoc.id,
+      );
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect((err as BadRequestException).getResponse()).toEqual({
+        message: 'Some trainees are missing or inactive',
+        invalidTraineeIds: [inactive.id, missing],
+      });
+      expect((await preview(trainer.id, [ana.id], badLoc.id)).message).toBe(
+        'Location not found or inactive',
+      );
+      expect(await fx.attendanceRows()).toHaveLength(0);
+    });
+
+    it('ATT-44 the training date decides TIME cover; trainedDate + trainedTime are gym-local', async () => {
+      const fx = fixtures();
+      const { ana, trainer, loc } = await previewWorld(fx);
+      // Starts at 00:00 Sofia on 1 Dec (22:00Z on 30 Nov).
+      await fx.buy(ana.id, (await fx.timePlan(30, 6000)).id, {
+        startsAt: '2025-11-30T22:00:00Z',
+      });
+      const on = (trainedDate: string, trainedTime?: string) =>
+        fx.attendance.previewBatch({
+          trainerId: trainer.id,
+          locationId: loc.id,
+          traineeIds: [ana.id],
+          trainedDate,
+          ...(trainedTime ? { trainedTime } : {}),
+        });
+
+      const before = await on('2025-11-30', '23:30');
+      const after = await on('2025-12-01', '00:30');
+
+      expect(before.trainedAt).toBe('2025-11-30T21:30:00.000Z');
+      expect(before.trainees[0].paymentStatus).toBe(UNPAID);
+      expect(after.trainedAt).toBe('2025-11-30T22:30:00.000Z');
+      expect(after.trainees[0].paymentStatus).toBe(PAID);
+    });
+  });
+
   describe('lists', () => {
     it('ATT-30 listForTraineeByPaymentStatus filters, orders trainedAt/createdAt DESC and loads relations', async () => {
       const fx = fixtures();

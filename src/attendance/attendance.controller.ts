@@ -4,13 +4,14 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -64,6 +65,17 @@ export class AttendanceController {
   createBatch(@Body() dto: CreateAttendanceBatchDto) {
     return this.attendanceService.createBatch(dto);
   }
+
+  @ApiOperation({
+    summary:
+      'What POST /attendance/batch would do with the same body, without saving: per trainee, the subscription that would pay and what is left afterwards (trainings for PUNCH, end date and days for TIME). Trainees needing attention first.',
+  })
+  @HttpCode(200)
+  @Post('batch/preview')
+  previewBatch(@Body() dto: CreateAttendanceBatchDto) {
+    return this.attendanceService.previewBatch(dto);
+  }
+
   @Get('dates')
   dates(@Query() query: AttendanceDatesQueryDto) {
     return this.attendanceService.dates(query);
