@@ -45,9 +45,20 @@ describe('WorkoutsService (integration)', () => {
   }
   type Catalogue = Awaited<ReturnType<typeof catalogue>>;
 
+  const HELEN_SUMMARY = {
+    blocks: [
+      { type: 'paragraph', data: { text: '<b>3 rounds for time:</b>' } },
+      {
+        type: 'paragraph',
+        data: { text: '400-m run<br>21 KB swings<br>12 pull-ups' },
+      },
+    ],
+  };
+
   const helen = (c: Catalogue): CreateWorkoutDto => ({
     date: '2026-11-09',
     title: 'Helen',
+    summary: HELEN_SUMMARY,
     parts: [
       {
         workoutTypeId: c.type('FOR_TIME').id,
@@ -91,6 +102,16 @@ describe('WorkoutsService (integration)', () => {
         date: '2026-11-09',
         title: 'Helen',
         notes: null,
+        summary: {
+          blocks: [
+            { type: 'paragraph', data: { text: '<b>3 rounds for time:</b>' } },
+            {
+              type: 'paragraph',
+              data: { text: '400-m run<br />21 KB swings<br />12 pull-ups' },
+            },
+          ],
+        },
+        summaryText: '3 rounds for time:\n400-m run\n21 KB swings\n12 pull-ups',
       });
       expect(created.parts).toHaveLength(1);
       const [part] = created.parts;
@@ -145,6 +166,7 @@ describe('WorkoutsService (integration)', () => {
         {
           date: '2026-11-12',
           notes: 'Hard week.',
+          summary: HELEN_SUMMARY,
           parts: [
             {
               title: 'Strength',
@@ -291,6 +313,57 @@ describe('WorkoutsService (integration)', () => {
       expect((await svc(fx).list()).map((w) => w.id)).toEqual([original.id]);
     });
 
+    it('refuses a missing, empty or unsafe-shaped summary (400) and saves nothing', async () => {
+      const fx = fixtures();
+      const c = await catalogue(fx);
+      const message = async (summary: unknown) => {
+        const error = await rejectionOf(
+          svc(fx).create({ ...helen(c), summary } as CreateWorkoutDto, null),
+        );
+        expect(error).toBeInstanceOf(BadRequestException);
+        return (error as BadRequestException).getResponse();
+      };
+
+      expect(await message({ blocks: [] })).toMatchObject({
+        message: ['summary must not be empty'],
+      });
+      expect(
+        await message({ blocks: [{ type: 'image', data: { mediaId: 'x' } }] }),
+      ).toMatchObject({
+        message: [
+          'summary paragraph 1: only paragraphs are allowed (bold and italic inside them)',
+        ],
+      });
+      expect(await svc(fx).list()).toEqual([]);
+    });
+
+    it('stores the summary sanitized', async () => {
+      const fx = fixtures();
+      const c = await catalogue(fx);
+
+      const created = await svc(fx).create(
+        {
+          ...helen(c),
+          summary: {
+            blocks: [
+              {
+                type: 'paragraph',
+                data: {
+                  text: '<strong>AMRAP 12</strong> <a href="https://x.test">go</a><img src=x onerror=alert(1)>',
+                },
+              },
+            ],
+          },
+        },
+        null,
+      );
+
+      expect(created.summary.blocks).toEqual([
+        { type: 'paragraph', data: { text: '<b>AMRAP 12</b> go' } },
+      ]);
+      expect(created.summaryText).toBe('AMRAP 12 go');
+    });
+
     it('answers 404 for an unknown workout', async () => {
       const fx = fixtures();
 
@@ -339,6 +412,28 @@ describe('WorkoutsService (integration)', () => {
   });
 
   describe('update', () => {
+    it('replaces the summary when sent, and refuses an empty one', async () => {
+      const fx = fixtures();
+      const c = await catalogue(fx);
+      const created = await svc(fx).create(helen(c), null);
+
+      const updated = await svc(fx).update(created.id, {
+        summary: { blocks: [{ type: 'paragraph', data: { text: 'Fran' } }] },
+      });
+
+      expect(updated.summary.blocks).toEqual([
+        { type: 'paragraph', data: { text: 'Fran' } },
+      ]);
+      expect(updated.summaryText).toBe('Fran');
+      expect(updated.parts).toEqual(created.parts);
+      expect(
+        await rejectionOf(
+          svc(fx).update(created.id, { summary: { blocks: [] } }),
+        ),
+      ).toBeInstanceOf(BadRequestException);
+      expect((await svc(fx).get(created.id)).summaryText).toBe('Fran');
+    });
+
     it('changes only the fields sent', async () => {
       const fx = fixtures();
       const c = await catalogue(fx);
@@ -351,6 +446,7 @@ describe('WorkoutsService (integration)', () => {
 
       expect(updated).toMatchObject({ date: '2026-11-10', title: null });
       expect(updated.parts).toEqual(created.parts);
+      expect(updated.summary).toEqual(created.summary);
     });
 
     it('replaces the content; a part sent with its id keeps it, the others are new', async () => {
@@ -471,6 +567,7 @@ describe('WorkoutsService (integration)', () => {
           '3 rounds for time:',
           '400-m run',
           '21 KB swings (35/53 lb)',
+          '15 wall balls (20/14 lb)',
           '12 pull-ups',
         ],
         intermediate: ['Same as Rx’d'.replace('’', "'")],
@@ -489,24 +586,29 @@ describe('WorkoutsService (integration)', () => {
         sourceCode: '261109',
         date: '2026-11-09',
         title: 'Helen',
-        unknownExercises: ['Wall ball', 'Skin-the-cat'],
+        unknownExercises: ['Wall ball'],
         warnings: [],
       });
+      // The RX column as printed, the heading line in bold.
+      expect(draft.summary).toEqual({
+        blocks: [
+          { type: 'paragraph', data: { text: '<b>3 rounds for time:</b>' } },
+          { type: 'paragraph', data: { text: '400-m run' } },
+          { type: 'paragraph', data: { text: '21 KB swings (35/53 lb)' } },
+          { type: 'paragraph', data: { text: '15 wall balls (20/14 lb)' } },
+          { type: 'paragraph', data: { text: '12 pull-ups' } },
+        ],
+      });
+      // Only the RX workout: no other levels, no skill part.
       expect(
         draft.parts.map((p) => [
           p.title,
           p.typeCode,
           p.workoutTypeId,
           p.scoreType,
+          p.variants.map((v) => v.level),
         ]),
-      ).toEqual([
-        [null, 'FOR_TIME', c.type('FOR_TIME').id, 'TIME'],
-        ['Post-workout skill', 'QUALITY', c.type('QUALITY').id, 'NONE'],
-      ]);
-      expect(draft.parts[0].variants.map((v) => v.level)).toEqual([
-        RX,
-        BEGINNER,
-      ]);
+      ).toEqual([[null, 'FOR_TIME', c.type('FOR_TIME').id, 'TIME', [RX]]]);
       expect(
         draft.parts[0].variants[0].items.map((i) => [
           i.exerciseId,
@@ -517,13 +619,12 @@ describe('WorkoutsService (integration)', () => {
         [c.run.id, 'Run', 400],
         // "KB swings" is found under its catalogue name.
         [c.swing.id, 'Kettlebell swing', 21],
+        [null, 'Wall ball', 15],
         [c.pullUp.id, 'Pull-up', 12],
       ]);
-      expect(draft.parts[0].variants[1].items[1]).toMatchObject({
-        exerciseId: null,
-        exerciseName: 'Wall ball',
-        loadKg: 6,
-        loadFemaleKg: 5,
+      expect(draft.parts[0].variants[0].items[2]).toMatchObject({
+        loadKg: 9,
+        loadFemaleKg: 6,
       });
       expect(await svc(fx).list()).toEqual([]);
     });

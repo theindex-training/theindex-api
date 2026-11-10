@@ -14,6 +14,7 @@ import { ExerciseEntity } from '../exercises/exercise.entity';
 import { ExerciseMeasure } from '../exercises/exercise.enums';
 import { WorkoutTypeEntity } from '../workout-types/workout-type.entity';
 import { ScoreType } from '../workout-types/workout-type.enums';
+import type { WorkoutSummary } from './workout-summary';
 import { WorkoutLevel } from './workout.enums';
 
 /** numeric columns come back from pg as strings. */
@@ -23,8 +24,8 @@ const numeric = {
 };
 
 /**
- * The workout of a day (WOD). Its content is structured, never free text, so results can be
- * compared later:
+ * The workout of a day (WOD). Its `summary` is the text people read; its content is also
+ * structured, never free text, so results can be compared later:
  *
  *   workout (date, title)
  *     part       what is done and how it is scored: type (For time, AMRAP...) and score type.
@@ -49,6 +50,17 @@ export class WorkoutEntity {
 
   @Column({ type: 'varchar', length: 1000, nullable: true })
   notes!: string | null;
+
+  /**
+   * The workout as people read it (workout-summary.ts): paragraphs with bold and italic,
+   * required. The PDF import fills it with the RX column as printed.
+   */
+  @Column({ type: 'jsonb', default: () => `'{"blocks":[]}'` })
+  summary!: WorkoutSummary;
+
+  /** summaryToPlainText(summary), a line per paragraph: for search and messages. */
+  @Column({ type: 'text', default: '' })
+  summaryText!: string;
 
   @Column({ type: 'uuid', nullable: true })
   createdByAccountId!: string | null;

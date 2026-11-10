@@ -10,6 +10,7 @@ import {
   IsInt,
   IsISO8601,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -241,6 +242,15 @@ export class CreateWorkoutDto {
   @IsString()
   @MaxLength(WORKOUT_NOTES_MAX_LENGTH)
   notes?: string | null;
+
+  @ApiProperty({
+    description:
+      'Editor.js output ({ time, blocks, version }) with paragraphs only; bold and italic inside them. Required and not empty. Checked and sanitized; see workout-summary.ts.',
+    type: 'object',
+    additionalProperties: true,
+  })
+  @IsObject()
+  summary!: Record<string, unknown>;
 
   @ApiProperty({ type: [WorkoutPartDto] })
   @IsArray()

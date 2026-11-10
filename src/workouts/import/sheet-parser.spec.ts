@@ -14,7 +14,7 @@ import {
 } from './sheet-parser';
 
 const { REPS, DISTANCE, TIME, CALORIES } = ExerciseMeasure;
-const { RX, INTERMEDIATE, BEGINNER } = WorkoutLevel;
+const { RX } = WorkoutLevel;
 
 /** Only the fields that say something, so expectations stay readable. */
 function told(item: DraftItem) {
@@ -429,13 +429,14 @@ describe('parseColumn', () => {
 });
 
 describe('parseSheet', () => {
-  it('builds one part with a variant per level that has its own workout', () => {
+  it('reads the RX column into one part and the summary, and ignores the other columns', () => {
     const draft = parseSheet(
       sheet({
         heading: '261109 // HELEN | TASK PRIORITY',
         rx: ['3 rounds for time:', '400-m run', '12 pull-ups'],
         intermediate: ['3 rounds for time:', '400-m run', '6 pull-ups'],
         beginner: ['3 rounds for time:', '200-m run', '12 ring rows'],
+        skill: ['Post-workout skill', 'Accumulate:', '10-15 skin-the-cats'],
       }),
     );
 
@@ -445,104 +446,71 @@ describe('parseSheet', () => {
       title: 'Helen',
       warnings: [],
     });
+    expect(draft.summary).toEqual({
+      blocks: [
+        { type: 'paragraph', data: { text: '<b>3 rounds for time:</b>' } },
+        { type: 'paragraph', data: { text: '400-m run' } },
+        { type: 'paragraph', data: { text: '12 pull-ups' } },
+      ],
+    });
     expect(draft.parts).toHaveLength(1);
-    expect(draft.parts[0].title).toBeNull();
-    expect(draft.parts[0].variants.map((v) => v.level)).toEqual([
-      RX,
-      INTERMEDIATE,
-      BEGINNER,
-    ]);
-    expect(draft.parts[0].variants[2].items[0].quantity).toBe(200);
+    expect(draft.parts[0]).toMatchObject({
+      title: null,
+      typeCode: WorkoutTypeCode.FOR_TIME,
+      scoreType: ScoreType.TIME,
+    });
+    expect(draft.parts[0].variants.map((v) => v.level)).toEqual([RX]);
+    expect(draft.parts[0].variants[0].items.map((i) => i.exerciseName)).toEqual(
+      ['Run', 'Pull-up'],
+    );
   });
 
-  it('"Same as Rx’d" adds no variant', () => {
+  it('the summary keeps the column as printed: wrapped lines joined, units and remarks as written', () => {
     const draft = parseSheet(
       sheet({
-        rx: ['Deadlift', '5-3-1-5-3-1-5-3-1'],
-        beginner: ['EMOM 20:', 'Min. 1 | 10 sit-ups'],
-      }),
-    );
-
-    expect(draft.parts[0].variants.map((v) => v.level)).toEqual([RX, BEGINNER]);
-  });
-
-  it('puts pre-workout skill work before the workout and other skill work after, unscored', () => {
-    const before = parseSheet(
-      sheet({
-        rx: ['For time:', '10 snatches (95/135 lb)'],
-        skill: [
-          'Pre-workout build-up',
-          '4 power snatches + 4 squat',
-          'snatches',
-          '- Build to a complex load that’s',
-          'slightly heavier than workout',
-          'weight.',
+        rx: [
+          '5-4-3-2-1 reps for time of:',
+          'Snatch (125/185 lb)',
+          '- 30-ft  handstand walk after',
+          'each round.',
         ],
       }),
     );
-    expect(before.parts.map((p) => p.title)).toEqual([
-      'Pre-workout build-up',
-      null,
+
+    expect(draft.summary?.blocks.map((b) => b.data.text)).toEqual([
+      '<b>5-4-3-2-1 reps for time of:</b>',
+      'Snatch (125/185 lb)',
+      '- 30-ft handstand walk after each round.',
     ]);
-    expect(before.parts[0]).toMatchObject({
-      typeCode: WorkoutTypeCode.QUALITY,
-      scoreType: ScoreType.NONE,
+    // The structured part converts the units.
+    expect(draft.parts[0].variants[0].items[1]).toMatchObject({
+      exerciseName: 'Handstand walk',
+      quantity: 9,
     });
-    expect(before.parts[0].variants[0].notes).toBe(
-      "Build to a complex load that's slightly heavier than workout weight.",
-    );
-    expect(
-      before.parts[0].variants[0].items.map((i) => i.exerciseName),
-    ).toEqual(['Power snatch', 'Squat snatch']);
-
-    const after = parseSheet(
-      sheet({
-        rx: ['AMRAP 12:', '5 ring muscle-ups'],
-        skill: [
-          'Post-workout challenge',
-          '1 attempt:',
-          'Max-effort pull-up bar hang',
-        ],
-      }),
-    );
-    expect(after.parts.map((p) => p.title)).toEqual([
-      null,
-      'Post-workout challenge',
-    ]);
-    expect(after.parts[1].scoreType).toBe(ScoreType.NONE);
   });
 
-  it('"Rest, stretch, recover." is no skill work', () => {
-    const draft = parseSheet(sheet({ rx: ['For time:', '50 burpees'] }));
+  it('a heavy day: the lift is the bold line', () => {
+    const draft = parseSheet(sheet({ rx: ['Deadlift', '5-3-1-5-3-1-5-3-1'] }));
 
-    expect(draft.parts).toHaveLength(1);
-    expect(draft.warnings).toEqual([]);
+    expect(draft.summary?.blocks.map((b) => b.data.text)).toEqual([
+      '<b>Deadlift</b>',
+      '5-3-1-5-3-1-5-3-1',
+    ]);
+    expect(draft.parts[0].typeCode).toBe(WorkoutTypeCode.FOR_LOAD);
   });
 
   it('warns about what it could not read instead of guessing', () => {
-    const draft = parseSheet(
-      sheet({
-        heading: '',
-        rx: [],
-        beginner: ['Scale as needed. Ask your coach.'],
-        skill: ['Mobility', 'Choose what you need today. Move well.'],
-      }),
-    );
-
-    expect(draft.parts).toEqual([]);
-    expect(draft.warnings).toEqual([
+    const empty = parseSheet(sheet({ heading: '', rx: [] }));
+    expect(empty).toMatchObject({ summary: null, parts: [] });
+    expect(empty.warnings).toEqual([
       'The date could not be read from the heading',
       'The RX workout could not be read',
-      'The skill work "Mobility Choose what you need today. Move well." could not be read',
     ]);
 
-    const partly = parseSheet(
-      sheet({
-        rx: ['For time:', '50 burpees'],
-        beginner: ['Scale as needed. Ask your coach.'],
-      }),
-    );
-    expect(partly.warnings).toEqual(['The Beginner workout could not be read']);
-    expect(partly.parts[0].variants).toHaveLength(1);
+    // Text with no movement in it still makes a summary to edit.
+    const prose = parseSheet(sheet({ rx: ['Partner WOD. Ask your coach.'] }));
+    expect(prose.parts).toEqual([]);
+    expect(prose.summary?.blocks).toHaveLength(1);
+    expect(prose.warnings).toEqual(['The RX workout could not be read']);
   });
 });

@@ -15,6 +15,12 @@ import {
 } from './dto/workout.dto';
 import { workoutProblems } from './workout-rules';
 import {
+  InvalidSummaryError,
+  normalizeSummary,
+  summaryToPlainText,
+  WorkoutSummary,
+} from './workout-summary';
+import {
   WorkoutEntity,
   WorkoutItemEntity,
   WorkoutPartEntity,
@@ -71,6 +77,7 @@ export class WorkoutsService {
     if (dto.parts.some((part) => part.id)) {
       throw new BadRequestException("A new workout's parts can't have an id");
     }
+    const summary = checkSummary(dto.summary);
     const types = await this.checkParts(dto.parts);
     const id = await this.repo.manager.transaction(async (m) => {
       const workout = await m.save(
@@ -78,6 +85,8 @@ export class WorkoutsService {
           date: dto.date,
           title: dto.title || null,
           notes: dto.notes || null,
+          summary,
+          summaryText: summaryToPlainText(summary),
           createdByAccountId: accountId,
         }),
       );
@@ -98,6 +107,8 @@ export class WorkoutsService {
     });
     if (!existing) throw new NotFoundException('Workout not found');
 
+    const summary =
+      dto.summary !== undefined ? checkSummary(dto.summary) : undefined;
     const types = dto.parts ? await this.checkParts(dto.parts) : null;
     if (dto.parts) {
       const known = new Set(existing.parts.map((p) => p.id));
@@ -115,6 +126,10 @@ export class WorkoutsService {
       if (dto.date !== undefined) changes.date = dto.date;
       if (dto.title !== undefined) changes.title = dto.title || null;
       if (dto.notes !== undefined) changes.notes = dto.notes || null;
+      if (summary) {
+        changes.summary = summary;
+        changes.summaryText = summaryToPlainText(summary);
+      }
       // Always touch the row, so updatedAt also moves when only the parts change.
       await m.update(
         WorkoutEntity,
@@ -233,6 +248,18 @@ export class WorkoutsService {
   }
 }
 
+/** The summary as stored, or a 400 saying what is wrong with it. */
+function checkSummary(input: unknown): WorkoutSummary {
+  try {
+    return normalizeSummary(input);
+  } catch (error) {
+    if (error instanceof InvalidSummaryError) {
+      throw new BadRequestException([error.message]);
+    }
+    throw error;
+  }
+}
+
 /** The workout as the API returns it: the tree in order, with names for types and exercises. */
 function present(workout: WorkoutEntity) {
   return {
@@ -240,6 +267,8 @@ function present(workout: WorkoutEntity) {
     date: workout.date,
     title: workout.title,
     notes: workout.notes,
+    summary: workout.summary,
+    summaryText: workout.summaryText,
     createdAt: workout.createdAt,
     updatedAt: workout.updatedAt,
     parts: [...workout.parts]

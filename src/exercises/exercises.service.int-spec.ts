@@ -286,6 +286,9 @@ describe('ExercisesService (integration)', () => {
       await fx.moduleRef.get(WorkoutsService).create(
         {
           date: '2026-11-09',
+          summary: {
+            blocks: [{ type: 'paragraph', data: { text: 'For time' } }],
+          },
           parts: [
             {
               workoutTypeId: forTime.id,

@@ -6,10 +6,11 @@ import {
   WorkoutTypeCode,
 } from '../../workout-types/workout-type.enums';
 import { WorkoutLevel } from '../workout.enums';
+import { summaryFromLines, WorkoutSummary } from '../workout-summary';
 import { SheetText } from './sheet-layout';
 
 /**
- * Turns the text of a lesson plan's top band (sheet-layout.ts) into a structured workout draft:
+ * Turns the RX column of a lesson plan's top band (sheet-layout.ts) into a structured workout draft:
  * the same shape the API saves, with movements still as names. The grammar follows how CrossFit
  * writes workouts ("3 rounds for time:", "AMRAP 12:", "EMOM 20:", "21 KB swings (35/53 lb)",
  * "15/20-cal bike", ":40 row for calories"...). It is a best effort that a trainer reviews: what
@@ -56,6 +57,8 @@ export type WorkoutDraft = {
   /** The day the number stands for (YYMMDD), 'YYYY-MM-DD'. */
   date: string | null;
   title: string | null;
+  /** The RX column as printed, the first line in bold; null when the column is empty. */
+  summary: WorkoutSummary | null;
   parts: DraftPart[];
   warnings: string[];
 };
@@ -82,10 +85,19 @@ const ITEM_NOTES_MAX = 200;
 const defaultScore = (code: WorkoutTypeCode) =>
   SYSTEM_WORKOUT_TYPES.find((t) => t.code === code)!.scoreType;
 
+/**
+ * The workout of a lesson plan: its RX column only, as one part and as the summary (the column's
+ * text as printed). The Intermediate, Beginner and Skill columns are not read: the gym programmes
+ * the RX workout.
+ */
 export function parseSheet(sheet: SheetText): WorkoutDraft {
   const warnings: string[] = [];
+  const lines = joinWrapped(
+    sheet.rx.map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean),
+  );
   const draft: WorkoutDraft = {
     ...parseHeading(sheet.heading),
+    summary: lines.length ? summaryFromLines(lines) : null,
     parts: [],
     warnings,
   };
@@ -95,47 +107,12 @@ export function parseSheet(sheet: SheetText): WorkoutDraft {
   if (!rx || !rx.variant.items.length) {
     warnings.push('The RX workout could not be read');
   } else {
-    const main: DraftPart = {
+    draft.parts.push({
       title: null,
       typeCode: rx.typeCode,
       scoreType: rx.scoreType,
       variants: [rx.variant],
-    };
-    const others = [
-      [WorkoutLevel.INTERMEDIATE, sheet.intermediate, 'Intermediate'],
-      [WorkoutLevel.BEGINNER, sheet.beginner, 'Beginner'],
-    ] as const;
-    for (const [level, lines, label] of others) {
-      if (!lines.length || /^same as rx/i.test(clean(lines[0]))) continue;
-      const column = parseColumn(lines, level);
-      if (column?.variant.items.length) main.variants.push(column.variant);
-      else warnings.push(`The ${label} workout could not be read`);
-    }
-    draft.parts.push(main);
-  }
-
-  const skill = sheet.skill.map(clean).filter(Boolean);
-  if (skill.length && !/^rest\b/i.test(skill[0])) {
-    // A heading such as "Pre-workout build-up" comes first; work lines start with an amount.
-    const titled = !/^[\d:]/.test(skill[0]) && !skill[0].endsWith(':');
-    const title = titled ? skill[0] : null;
-    const column = parseColumn(
-      titled ? skill.slice(1) : skill,
-      WorkoutLevel.RX,
-    );
-    if (column?.variant.items.length) {
-      const part: DraftPart = {
-        title: title ?? 'Skill',
-        typeCode: column.typeCode,
-        // Skill work is practice, whatever shape it takes.
-        scoreType: ScoreType.NONE,
-        variants: [column.variant],
-      };
-      if (title && /^pre\b/i.test(title)) draft.parts.unshift(part);
-      else draft.parts.push(part);
-    } else {
-      warnings.push(`The skill work "${skill.join(' ')}" could not be read`);
-    }
+    });
   }
   return draft;
 }

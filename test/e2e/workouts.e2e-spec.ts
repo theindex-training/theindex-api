@@ -22,6 +22,7 @@ type Draft = {
   date: string;
   title: string | null;
   unknownExercises: string[];
+  summary: object | null;
   parts: {
     title: string | null;
     workoutTypeId: string;
@@ -220,6 +221,9 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     const body = {
       date: '2026-11-09',
       title: ' Helen ',
+      summary: {
+        blocks: [{ type: 'paragraph', data: { text: '<b>3 rounds</b>' } }],
+      },
       parts: [
         {
           workoutTypeId: type('FOR_TIME').id,
@@ -292,6 +296,9 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     const item = { exerciseId: run.id, measure: 'REPS', quantity: 10 };
     const workout = (variant: object, extra: object = {}) => ({
       date: '2026-11-09',
+      summary: {
+        blocks: [{ type: 'paragraph', data: { text: '<b>3 rounds</b>' } }],
+      },
       parts: [
         {
           workoutTypeId: type('FOR_TIME').id,
@@ -303,9 +310,27 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     const messages = async (body: object) =>
       messageOf((await post('workouts', body).expect(400)).body);
 
-    expect(await messages({ date: '2026-11-09', parts: [] })).toEqual([
-      'a workout needs at least one part',
+    expect(
+      await messages({
+        date: '2026-11-09',
+        summary: { blocks: [{ type: 'paragraph', data: { text: 'x' } }] },
+        parts: [],
+      }),
+    ).toEqual(['a workout needs at least one part']);
+    expect(await messages(workout({}, { summary: undefined }))).toEqual([
+      'summary must be an object',
     ]);
+    expect(await messages(workout({}, { summary: 'For time' }))).toEqual([
+      'summary must be an object',
+    ]);
+    expect(
+      await messages(
+        workout(
+          {},
+          { summary: { blocks: [{ type: 'paragraph', data: { text: ' ' } }] } },
+        ),
+      ),
+    ).toEqual(['summary must not be empty']);
     expect(await messages(workout({}, { date: '9.11.2026' }))).toEqual([
       'date must be a real date',
       'date must be YYYY-MM-DD',
@@ -351,7 +376,7 @@ describe('Exercises, workout types and workouts (e2e)', () => {
       rx: ['3 rounds for time:', '400-m run', '12 pull-ups'],
       intermediate: ["Same as Rx'd"],
       beginner: ['3 rounds for time:', '200-m run', '12 ring rows'],
-      skill: ['Rest, stretch, recover.'],
+      skill: ['Post-workout skill', 'Accumulate:', '10-15 skin-the-cats'],
     });
 
     const imported = await c
@@ -364,8 +389,17 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     expect(draft).toMatchObject({
       date: '2026-11-09',
       title: 'Helen',
-      unknownExercises: ['Pull-up', 'Ring row'],
+      // Only the RX column is read: no ring rows, no skin-the-cats.
+      unknownExercises: ['Pull-up'],
+      summary: {
+        blocks: [
+          { type: 'paragraph', data: { text: '<b>3 rounds for time:</b>' } },
+          { type: 'paragraph', data: { text: '400-m run' } },
+          { type: 'paragraph', data: { text: '12 pull-ups' } },
+        ],
+      },
     });
+    expect(draft.parts).toHaveLength(1);
     await c.http().get('/api/workouts').set(auth).expect(200, []);
 
     // The form creates what is missing, then sends the draft as a workout.
@@ -380,6 +414,7 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     const saved = await post('workouts', {
       date: draft.date,
       title: draft.title,
+      summary: draft.summary,
       parts: draft.parts.map((part) => ({
         title: part.title,
         workoutTypeId: part.workoutTypeId,
@@ -397,6 +432,7 @@ describe('Exercises, workout types and workouts (e2e)', () => {
     expect(saved.body).toMatchObject({
       date: '2026-11-09',
       title: 'Helen',
+      summaryText: '3 rounds for time:\n400-m run\n12 pull-ups',
       parts: [
         {
           scoreType: 'TIME',
@@ -416,10 +452,6 @@ describe('Exercises, workout types and workouts (e2e)', () => {
                   quantity: 12,
                 },
               ],
-            },
-            {
-              level: 'BEGINNER',
-              items: [{ quantity: 200 }, { exercise: { name: 'Ring row' } }],
             },
           ],
         },

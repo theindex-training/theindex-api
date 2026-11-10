@@ -74,6 +74,7 @@ export class WorkoutImportService {
       sourceCode: draft.sourceCode,
       date: draft.date,
       title: draft.title,
+      summary: draft.summary,
       parts,
       /** Movements in the PDF that are not in the catalogue yet, to create before saving. */
       unknownExercises: [...unknown],
