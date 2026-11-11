@@ -21,7 +21,6 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TraineeProfilesModule } from './trainee-profiles/trainee-profiles.module';
 import { TrainingTimesModule } from './training-times/training-times.module';
 import { TrainerProfilesModule } from './trainer-profiles/trainer-profiles.module';
-import { WorkoutTypesModule } from './workout-types/workout-types.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 
 @Module({
@@ -64,7 +63,6 @@ import { WorkoutsModule } from './workouts/workouts.module';
     ArticlesModule,
     PublicContentModule,
     ExercisesModule,
-    WorkoutTypesModule,
     WorkoutsModule,
   ],
   controllers: [AppController],

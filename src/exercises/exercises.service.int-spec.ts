@@ -5,18 +5,14 @@ import {
 } from '@nestjs/common';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
-import { WorkoutTypesService } from '../workout-types/workout-types.service';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { WorkoutsService } from '../workouts/workouts.service';
-import { WorkoutLevel } from '../workouts/workout.enums';
 import { exerciseKey } from './exercise-key';
 import { EXERCISE_LIBRARY } from './exercise-library';
 import { ExerciseEntity } from './exercise.entity';
-import { ExerciseMeasure, ExerciseModality } from './exercise.enums';
 import { ExercisesService } from './exercises.service';
 
 const UNKNOWN_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
-const { GYMNASTICS, WEIGHTLIFTING } = ExerciseModality;
 
 describe('ExercisesService (integration)', () => {
   const fixtures = setupIntegrationSuite({ extraImports: [WorkoutsModule] });
@@ -30,14 +26,11 @@ describe('ExercisesService (integration)', () => {
       const created = await svc(fx).create({
         name: 'Kettlebell swing',
         aliases: ['American swing'],
-        modality: WEIGHTLIFTING,
       });
 
       expect(created).toMatchObject({
         name: 'Kettlebell swing',
         aliases: ['American swing'],
-        modality: WEIGHTLIFTING,
-        defaultMeasure: ExerciseMeasure.REPS,
         isActive: true,
       });
       const sent = JSON.parse(JSON.stringify(created)) as object;
@@ -47,12 +40,10 @@ describe('ExercisesService (integration)', () => {
 
     it('refuses a name that is another spelling of an existing exercise (409)', async () => {
       const fx = fixtures();
-      await svc(fx).create({ name: 'Pull-up', modality: GYMNASTICS });
+      await svc(fx).create({ name: 'Pull-up' });
 
       for (const name of ['pull up', 'PULL-UPS', 'Pull-Up']) {
-        const error = await rejectionOf(
-          svc(fx).create({ name, modality: GYMNASTICS }),
-        );
+        const error = await rejectionOf(svc(fx).create({ name }));
         expect(error).toBeInstanceOf(ConflictException);
         expect(error.message).toBe(
           `"${name}" is already the exercise "Pull-up"`,
@@ -66,7 +57,6 @@ describe('ExercisesService (integration)', () => {
       await svc(fx).create({
         name: 'Kettlebell swing',
         aliases: ['American swing'],
-        modality: WEIGHTLIFTING,
       });
 
       // "KB swings" is the same key as the name "Kettlebell swing".
@@ -76,7 +66,6 @@ describe('ExercisesService (integration)', () => {
             svc(fx).create({
               name: 'Russian swing',
               aliases: ['KB swings'],
-              modality: WEIGHTLIFTING,
             }),
           )
         ).message,
@@ -87,7 +76,6 @@ describe('ExercisesService (integration)', () => {
           await rejectionOf(
             svc(fx).create({
               name: 'American swings',
-              modality: WEIGHTLIFTING,
             }),
           )
         ).message,
@@ -101,7 +89,6 @@ describe('ExercisesService (integration)', () => {
       const created = await svc(fx).create({
         name: 'Toes-to-bar',
         aliases: ['T2B', 'toes to bars', 'TTB', 'Toes 2 bar'],
-        modality: GYMNASTICS,
       });
 
       expect(created.aliases).toEqual(['Toes 2 bar']);
@@ -112,11 +99,9 @@ describe('ExercisesService (integration)', () => {
 
       const plain = await svc(fx).create({
         name: 'Burpee',
-        modality: GYMNASTICS,
       });
       const full = await svc(fx).create({
         name: 'Air squat',
-        modality: GYMNASTICS,
         description: 'Hips back and down, below the knees.',
         videoUrl: 'https://youtu.be/rMvwVtlqjTE?si=share',
       });
@@ -134,7 +119,6 @@ describe('ExercisesService (integration)', () => {
       const error = await rejectionOf(
         svc(fx).create({
           name: 'Air squat',
-          modality: GYMNASTICS,
           videoUrl: 'https://www.crossfit.com/essentials/the-air-squat',
         }),
       );
@@ -149,9 +133,7 @@ describe('ExercisesService (integration)', () => {
     it('refuses a name without letters or digits (400)', async () => {
       const fx = fixtures();
 
-      const error = await rejectionOf(
-        svc(fx).create({ name: '---', modality: GYMNASTICS }),
-      );
+      const error = await rejectionOf(svc(fx).create({ name: '---' }));
 
       expect(error.message).toBe('name must contain letters or digits');
     });
@@ -162,16 +144,13 @@ describe('ExercisesService (integration)', () => {
       const fx = fixtures();
       await svc(fx).create({
         name: 'Run',
-        modality: ExerciseModality.MONOSTRUCTURAL,
       });
       await svc(fx).create({
         name: 'Kettlebell swing',
         aliases: ['American swing'],
-        modality: WEIGHTLIFTING,
       });
       await svc(fx).create({
         name: 'Air squat',
-        modality: GYMNASTICS,
         isActive: false,
       });
       const names = async (q: object) =>
@@ -196,7 +175,6 @@ describe('ExercisesService (integration)', () => {
       const created = await svc(fx).create({
         name: 'Pull-up',
         aliases: ['Kipping pull-up'],
-        modality: GYMNASTICS,
       });
 
       const renamed = await svc(fx).update(created.id, { name: 'Pull-ups' });
@@ -214,7 +192,6 @@ describe('ExercisesService (integration)', () => {
       const fx = fixtures();
       const created = await svc(fx).create({
         name: 'Air squat',
-        modality: GYMNASTICS,
         description: 'Old text.',
         videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
       });
@@ -247,10 +224,9 @@ describe('ExercisesService (integration)', () => {
 
     it('refuses a spelling another exercise has (409) and an unknown id (404)', async () => {
       const fx = fixtures();
-      await svc(fx).create({ name: 'Pull-up', modality: GYMNASTICS });
+      await svc(fx).create({ name: 'Pull-up' });
       const other = await svc(fx).create({
         name: 'Ring row',
-        modality: GYMNASTICS,
       });
 
       expect(
@@ -268,7 +244,6 @@ describe('ExercisesService (integration)', () => {
       const fx = fixtures();
       const created = await svc(fx).create({
         name: 'Burpee',
-        modality: GYMNASTICS,
       });
 
       expect(await svc(fx).delete(created.id)).toEqual({ deleted: true });
@@ -279,33 +254,12 @@ describe('ExercisesService (integration)', () => {
       const fx = fixtures();
       const burpee = await svc(fx).create({
         name: 'Burpee',
-        modality: GYMNASTICS,
       });
-      await fx.moduleRef.get(WorkoutTypesService).seedSystemTypes();
-      const [forTime] = await fx.moduleRef.get(WorkoutTypesService).list();
       await fx.moduleRef.get(WorkoutsService).create(
         {
           date: '2026-11-09',
-          summary: {
-            blocks: [{ type: 'paragraph', data: { text: 'For time' } }],
-          },
-          parts: [
-            {
-              workoutTypeId: forTime.id,
-              variants: [
-                {
-                  level: WorkoutLevel.RX,
-                  items: [
-                    {
-                      exerciseId: burpee.id,
-                      measure: ExerciseMeasure.REPS,
-                      quantity: 100,
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
+          summary: '100 burpees',
+          exerciseIds: [burpee.id],
         },
         null,
       );
@@ -322,18 +276,58 @@ describe('ExercisesService (integration)', () => {
     });
   });
 
+  describe('addAlias', () => {
+    it('adds another spelling, which then finds the exercise', async () => {
+      const fx = fixtures();
+      const swing = await svc(fx).create({ name: 'Kettlebell swing' });
+
+      const updated = await svc(fx).addAlias(swing.id, 'Russian KB swings');
+
+      expect(updated.aliases).toEqual(['Russian KB swings']);
+      const found = await svc(fx).findByKeys([exerciseKey('russian kb swing')]);
+      expect(found.get('russian kettlebell swing')?.id).toBe(swing.id);
+    });
+
+    it('changes nothing for a spelling the exercise already answers to', async () => {
+      const fx = fixtures();
+      const swing = await svc(fx).create({
+        name: 'Kettlebell swing',
+        aliases: ['American swing'],
+      });
+
+      expect((await svc(fx).addAlias(swing.id, 'KB swings')).aliases).toEqual([
+        'American swing',
+      ]);
+      expect(
+        (await svc(fx).addAlias(swing.id, 'american swings')).aliases,
+      ).toEqual(['American swing']);
+    });
+
+    it('refuses a spelling another exercise answers to (409) and an unknown id (404)', async () => {
+      const fx = fixtures();
+      await svc(fx).create({ name: 'Pull-up' });
+      const row = await svc(fx).create({ name: 'Ring row' });
+
+      expect(
+        await rejectionOf(svc(fx).addAlias(row.id, 'pull ups')),
+      ).toBeInstanceOf(ConflictException);
+      expect((await svc(fx).get(row.id)).aliases).toEqual([]);
+      expect(
+        await rejectionOf(svc(fx).addAlias(UNKNOWN_ID, 'x')),
+      ).toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('findByKeys', () => {
     it('finds an exercise by its name or an alias, the name first', async () => {
       const fx = fixtures();
       const swing = await svc(fx).create({
         name: 'Kettlebell swing',
         aliases: ['American swing'],
-        modality: WEIGHTLIFTING,
       });
       const squat = await svc(fx).create({
         name: 'Air squat',
         aliases: ['Squat'],
-        modality: GYMNASTICS,
       });
 
       const found = await svc(fx).findByKeys(
@@ -353,14 +347,14 @@ describe('ExercisesService (integration)', () => {
   describe('seedLibrary', () => {
     it('adds the starter library once, and never on top of existing exercises', async () => {
       const fx = fixtures();
-      const size = Object.values(EXERCISE_LIBRARY).flat().length;
+      const size = EXERCISE_LIBRARY.length;
 
       expect(await svc(fx).seedLibrary()).toBe(size);
       expect(await svc(fx).seedLibrary()).toBe(0);
       expect(await count(fx)).toBe(size);
 
       await fx.ds.getRepository(ExerciseEntity).deleteAll();
-      await svc(fx).create({ name: 'My only move', modality: GYMNASTICS });
+      await svc(fx).create({ name: 'My only move' });
       expect(await svc(fx).seedLibrary()).toBe(0);
       expect(await count(fx)).toBe(1);
     });
@@ -371,8 +365,6 @@ describe('ExercisesService (integration)', () => {
       const byName = new Map((await svc(fx).list()).map((e) => [e.name, e]));
 
       expect(byName.get('Air Squat')).toMatchObject({
-        modality: GYMNASTICS,
-        defaultMeasure: ExerciseMeasure.REPS,
         aliases: ['Squat'],
         videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
         description: null,
@@ -380,10 +372,7 @@ describe('ExercisesService (integration)', () => {
       expect(byName.get('Burpee')?.videoUrl).toBe(
         'https://www.youtube.com/watch?v=auBLPXO8Fww',
       );
-      expect(byName.get('Run')).toMatchObject({
-        defaultMeasure: ExerciseMeasure.DISTANCE,
-        videoUrl: null,
-      });
+      expect(byName.get('Run')).toMatchObject({ videoUrl: null });
       const withVideo = [...byName.values()].filter((e) => e.videoUrl);
       expect(withVideo).toHaveLength(118);
       expect([...byName.values()].every((e) => e.description === null)).toBe(

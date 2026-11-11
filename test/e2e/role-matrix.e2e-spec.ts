@@ -183,17 +183,13 @@ const MATRIX: Row[] = [
   r('POST /articles/:id/preview-token', ALLOW, GUARD, GUARD),
   r('DELETE /articles/:id', ALLOW, GUARD, GUARD),
 
-  // Exercises, workout types and workouts: staff only; trainees don't see workouts yet.
+  // Exercises and workouts: staff only; trainees don't see workouts yet.
   r('GET /exercises', ALLOW, ALLOW, GUARD),
   r('POST /exercises', ALLOW, ALLOW, GUARD),
   r('GET /exercises/:id', ALLOW, ALLOW, GUARD),
   r('PATCH /exercises/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /exercises/:id', ALLOW, ALLOW, GUARD),
-  r('GET /workout-types', ALLOW, ALLOW, GUARD),
-  r('POST /workout-types', ALLOW, ALLOW, GUARD),
-  r('GET /workout-types/:id', ALLOW, ALLOW, GUARD),
-  r('PATCH /workout-types/:id', ALLOW, ALLOW, GUARD),
-  r('DELETE /workout-types/:id', ALLOW, ALLOW, GUARD),
+  r('POST /exercises/:id/aliases', ALLOW, ALLOW, GUARD),
   r('GET /workouts', ALLOW, ALLOW, GUARD),
   r('POST /workouts', ALLOW, ALLOW, GUARD),
   r('POST /workouts/import-pdf', ALLOW, ALLOW, GUARD),

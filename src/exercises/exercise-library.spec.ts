@@ -2,7 +2,7 @@ import { exerciseKey } from './exercise-key';
 import { EXERCISE_LIBRARY } from './exercise-library';
 import { youtubeVideoId, youtubeWatchUrl } from './youtube-url';
 
-const entries = Object.values(EXERCISE_LIBRARY).flat();
+const entries = EXERCISE_LIBRARY;
 
 describe('EXERCISE_LIBRARY', () => {
   it('has the 118 crossfit.com movements, each with its own video', () => {

@@ -14,9 +14,8 @@ import { CreateExerciseDto } from './dto/create-exercise.dto';
 import { ListExercisesQueryDto } from './dto/list-exercises.query.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 import { exerciseKey } from './exercise-key';
-import { DEFAULT_LIBRARY_MEASURE, EXERCISE_LIBRARY } from './exercise-library';
+import { EXERCISE_LIBRARY } from './exercise-library';
 import { ExerciseEntity, EXERCISE_NAME_INDEX } from './exercise.entity';
-import { ExerciseMeasure, ExerciseModality } from './exercise.enums';
 import { youtubeVideoId, youtubeWatchUrl } from './youtube-url';
 
 /**
@@ -41,22 +40,18 @@ export class ExercisesService implements OnModuleInit {
   /** Adds the starter library when there are no exercises at all. Returns how many were added. */
   async seedLibrary(): Promise<number> {
     if ((await this.repo.count()) > 0) return 0;
-    const rows = Object.entries(EXERCISE_LIBRARY).flatMap(([modality, list]) =>
-      list.map((entry) => {
-        const aliases = entry.aliases ?? [];
-        return this.repo.create({
-          name: entry.name,
-          nameKey: exerciseKey(entry.name),
-          aliases,
-          aliasKeys: aliases.map(exerciseKey),
-          modality: modality as ExerciseModality,
-          defaultMeasure: entry.measure ?? DEFAULT_LIBRARY_MEASURE,
-          isActive: true,
-          description: null,
-          videoUrl: entry.videoId ? youtubeWatchUrl(entry.videoId) : null,
-        });
-      }),
-    );
+    const rows = EXERCISE_LIBRARY.map((entry) => {
+      const aliases = entry.aliases ?? [];
+      return this.repo.create({
+        name: entry.name,
+        nameKey: exerciseKey(entry.name),
+        aliases,
+        aliasKeys: aliases.map(exerciseKey),
+        isActive: true,
+        description: null,
+        videoUrl: entry.videoId ? youtubeWatchUrl(entry.videoId) : null,
+      });
+    });
     await this.repo.save(rows);
     return rows.length;
   }
@@ -88,8 +83,6 @@ export class ExercisesService implements OnModuleInit {
 
   async create(dto: CreateExerciseDto) {
     const exercise = this.repo.create({
-      modality: dto.modality,
-      defaultMeasure: dto.defaultMeasure ?? ExerciseMeasure.REPS,
       isActive: dto.isActive ?? true,
       description: dto.description || null,
       videoUrl: videoUrlOf(dto.videoUrl),
@@ -101,10 +94,6 @@ export class ExercisesService implements OnModuleInit {
 
   async update(id: string, dto: UpdateExerciseDto) {
     const exercise = await this.get(id);
-    if (dto.modality !== undefined) exercise.modality = dto.modality;
-    if (dto.defaultMeasure !== undefined) {
-      exercise.defaultMeasure = dto.defaultMeasure;
-    }
     if (dto.isActive !== undefined) exercise.isActive = dto.isActive;
     if (dto.description !== undefined) {
       exercise.description = dto.description || null;
@@ -126,7 +115,7 @@ export class ExercisesService implements OnModuleInit {
   async delete(id: string) {
     const exercise = await this.get(id);
     const [{ used }] = await this.repo.query<{ used: boolean }[]>(
-      `SELECT EXISTS (SELECT 1 FROM "workout_items" WHERE "exerciseId" = $1) AS used`,
+      `SELECT EXISTS (SELECT 1 FROM "workout_exercises" WHERE "exerciseId" = $1) AS used`,
       [exercise.id],
     );
     if (used) {
@@ -136,6 +125,30 @@ export class ExercisesService implements OnModuleInit {
     }
     await this.repo.delete({ id: exercise.id });
     return { deleted: true };
+  }
+
+  /**
+   * Adds another spelling to an exercise, e.g. the one a lesson plan used ("Russian KB swings"),
+   * so the next import finds it. A spelling it already answers to changes nothing; one that
+   * another exercise answers to is refused (409).
+   */
+  async addAlias(id: string, alias: string) {
+    const exercise = await this.repo.findOne({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        aliases: true,
+        nameKey: true,
+        aliasKeys: true,
+      },
+    });
+    if (!exercise) throw new NotFoundException('Exercise not found');
+    const key = exerciseKey(alias);
+    if (key === exercise.nameKey || exercise.aliasKeys.includes(key)) {
+      return this.get(id);
+    }
+    return this.update(id, { aliases: [...exercise.aliases, alias] });
   }
 
   /** The exercises that answer to each of the keys (by name or alias): key -> exercise. */

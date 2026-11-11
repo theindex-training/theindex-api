@@ -6,12 +6,11 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { ExerciseMeasure, ExerciseModality } from './exercise.enums';
 
 export const EXERCISE_NAME_INDEX = 'UQ_exercises_name_key';
 
 /**
- * A movement workouts are built from: Back squat, Pull-up, Run, Plank...
+ * A movement workouts list: Back squat, Pull-up, Run, Plank...
  * Names are unique by `exerciseKey` (so "Pull-ups" can't be added next to "Pull-up"), and
  * `aliases` are other spellings the PDF import should recognise ("KB swing", "C2B pull-up").
  */
@@ -42,17 +41,6 @@ export class ExerciseEntity {
   /** A YouTube video of the movement, stored as https://www.youtube.com/watch?v=<id>. */
   @Column({ type: 'varchar', length: 200, nullable: true })
   videoUrl!: string | null;
-
-  @Column({ type: 'enum', enum: ExerciseModality })
-  modality!: ExerciseModality;
-
-  /** What the workout form starts with when the movement is picked (Run: distance). */
-  @Column({
-    type: 'enum',
-    enum: ExerciseMeasure,
-    default: ExerciseMeasure.REPS,
-  })
-  defaultMeasure!: ExerciseMeasure;
 
   /** Inactive movements stay on old workouts but aren't offered for new ones. */
   @Column({ type: 'boolean', default: true })

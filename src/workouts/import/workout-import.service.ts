@@ -1,10 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { exerciseKey } from '../../exercises/exercise-key';
 import { ExercisesService } from '../../exercises/exercises.service';
-import { WorkoutTypesService } from '../../workout-types/workout-types.service';
+import { readLessonPlan } from './lesson-plan';
 import { firstPageText } from './pdf-text';
 import { sheetFromItems } from './sheet-layout';
-import { parseSheet } from './sheet-parser';
 
 /** Lesson plans are a few hundred kB; anything much larger is not one. */
 export const WORKOUT_PDF_MAX_BYTES = 10 * 1024 * 1024;
@@ -12,15 +11,13 @@ export const WORKOUT_PDF_MAX_BYTES = 10 * 1024 * 1024;
 export type UploadedPdf = { buffer: Buffer; mimetype: string; size: number };
 
 /**
- * Reads a workout from a lesson-plan PDF into a draft for the workout form. Nothing is saved:
- * the trainer reviews the draft and submits it like a workout typed by hand.
+ * Reads a lesson-plan PDF into a draft for the workout form: its day and name, the RX column's
+ * text as the summary, and the exercises that column names. Nothing is saved: the trainer
+ * reviews the draft and submits it like a workout typed by hand.
  */
 @Injectable()
 export class WorkoutImportService {
-  constructor(
-    private readonly exercises: ExercisesService,
-    private readonly types: WorkoutTypesService,
-  ) {}
+  constructor(private readonly exercises: ExercisesService) {}
 
   async fromPdf(file: UploadedPdf | undefined) {
     if (!file?.buffer?.length) {
@@ -43,42 +40,39 @@ export class WorkoutImportService {
       );
     }
 
-    const draft = parseSheet(sheet);
-    const names = draft.parts.flatMap((part) =>
-      part.variants.flatMap((v) => v.items.map((i) => i.exerciseName)),
+    const plan = readLessonPlan(sheet);
+    const known = await this.exercises.findByKeys(
+      plan.movements.map(exerciseKey),
     );
-    const known = await this.exercises.findByKeys(names.map(exerciseKey));
-    const types = await this.types.byCode();
+    const warnings: string[] = [];
+    if (!plan.date)
+      warnings.push('The date could not be read from the heading');
+    if (!plan.summary) warnings.push('The RX workout could not be read');
 
-    const unknown = new Set<string>();
-    const parts = draft.parts.map((part) => ({
-      title: part.title,
-      typeCode: part.typeCode,
-      workoutTypeId: types.get(part.typeCode)?.id ?? null,
-      scoreType: part.scoreType,
-      variants: part.variants.map((variant) => ({
-        ...variant,
-        items: variant.items.map((item) => {
-          const exercise = known.get(exerciseKey(item.exerciseName));
-          if (!exercise) unknown.add(item.exerciseName);
-          return {
-            ...item,
-            exerciseId: exercise?.id ?? null,
-            exerciseName: exercise?.name ?? item.exerciseName,
-          };
-        }),
-      })),
-    }));
+    // Two spellings of one movement in the PDF give it once.
+    const listed = new Set<string>();
+    const exercises = plan.movements.flatMap((name) => {
+      const exercise = known.get(exerciseKey(name));
+      if (exercise && listed.has(exercise.id)) return [];
+      if (exercise) listed.add(exercise.id);
+      return [
+        {
+          /** As the PDF wrote it (singular): the name of a new exercise, or another name. */
+          name,
+          exerciseId: exercise?.id ?? null,
+          exerciseName: exercise?.name ?? null,
+        },
+      ];
+    });
 
     return {
-      sourceCode: draft.sourceCode,
-      date: draft.date,
-      title: draft.title,
-      summary: draft.summary,
-      parts,
-      /** Movements in the PDF that are not in the catalogue yet, to create before saving. */
-      unknownExercises: [...unknown],
-      warnings: draft.warnings,
+      sourceCode: plan.sourceCode,
+      date: plan.date,
+      title: plan.title,
+      summary: plan.summary,
+      /** In the RX column's order; `exerciseId` is null for a movement the catalogue lacks. */
+      exercises,
+      warnings,
     };
   }
 }

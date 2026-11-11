@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -15,12 +16,13 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
+import { AddAliasDto } from './dto/add-alias.dto';
 import { CreateExerciseDto } from './dto/create-exercise.dto';
 import { ListExercisesQueryDto } from './dto/list-exercises.query.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 import { ExercisesService } from './exercises.service';
 
-/** The movement catalogue workouts are built from: ADMIN and TRAINER. */
+/** The movement catalogue workouts list: ADMIN and TRAINER. */
 @ApiTags('exercises')
 @ApiBearerAuth('jwt')
 @Controller('exercises')
@@ -50,6 +52,13 @@ export class ExercisesController {
     @Body() dto: UpdateExerciseDto,
   ) {
     return this.service.update(id, dto);
+  }
+
+  /** Adds another spelling (e.g. a lesson plan's) to the exercise's other names. */
+  @Post(':id/aliases')
+  @HttpCode(200)
+  addAlias(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddAliasDto) {
+    return this.service.addAlias(id, dto.alias);
   }
 
   @Delete(':id')
