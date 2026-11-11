@@ -116,6 +116,7 @@ const MATRIX: Row[] = [
 
   r('POST /attendance', ALLOW, ALLOW, GUARD),
   r('POST /attendance/batch', ALLOW, ALLOW, GUARD),
+  r('POST /attendance/batch/preview', ALLOW, ALLOW, GUARD),
   r('GET /attendance/dates', ALLOW, ALLOW, GUARD),
   r('GET /attendance/sessions', ALLOW, ALLOW, GUARD),
   r('GET /attendance/reports/inactive-trainees', ALLOW, ALLOW, GUARD),

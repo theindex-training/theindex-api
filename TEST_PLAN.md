@@ -249,6 +249,15 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
   - Batch `trainedAt` is only `IsString`: garbage → 400 `Invalid trainedAt` (service message).
   - Single create uses `IsDateString`: garbage → 400 from the DTO, with a different message.
 
+### Batch preview
+`previewBatch` (`POST /attendance/batch/preview`): what the batch would do, without saving. The rules live in the pure `attendance-preview.ts` (`attendance-preview.spec.ts`: levels and their limits, sums over several subscriptions, the resolver's order and TIME bounds, Sofia days, row order).
+- [x] **ATT-40** [I] P0. Response `{ trainerId, locationId, trainedAt, count, trainees }` with de-duplicated ids. Assert each row: UNPAID with `subscription null`; PUNCH with `remainingCreditsAfter`; TIME with `endsAt` and `daysLeft`; rows ordered UNPAID, LAST, LOW, OK.
+- [x] **ATT-41** [I] P0. Saves nothing: no attendance rows, credits and statuses unchanged, also when called twice.
+- [x] **ATT-42** [I] P0. Agrees with `createBatch` for the same body: same payment status and subscription per trainee (two cards, exhausted card, ended period, card + period, period not started yet), and the credits really left equal `remainingCreditsAfter`.
+- [x] **ATT-43** [I] P1. Fails like the batch: trainer, then trainees (`invalidTraineeIds`), then location.
+- [x] **ATT-44** [I] P1. `trainedDate` + `trainedTime` are gym-local and decide TIME cover (23:30 before the start is UNPAID, 00:30 after it is PAID).
+- [x] [E] TRAINEE → 403 (role matrix).
+
 ### Delete
 - [x] **ATT-20** [I] P0. PAID + PUNCH: assert `remainingCredits + 1`, capped at `initialCredits`, and EXHAUSTED → ACTIVE.
 - [x] **ATT-21** [I] P1. Status is set to ACTIVE whenever restored credits > 0, even from EXPIRED/CANCELLED (direct insert). Low impact today because nothing sets those statuses.

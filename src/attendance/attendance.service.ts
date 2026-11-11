@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
@@ -15,6 +15,7 @@ import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
+import { buildAttendancePreview } from './attendance-preview';
 import { getLocalDateInterval } from './attendance-range.util';
 import { getLocalDateTimeInterval } from './attendance-datetime-range.util';
 import { resolveTrainedAt } from './attendance-time.util';
@@ -62,6 +63,77 @@ export class AttendanceService {
     const traineeIds = Array.from(new Set(dto.traineeIds));
     const trainedAt = resolveTrainedAt(dto);
 
+    await this.validateBatchOrThrow(dto, traineeIds);
+
+    return this.dataSource.transaction(async (manager) => {
+      const results: any[] = [];
+
+      for (const traineeId of traineeIds) {
+        const created = await this.createOneInTransaction(
+          manager,
+          traineeId,
+          dto.trainerId,
+          trainedAt,
+          dto.locationId,
+        );
+        results.push(created);
+      }
+
+      return {
+        trainerId: dto.trainerId,
+        trainedAt: trainedAt.toISOString(),
+        count: results.length,
+        results,
+      };
+    });
+  }
+
+  /**
+   * What `createBatch` would do with the same body, without saving anything:
+   * per trainee, the subscription that would pay and what is left of it
+   * afterwards (see `attendance-preview.ts`). Fails like `createBatch` does.
+   */
+  async previewBatch(dto: CreateAttendanceBatchDto) {
+    const traineeIds = Array.from(new Set(dto.traineeIds));
+    const trainedAt = resolveTrainedAt(dto);
+
+    const trainees = await this.validateBatchOrThrow(dto, traineeIds);
+
+    const subscriptions = await this.subRepo.find({
+      where: { traineeId: In(traineeIds), status: SubscriptionStatus.ACTIVE },
+      relations: { plan: true },
+    });
+
+    const rows = buildAttendancePreview(
+      trainees,
+      subscriptions.map((sub) => ({
+        id: sub.id,
+        traineeId: sub.traineeId,
+        type: sub.type,
+        planTitle: sub.plan.title,
+        startsAt: sub.startsAt,
+        endsAt: sub.endsAt,
+        remainingCredits: sub.remainingCredits,
+        createdAt: sub.createdAt,
+      })),
+      trainedAt,
+      new Date(),
+    );
+
+    return {
+      trainerId: dto.trainerId,
+      locationId: dto.locationId,
+      trainedAt: trainedAt.toISOString(),
+      count: rows.length,
+      trainees: rows,
+    };
+  }
+
+  /** The batch checks, in order: trainer, trainees, location. */
+  private async validateBatchOrThrow(
+    dto: CreateAttendanceBatchDto,
+    traineeIds: string[],
+  ): Promise<TraineeProfileEntity[]> {
     // Validate trainer once
     const trainer = await this.trainerRepo.findOne({
       where: { id: dto.trainerId, isActive: true },
@@ -89,27 +161,7 @@ export class AttendanceService {
     if (!location)
       throw new BadRequestException('Location not found or inactive');
 
-    return this.dataSource.transaction(async (manager) => {
-      const results: any[] = [];
-
-      for (const traineeId of traineeIds) {
-        const created = await this.createOneInTransaction(
-          manager,
-          traineeId,
-          dto.trainerId,
-          trainedAt,
-          dto.locationId,
-        );
-        results.push(created);
-      }
-
-      return {
-        trainerId: dto.trainerId,
-        trainedAt: trainedAt.toISOString(),
-        count: results.length,
-        results,
-      };
-    });
+    return trainees;
   }
 
   async dates(query: AttendanceDatesQueryDto) {
