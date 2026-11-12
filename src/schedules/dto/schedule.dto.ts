@@ -123,3 +123,12 @@ export class CreateScheduleWeekDto {
   @IsISO8601({ strict: true }, { message: 'week must be a real date' })
   week!: string;
 }
+
+export class CreateBookingDto {
+  @ApiProperty({
+    format: 'uuid',
+    description: 'The training (schedule slot) to book',
+  })
+  @IsUUID()
+  slotId!: string;
+}

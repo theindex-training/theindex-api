@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BookingsController } from './bookings.controller';
+import { BookingsService } from './bookings.service';
 import {
+  ScheduleBookingEntity,
   ScheduleSlotEntity,
   ScheduleTemplateSlotEntity,
   ScheduleWeekEntity,
@@ -17,10 +20,15 @@ import { SchedulesService } from './schedules.service';
       ScheduleTemplateSlotEntity,
       ScheduleWeekEntity,
       ScheduleSlotEntity,
+      ScheduleBookingEntity,
     ]),
   ],
-  controllers: [ScheduleTemplatesController, SchedulesController],
-  providers: [SchedulesService],
-  exports: [SchedulesService],
+  controllers: [
+    ScheduleTemplatesController,
+    SchedulesController,
+    BookingsController,
+  ],
+  providers: [SchedulesService, BookingsService],
+  exports: [SchedulesService, BookingsService],
 })
 export class SchedulesModule {}

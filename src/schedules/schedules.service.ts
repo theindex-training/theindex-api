@@ -21,6 +21,7 @@ import {
   UpdateTemplateSlotDto,
 } from './dto/schedule.dto';
 import {
+  ScheduleBookingEntity,
   ScheduleSlotEntity,
   ScheduleTemplateSlotEntity,
   ScheduleWeekEntity,
@@ -43,7 +44,7 @@ type SlotFields = {
 };
 
 /** Today's gym-local date. Read on every call, so tests can freeze `Date`. */
-function today(): string {
+export function today(): string {
   return toGymLocalDate(new Date());
 }
 
@@ -233,7 +234,14 @@ export class SchedulesService {
     await this.slotRepo.manager.transaction(async (m) => {
       const changes: Partial<ScheduleSlotEntity> = {};
       const trainingTimeId = await resolveTrainingTime(m, dto, false);
-      if (trainingTimeId) changes.trainingTimeId = trainingTimeId;
+      if (trainingTimeId && trainingTimeId !== slot.trainingTimeId) {
+        if (await bookingCount(m, id)) {
+          throw new ConflictException(
+            'This training has bookings, so its time cannot change',
+          );
+        }
+        changes.trainingTimeId = trainingTimeId;
+      }
       if (dto.trainerId !== undefined) {
         await checkTrainer(m, dto.trainerId);
         changes.trainerId = dto.trainerId;
@@ -255,6 +263,11 @@ export class SchedulesService {
     const slot = await this.slotRepo.findOne({ where: { id } });
     if (!slot) throw new NotFoundException('Schedule slot not found');
     assertEditable(slot.date);
+    if (await bookingCount(this.slotRepo.manager, id)) {
+      throw new ConflictException(
+        'This training has bookings, so it cannot be removed',
+      );
+    }
     await this.slotRepo.delete({ id });
     return { deleted: true };
   }
@@ -265,7 +278,8 @@ export class SchedulesService {
       relations: { trainingTime: true, trainer: true, workout: true },
     });
     if (!slot) throw new NotFoundException('Schedule slot not found');
-    return presentSlot(slot);
+    const counts = await bookingCounts(this.slotRepo.manager, [slot.id]);
+    return presentSlot(slot, counts.get(slot.id) ?? 0);
   }
 
   private async weekSlots(weekId: string) {
@@ -273,7 +287,13 @@ export class SchedulesService {
       where: { weekId },
       relations: { trainingTime: true, trainer: true, workout: true },
     });
-    return slots.map(presentSlot).sort(compareSlots);
+    const counts = await bookingCounts(
+      this.slotRepo.manager,
+      slots.map((s) => s.id),
+    );
+    return slots
+      .map((s) => presentSlot(s, counts.get(s.id) ?? 0))
+      .sort(compareSlots);
   }
 
   private async gym(id: string) {
@@ -360,7 +380,7 @@ async function checkWorkout(
   }
 }
 
-function isUniqueViolation(error: unknown): boolean {
+export function isUniqueViolation(error: unknown): boolean {
   return (
     error instanceof QueryFailedError &&
     (error.driverError as { code?: string } | undefined)?.code === '23505'
@@ -389,7 +409,27 @@ function presentTemplateSlot(slot: ScheduleTemplateSlotEntity) {
   };
 }
 
-function presentSlot(slot: ScheduleSlotEntity) {
+/** How many trainees booked each of these trainings. */
+export async function bookingCounts(
+  m: EntityManager,
+  slotIds: string[],
+): Promise<Map<string, number>> {
+  if (!slotIds.length) return new Map();
+  const rows = await m
+    .createQueryBuilder(ScheduleBookingEntity, 'b')
+    .select('b.slotId', 'slotId')
+    .addSelect('COUNT(*)', 'count')
+    .where('b.slotId IN (:...slotIds)', { slotIds })
+    .groupBy('b.slotId')
+    .getRawMany<{ slotId: string; count: string }>();
+  return new Map(rows.map((r) => [r.slotId, Number(r.count)]));
+}
+
+async function bookingCount(m: EntityManager, slotId: string) {
+  return m.count(ScheduleBookingEntity, { where: { slotId } });
+}
+
+export function presentSlot(slot: ScheduleSlotEntity, bookedCount: number) {
   return {
     id: slot.id,
     date: slot.date,
@@ -399,6 +439,8 @@ function presentSlot(slot: ScheduleSlotEntity) {
     workout: slot.workout
       ? { id: slot.workout.id, title: slot.workout.title }
       : null,
+    /** Trainees who booked it (a plan to come, not attendance). */
+    bookedCount,
   };
 }
 

@@ -209,6 +209,11 @@ const MATRIX: Row[] = [
   r('POST /schedules/:weekId/slots', ALLOW, ALLOW, GUARD),
   r('PATCH /schedules/slots/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /schedules/slots/:id', ALLOW, ALLOW, GUARD),
+  // Bookings: trainees only, always their own (the id comes from their token).
+  r('GET /bookings/gyms', GUARD, GUARD, ALLOW),
+  r('GET /bookings/schedule', GUARD, GUARD, ALLOW),
+  r('POST /bookings', GUARD, GUARD, ALLOW),
+  r('DELETE /bookings/:slotId', GUARD, GUARD, ALLOW),
 
   // The public site (theindex-web): published content, and the draft preview behind its token.
   r('GET /public/articles', PUBLIC, PUBLIC, PUBLIC),
