@@ -35,6 +35,24 @@ describe('parseHeading', () => {
     );
   });
 
+  it('reads the day and name when the name has no "//" before it', () => {
+    expect(parseHeading('261102 DEATH ZONE | TIME PRIORITY')).toEqual({
+      sourceCode: '261102',
+      date: '2026-11-02',
+      title: 'Death Zone',
+    });
+    expect(parseHeading('261103 IT’S LOGIC | TIME PRIORITY')).toEqual({
+      sourceCode: '261103',
+      date: '2026-11-03',
+      title: 'It’s Logic',
+    });
+    expect(parseHeading('261104 GRACE')).toEqual({
+      sourceCode: '261104',
+      date: '2026-11-04',
+      title: 'Grace',
+    });
+  });
+
   it('gives no date for a number that is not a day, and nothing for other text', () => {
     expect(parseHeading('261341 | X')).toEqual({
       sourceCode: '261341',

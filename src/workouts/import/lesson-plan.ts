@@ -28,12 +28,15 @@ export function readLessonPlan(sheet: SheetText): LessonPlan {
   };
 }
 
-/** "261109 // HELEN | TASK PRIORITY" -> number, day and name. */
+/**
+ * "261109 // HELEN | TASK PRIORITY" -> number, day and name. Some plans print the name without
+ * the "//" ("261102 DEATH ZONE | TIME PRIORITY").
+ */
 export function parseHeading(
   heading: string,
 ): Pick<LessonPlan, 'sourceCode' | 'date' | 'title'> {
   const match =
-    /^(\d{2})(\d{2})(\d{2})\b\s*(?:\/\/\s*([^|]+?))?\s*(?:\|.*)?$/.exec(
+    /^(\d{2})(\d{2})(\d{2})\b\s*(?:\/\/)?\s*([^|]*?)\s*(?:\|.*)?$/.exec(
       heading.trim(),
     );
   if (!match) return { sourceCode: null, date: null, title: null };
