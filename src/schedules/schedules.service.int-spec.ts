@@ -518,6 +518,79 @@ describe('SchedulesService (integration)', () => {
       );
     });
 
+    it('a workout moved to another day leaves the trainings that named it', async () => {
+      const fx = fixtures();
+      const s = await createdWeek(fx);
+      const workouts = fx.moduleRef.get(WorkoutsService);
+      const workout = await workouts.create(
+        { date: '2026-11-13', title: 'Helen', summary: 'Run' },
+        null,
+      );
+      await svc(fx).updateSlot(s.tomorrow.id, { workoutId: workout.id });
+
+      // Other changes, and the same day, keep the link.
+      await workouts.update(workout.id, { title: 'Fran', date: '2026-11-13' });
+      expect(
+        (await svc(fx).week({ gymId: s.gym.id })).slots[1].workout,
+      ).toEqual({
+        id: workout.id,
+        title: 'Fran',
+      });
+
+      await workouts.update(workout.id, { date: '2026-11-14' });
+      expect((await svc(fx).week({ gymId: s.gym.id })).slots[1]).toMatchObject({
+        id: s.tomorrow.id,
+        workout: null,
+      });
+    });
+
+    it("a training time a schedule uses keeps its hours (409); one that isn't used can change", async () => {
+      const fx = fixtures();
+      const s = await createdWeek(fx);
+      const trainingTimes = fx.moduleRef.get(TrainingTimesService);
+
+      const error = await rejectionOf(
+        trainingTimes.update(s.morning.id, { startTime: '07:00' }),
+      );
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.message).toBe(
+        'This training time is used in a schedule, so its hours cannot change; add a new training time instead',
+      );
+      expect(
+        (await svc(fx).week({ gymId: s.gym.id })).slots[0].trainingTime,
+      ).toMatchObject({
+        startTime: '07:10:00',
+      });
+      // Sending the same hours changes nothing and is fine.
+      await trainingTimes.update(s.morning.id, {
+        startTime: '07:10',
+        endTime: '08:10',
+      });
+
+      const changed = await trainingTimes.update(s.evening.id, {
+        startTime: '16:30',
+      });
+      expect(changed.startTime).toBe('16:30');
+    });
+
+    it('a training time only a template uses keeps its hours too', async () => {
+      const fx = fixtures();
+      const s = await setup(fx);
+      await svc(fx).addTemplateSlot(s.gym.id, {
+        weekday: 1,
+        trainingTimeId: s.evening.id,
+        trainerId: s.velcho.id,
+      });
+
+      const error = await rejectionOf(
+        fx.moduleRef
+          .get(TrainingTimesService)
+          .update(s.evening.id, { endTime: '18:30' }),
+      );
+
+      expect(error).toBeInstanceOf(ConflictException);
+    });
+
     it('a training time a schedule uses cannot be deleted (409)', async () => {
       const fx = fixtures();
       const s = await createdWeek(fx);

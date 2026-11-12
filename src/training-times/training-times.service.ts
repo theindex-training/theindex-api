@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import {
+  ScheduleSlotEntity,
+  ScheduleTemplateSlotEntity,
+} from '../schedules/schedule.entity';
 import { CreateTrainingTimeDto } from './dto/create-training-time.dto';
 import { UpdateTrainingTimeDto } from './dto/update-training-time.dto';
 import { TrainingTimeEntity } from './training-time.entity';
@@ -44,6 +48,12 @@ export class TrainingTimesService {
     const nextStart = dto.startTime ?? item.startTime;
     const nextEnd = dto.endTime ?? item.endTime;
     this.validateTimeRange(nextStart, nextEnd);
+    if (
+      this.toMinutes(nextStart) !== this.toMinutes(item.startTime) ||
+      this.toMinutes(nextEnd) !== this.toMinutes(item.endTime)
+    ) {
+      await this.assertNotScheduled(id);
+    }
 
     if (dto.startTime !== undefined) item.startTime = dto.startTime;
     if (dto.endTime !== undefined) item.endTime = dto.endTime;
@@ -68,6 +78,27 @@ export class TrainingTimesService {
       throw error;
     }
     return { deleted: true };
+  }
+
+  /**
+   * Schedules (templates and weeks) show their training times' hours, so changing the hours of
+   * one they use would rewrite them, past days included. A new training time is added instead.
+   */
+  private async assertNotScheduled(id: string) {
+    // Without the schedules module (some test setups) there are no schedules.
+    if (!this.repo.manager.connection.hasMetadata(ScheduleSlotEntity)) return;
+    const used =
+      (await this.repo.manager.exists(ScheduleTemplateSlotEntity, {
+        where: { trainingTimeId: id },
+      })) ||
+      (await this.repo.manager.exists(ScheduleSlotEntity, {
+        where: { trainingTimeId: id },
+      }));
+    if (used) {
+      throw new ConflictException(
+        'This training time is used in a schedule, so its hours cannot change; add a new training time instead',
+      );
+    }
   }
 
   private validateTimeRange(startTime: string, endTime: string) {
