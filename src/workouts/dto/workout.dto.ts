@@ -78,6 +78,16 @@ export class CreateWorkoutDto {
   @ArrayUnique({ message: 'an exercise can be listed only once' })
   @IsUUID('all', { each: true })
   exerciseIds?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    format: 'uuid',
+    description:
+      'The lesson-plan PDF the workout comes from: `sourcePdf.id` of POST /workouts/import-pdf. null removes it.',
+  })
+  @IsOptional()
+  @IsUUID()
+  sourcePdfId?: string | null;
 }
 
 /** Every field is optional; `exerciseIds`, when sent, replaces the list. */

@@ -6,6 +6,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import { ExerciseEntity } from '../exercises/exercise.entity';
+import { MediaEntity } from '../media/media.entity';
+import { MediaKind } from '../media/media-kind';
+import { storedDocument } from '../media/media.service';
 import {
   CreateWorkoutDto,
   ListWorkoutsQueryDto,
@@ -31,6 +34,7 @@ export class WorkoutsService {
       .createQueryBuilder('w')
       .leftJoinAndSelect('w.exercises', 'we')
       .leftJoinAndSelect('we.exercise', 'e')
+      .leftJoinAndSelect('w.sourcePdf', 'pdf')
       .orderBy('w.date', ranged ? 'ASC' : 'DESC')
       .addOrderBy('w.createdAt', 'ASC')
       .addOrderBy('we.position', 'ASC');
@@ -47,6 +51,7 @@ export class WorkoutsService {
       .createQueryBuilder('w')
       .leftJoinAndSelect('w.exercises', 'we')
       .leftJoinAndSelect('we.exercise', 'e')
+      .leftJoinAndSelect('w.sourcePdf', 'pdf')
       .where('w.id = :id', { id })
       .orderBy('we.position', 'ASC')
       .getOne();
@@ -57,12 +62,14 @@ export class WorkoutsService {
   async create(dto: CreateWorkoutDto, accountId: string | null) {
     const exerciseIds = dto.exerciseIds ?? [];
     await this.checkExercises(exerciseIds);
+    await this.checkSourcePdf(dto.sourcePdfId);
     const id = await this.repo.manager.transaction(async (m) => {
       const workout = await m.save(
         m.create(WorkoutEntity, {
           date: dto.date,
           title: dto.title || null,
           summary: dto.summary,
+          sourcePdfId: dto.sourcePdfId ?? null,
           createdByAccountId: accountId,
         }),
       );
@@ -78,11 +85,15 @@ export class WorkoutsService {
       throw new NotFoundException('Workout not found');
     }
     if (dto.exerciseIds) await this.checkExercises(dto.exerciseIds);
+    await this.checkSourcePdf(dto.sourcePdfId);
     await this.repo.manager.transaction(async (m) => {
       const changes: Partial<WorkoutEntity> = {};
       if (dto.date !== undefined) changes.date = dto.date;
       if (dto.title !== undefined) changes.title = dto.title || null;
       if (dto.summary !== undefined) changes.summary = dto.summary;
+      if (dto.sourcePdfId !== undefined) {
+        changes.sourcePdfId = dto.sourcePdfId ?? null;
+      }
       // Always touch the row, so updatedAt also moves when only the exercises change.
       await m.update(
         WorkoutEntity,
@@ -106,6 +117,15 @@ export class WorkoutsService {
       where: { id: In(ids) },
     });
     if (found !== ids.length) throw new BadRequestException('Unknown exercise');
+  }
+
+  /** A source PDF must be a stored workout PDF (not, say, an article image). */
+  private async checkSourcePdf(id: string | null | undefined) {
+    if (!id) return;
+    const found = await this.repo.manager.exists(MediaEntity, {
+      where: { id, kind: MediaKind.WORKOUT_PDF },
+    });
+    if (!found) throw new BadRequestException('Unknown source PDF');
   }
 }
 
@@ -138,6 +158,8 @@ function present(workout: WorkoutEntity) {
         videoUrl: link.exercise!.videoUrl,
         isActive: link.exercise!.isActive,
       })),
+    /** The PDF it was imported from, if any: GET /workouts/source-pdfs/:id gives the file. */
+    sourcePdf: workout.sourcePdf ? storedDocument(workout.sourcePdf) : null,
     createdAt: workout.createdAt,
     updatedAt: workout.updatedAt,
   };

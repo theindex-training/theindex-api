@@ -194,6 +194,7 @@ const MATRIX: Row[] = [
   r('GET /workouts', ALLOW, ALLOW, GUARD),
   r('POST /workouts', ALLOW, ALLOW, GUARD),
   r('POST /workouts/import-pdf', ALLOW, ALLOW, GUARD),
+  r('GET /workouts/source-pdfs/:id', ALLOW, ALLOW, GUARD),
   r('GET /workouts/:id', ALLOW, ALLOW, GUARD),
   r('PATCH /workouts/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /workouts/:id', ALLOW, ALLOW, GUARD),

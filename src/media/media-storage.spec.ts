@@ -19,6 +19,20 @@ describe('LocalMediaStorage', () => {
     expect(readFileSync(join(root, 'abc', 'w480.webp'), 'utf8')).toBe('data');
   });
 
+  it('opens a stored file to stream it, and gives null for a missing one', async () => {
+    await storage.write('workout-pdfs/abc/original.pdf', Buffer.from('%PDF-1'));
+
+    const file = await storage.open('workout-pdfs/abc/original.pdf');
+    const chunks: Buffer[] = [];
+    for await (const chunk of file!.stream) chunks.push(chunk as Buffer);
+
+    expect(file!.size).toBe(6);
+    expect(Buffer.concat(chunks).toString()).toBe('%PDF-1');
+    expect(await storage.open('workout-pdfs/abc/missing.pdf')).toBeNull();
+    // A folder is not a file.
+    expect(await storage.open('workout-pdfs/abc')).toBeNull();
+  });
+
   it('removes a folder with everything in it', async () => {
     await storage.write('abc/master.jpg', Buffer.from('a'));
     await storage.write('abc/og.jpg', Buffer.from('b'));
@@ -40,6 +54,9 @@ describe('LocalMediaStorage', () => {
         'escapes the storage folder',
       );
     }
+    await expect(storage.open('../escape.pdf')).rejects.toThrow(
+      'escapes the storage folder',
+    );
     await expect(storage.removeFolder('')).rejects.toThrow(
       'escapes the storage folder',
     );

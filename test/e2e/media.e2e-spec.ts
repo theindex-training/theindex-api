@@ -68,26 +68,24 @@ describe('Media (e2e)', () => {
       altText: 'Клек с щанга',
       width: 800,
       height: 600,
-      url: `https://media.e2e.test/${body.id}/master.jpg`,
+      url: `https://media.e2e.test/article-images/${body.id}/master.jpg`,
       variants: [
         {
-          url: `https://media.e2e.test/${body.id}/w480.webp`,
+          url: `https://media.e2e.test/article-images/${body.id}/w480.webp`,
           width: 480,
           height: 360,
         },
       ],
       ogImage: {
-        url: `https://media.e2e.test/${body.id}/og.jpg`,
+        url: `https://media.e2e.test/article-images/${body.id}/og.jpg`,
         width: 1200,
         height: 630,
       },
       originalFilename: 'klek.jpg',
     });
-    expect(readdirSync(join(storageDir, body.id)).sort()).toEqual([
-      'master.jpg',
-      'og.jpg',
-      'w480.webp',
-    ]);
+    expect(
+      readdirSync(join(storageDir, 'article-images', body.id)).sort(),
+    ).toEqual(['master.jpg', 'og.jpg', 'w480.webp']);
   });
 
   it('trims the alt text and requires it', async () => {

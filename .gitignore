@@ -55,5 +55,6 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# Uploaded media in development (MEDIA_STORAGE_DIR default)
+# Uploaded media in development (MEDIA_STORAGE_DIR and MEDIA_PRIVATE_STORAGE_DIR defaults)
 /media-storage
+/media-storage-private

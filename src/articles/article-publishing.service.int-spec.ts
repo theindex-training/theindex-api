@@ -8,6 +8,7 @@ import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
 import { ArticleCategoryEntity } from '../article-categories/article-category.entity';
 import { MediaEntity } from '../media/media.entity';
+import { MediaKind } from '../media/media-kind';
 import { ArticleCategoryLinkEntity } from './article-category-link.entity';
 import { ArticlePublishingService } from './article-publishing.service';
 import { ArticleEntity, ArticleStatus } from './article.entity';
@@ -228,6 +229,34 @@ describe('ArticlePublishingService (integration)', () => {
 
       expect((error as BadRequestException).getResponse()).toMatchObject({
         message: ['The image in block 3 no longer exists'],
+      });
+    });
+
+    it('takes only article images: a workout PDF is neither a featured image nor an image block', async () => {
+      const fx = fixtures();
+      const id = randomUUID();
+      const workoutPdf = await fx.ds.getRepository(MediaEntity).save({
+        id,
+        kind: MediaKind.WORKOUT_PDF,
+        masterPath: `workout-pdfs/${id}/original.pdf`,
+        sizeBytes: 1,
+      });
+      const draft = await readyDraft(fx, 'Заглавие', {
+        featuredMediaId: workoutPdf.id,
+        content: {
+          blocks: [{ type: 'image', data: { mediaId: workoutPdf.id } }],
+        },
+      });
+
+      const error = await rejectionOf(
+        publishing(fx).publish(draft.id, 1, null),
+      );
+
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        message: [
+          'The featured image no longer exists',
+          'The image in block 1 no longer exists',
+        ],
       });
     });
 

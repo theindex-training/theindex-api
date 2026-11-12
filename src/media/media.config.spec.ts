@@ -1,5 +1,5 @@
 import { resolve } from 'path';
-import { loadMediaConfig } from './media.config';
+import { loadMediaConfig, loadPrivateMediaConfig } from './media.config';
 
 const PRODUCTION = {
   MEDIA_STORAGE_DIR: '/data/media',
@@ -78,5 +78,61 @@ describe('loadMediaConfig', () => {
         ),
       ).toThrow('MEDIA_MAX_UPLOAD_MB must be a whole number');
     }
+  });
+});
+
+describe('loadPrivateMediaConfig', () => {
+  it('reads the private folder in production', () => {
+    expect(
+      loadPrivateMediaConfig(
+        { ...PRODUCTION, MEDIA_PRIVATE_STORAGE_DIR: '/data/media-private' },
+        { production: true },
+      ),
+    ).toEqual({ storageDir: '/data/media-private' });
+  });
+
+  it('requires it in production, and defaults to a local folder in development', () => {
+    expect(() =>
+      loadPrivateMediaConfig(
+        { ...PRODUCTION, MEDIA_PRIVATE_STORAGE_DIR: ' ' },
+        { production: true },
+      ),
+    ).toThrow('MEDIA_PRIVATE_STORAGE_DIR is required');
+    expect(loadPrivateMediaConfig({}, { production: false })).toEqual({
+      storageDir: resolve('media-storage-private'),
+    });
+  });
+
+  it('refuses a private folder inside the public one, the public one itself, or one containing it', () => {
+    for (const dir of ['/data/media', '/data/media/private', '/data', '/']) {
+      expect(() =>
+        loadPrivateMediaConfig(
+          { ...PRODUCTION, MEDIA_PRIVATE_STORAGE_DIR: dir },
+          { production: true },
+        ),
+      ).toThrow('MEDIA_PRIVATE_STORAGE_DIR must be outside MEDIA_STORAGE_DIR');
+    }
+    // Development: checked against the public default (./media-storage) too.
+    expect(() =>
+      loadPrivateMediaConfig(
+        { MEDIA_PRIVATE_STORAGE_DIR: 'media-storage/private' },
+        { production: false },
+      ),
+    ).toThrow('MEDIA_PRIVATE_STORAGE_DIR must be outside MEDIA_STORAGE_DIR');
+  });
+
+  it('accepts a sibling whose name starts like the public folder', () => {
+    expect(
+      loadPrivateMediaConfig(
+        { ...PRODUCTION, MEDIA_PRIVATE_STORAGE_DIR: '/data/media-private' },
+        { production: true },
+      ).storageDir,
+    ).toBe('/data/media-private');
+    expect(
+      loadPrivateMediaConfig(
+        { MEDIA_PRIVATE_STORAGE_DIR: '/srv/private' },
+        { production: true },
+      ).storageDir,
+    ).toBe('/srv/private');
   });
 });
