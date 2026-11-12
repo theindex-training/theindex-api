@@ -184,6 +184,20 @@ const MATRIX: Row[] = [
   r('POST /articles/:id/preview-token', ALLOW, GUARD, GUARD),
   r('DELETE /articles/:id', ALLOW, GUARD, GUARD),
 
+  // Exercises and workouts: staff only; trainees don't see workouts yet.
+  r('GET /exercises', ALLOW, ALLOW, GUARD),
+  r('POST /exercises', ALLOW, ALLOW, GUARD),
+  r('GET /exercises/:id', ALLOW, ALLOW, GUARD),
+  r('PATCH /exercises/:id', ALLOW, ALLOW, GUARD),
+  r('DELETE /exercises/:id', ALLOW, ALLOW, GUARD),
+  r('POST /exercises/:id/aliases', ALLOW, ALLOW, GUARD),
+  r('GET /workouts', ALLOW, ALLOW, GUARD),
+  r('POST /workouts', ALLOW, ALLOW, GUARD),
+  r('POST /workouts/import-pdf', ALLOW, ALLOW, GUARD),
+  r('GET /workouts/:id', ALLOW, ALLOW, GUARD),
+  r('PATCH /workouts/:id', ALLOW, ALLOW, GUARD),
+  r('DELETE /workouts/:id', ALLOW, ALLOW, GUARD),
+
   // The public site (theindex-web): published content, and the draft preview behind its token.
   r('GET /public/articles', PUBLIC, PUBLIC, PUBLIC),
   r('GET /public/articles/:slug', PUBLIC, PUBLIC, PUBLIC),
