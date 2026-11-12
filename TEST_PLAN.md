@@ -743,4 +743,5 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/exercises/:id/aliases` | ✅ | ✅ | 🔒 |
 | GET / POST | `/workouts` | ✅ | ✅ | 🔒 |
 | POST | `/workouts/import-pdf` | ✅ | ✅ | 🔒 |
+| GET | `/workouts/source-pdfs/:id` | ✅ | ✅ | 🔒 |
 | GET / PATCH / DELETE | `/workouts/:id` | ✅ | ✅ | 🔒 |

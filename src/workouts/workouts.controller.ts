@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -10,6 +11,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -20,6 +22,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
+import { MediaKind, inlineDisposition } from '../media/media-kind';
+import { MediaService } from '../media/media.service';
 import {
   CreateWorkoutDto,
   ListWorkoutsQueryDto,
@@ -47,6 +51,7 @@ export class WorkoutsController {
   constructor(
     private readonly service: WorkoutsService,
     private readonly importer: WorkoutImportService,
+    private readonly media: MediaService,
   ) {}
 
   @Get()
@@ -59,7 +64,10 @@ export class WorkoutsController {
     return this.service.create(dto, req.user.sub);
   }
 
-  /** Reads a lesson-plan PDF into a draft for the form. Saves nothing. */
+  /**
+   * Reads a lesson-plan PDF into a draft for the form. Saves no workout; keeps the PDF, whose
+   * `sourcePdf.id` the form sends as the workout's `sourcePdfId`.
+   */
   @Post('import-pdf')
   @HttpCode(200)
   @UseInterceptors(
@@ -73,8 +81,27 @@ export class WorkoutsController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  importPdf(@UploadedFile() file: UploadedPdf | undefined) {
-    return this.importer.fromPdf(file);
+  importPdf(
+    @UploadedFile() file: UploadedPdf | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.importer.fromPdf(file, req.user.sub);
+  }
+
+  /**
+   * A kept lesson-plan PDF, by its id (a workout's `sourcePdf.id`, or the import's, before the
+   * workout is saved), shown inline under its original name. These files are never public.
+   */
+  @Get('source-pdfs/:id')
+  @Header('Cache-Control', 'private, no-cache')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async sourcePdf(@Param('id', ParseUUIDPipe) id: string) {
+    const file = await this.media.openDocument(MediaKind.WORKOUT_PDF, id);
+    return new StreamableFile(file.stream, {
+      type: file.contentType,
+      length: file.size,
+      disposition: inlineDisposition(file.filename),
+    });
   }
 
   @Get(':id')

@@ -1,12 +1,37 @@
+import { mkdtempSync, readdirSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { lessonPlanPdf } from '../int/pdf-fixture';
 import { messageOf, setupE2eSuite } from './e2e-app';
 
 /**
  * Exercises and workouts over HTTP: request validation, status codes and the journey from a PDF
- * to a saved workout. The rules themselves are covered in the services' `*.int-spec.ts` and the
- * lesson-plan reader's spec; access is in the role matrix.
+ * to a saved workout and back to that PDF. The rules themselves are covered in the services'
+ * `*.int-spec.ts` and the lesson-plan reader's spec; access is in the role matrix.
+ *
+ * Imported PDFs are kept in the private media area, set before the app is built.
  */
+const privateDir = mkdtempSync(join(tmpdir(), 'workouts-e2e-private-'));
+process.env.MEDIA_PRIVATE_STORAGE_DIR = privateDir;
+
 const UNKNOWN_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
+
+type SourcePdf = {
+  id: string;
+  originalFilename: string | null;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+/** Reads a response body as bytes, whatever its type. */
+function bytes(
+  res: NodeJS.ReadableStream,
+  done: (error: Error | null, body: Buffer) => void,
+) {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer) => chunks.push(chunk));
+  res.on('end', () => done(null, Buffer.concat(chunks)));
+}
 
 type Named = { id: string; name: string };
 type Draft = {
@@ -18,10 +43,13 @@ type Draft = {
     exerciseId: string | null;
     exerciseName: string | null;
   }[];
+  sourcePdf: SourcePdf | null;
 };
 
 describe('Exercises and workouts (e2e)', () => {
   const ctx = setupE2eSuite();
+
+  afterAll(() => rmSync(privateDir, { recursive: true, force: true }));
 
   async function staff() {
     const c = ctx();
@@ -324,6 +352,7 @@ describe('Exercises and workouts (e2e)', () => {
       title: draft.title,
       summary: draft.summary,
       exerciseIds: [run.id, swing.id, pullUp.id],
+      sourcePdfId: draft.sourcePdf!.id,
     }).expect(201);
 
     expect(saved.body).toMatchObject({
@@ -335,7 +364,43 @@ describe('Exercises and workouts (e2e)', () => {
         { name: 'Kettlebell swing' },
         { name: 'Pull-up' },
       ],
+      sourcePdf: {
+        id: draft.sourcePdf!.id,
+        originalFilename: '261109.pdf',
+        sizeBytes: pdf.length,
+      },
     });
+
+    // Editing the workout later, a trainer opens the PDF it came from, exactly as uploaded.
+    const trainer = {
+      Authorization: `Bearer ${await c.provisionAndLogin('trainer', (await c.trainer()).id)}`,
+    };
+    const workout = (
+      await c
+        .http()
+        .get(`/api/workouts/${(saved.body as { id: string }).id}`)
+        .set(trainer)
+        .expect(200)
+    ).body as { sourcePdf: SourcePdf };
+    const file = await c
+      .http()
+      .get(`/api/workouts/source-pdfs/${workout.sourcePdf.id}`)
+      .set(trainer)
+      .buffer(true)
+      .parse(bytes)
+      .expect(200);
+    expect(file.headers).toMatchObject({
+      'content-type': 'application/pdf',
+      'content-length': String(pdf.length),
+      'content-disposition': `inline; filename="261109.pdf"; filename*=UTF-8''261109.pdf`,
+      'cache-control': 'private, no-cache',
+      'x-content-type-options': 'nosniff',
+    });
+    expect((file.body as Buffer).equals(pdf)).toBe(true);
+    // Kept in the private area, once.
+    expect(readdirSync(join(privateDir, 'workout-pdfs'))).toEqual([
+      draft.sourcePdf!.id,
+    ]);
 
     // The next PDF with that spelling finds the exercise.
     const again = await c
@@ -349,6 +414,41 @@ describe('Exercises and workouts (e2e)', () => {
       'Kettlebell swing',
       'Pull-up',
     ]);
+    // The same file again is the same kept PDF.
+    expect((again.body as Draft).sourcePdf).toEqual(draft.sourcePdf);
+  });
+
+  it('source PDFs: 404 for an unknown id or one that is not a workout PDF, 400 for a bad id or sourcePdfId', async () => {
+    const { auth, post } = await staff();
+    const get = (id: string) =>
+      ctx().http().get(`/api/workouts/source-pdfs/${id}`).set(auth);
+
+    expect(messageOf((await get(UNKNOWN_ID).expect(404)).body)).toBe(
+      'File not found',
+    );
+    await get('not-a-uuid').expect(400);
+    expect(
+      messageOf(
+        (
+          await post('workouts', {
+            date: '2026-11-09',
+            summary: 'For time',
+            sourcePdfId: 'abc',
+          }).expect(400)
+        ).body,
+      ),
+    ).toEqual(['sourcePdfId must be a UUID']);
+    expect(
+      messageOf(
+        (
+          await post('workouts', {
+            date: '2026-11-09',
+            summary: 'For time',
+            sourcePdfId: UNKNOWN_ID,
+          }).expect(400)
+        ).body,
+      ),
+    ).toBe('Unknown source PDF');
   });
 
   it('import: answers 400 without a file or for a file that is not a workout PDF', async () => {

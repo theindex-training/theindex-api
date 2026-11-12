@@ -1,9 +1,18 @@
+import { mkdtempSync, readdirSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { lessonPlanPdf, pdfWithText } from '../../test/int/pdf-fixture';
 import { setupIntegrationSuite } from '../../test/int/test-app';
+import { AccountEntity } from '../accounts/account.entity';
+import { AccountRole } from '../common/enums/account-role.enum';
+import { AccountStatus } from '../common/enums/account-status.enum';
 import { ExerciseEntity } from '../exercises/exercise.entity';
 import { ExercisesService } from '../exercises/exercises.service';
+import { MediaEntity } from '../media/media.entity';
+import { MediaKind } from '../media/media-kind';
+import { MediaService } from '../media/media.service';
 import { WorkoutImportService } from './import/workout-import.service';
 import { WorkoutExerciseEntity } from './workout.entity';
 import { WorkoutsModule } from './workouts.module';
@@ -13,8 +22,32 @@ const UNKNOWN_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
 const HELEN = '3 rounds for time:\n400-m run\n21 KB swings\n12 pull-ups';
 
 describe('WorkoutsService (integration)', () => {
+  const env = { ...process.env };
+  let privateDir: string;
+
+  // Imported PDFs are kept in the private media area; MediaService reads it on first use.
+  beforeAll(() => {
+    privateDir = mkdtempSync(join(tmpdir(), 'workouts-int-private-'));
+    process.env.MEDIA_PRIVATE_STORAGE_DIR = privateDir;
+  });
+
+  afterAll(() => {
+    process.env = env;
+    rmSync(privateDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    for (const entry of readdirSync(privateDir)) {
+      rmSync(join(privateDir, entry), { recursive: true, force: true });
+    }
+  });
+
   const fixtures = setupIntegrationSuite({ extraImports: [WorkoutsModule] });
   const svc = (fx: Fixtures) => fx.moduleRef.get(WorkoutsService);
+  const storedPdfs = (fx: Fixtures) =>
+    fx.ds
+      .getRepository(MediaEntity)
+      .find({ where: { kind: MediaKind.WORKOUT_PDF } });
 
   /** A few exercises, by name. */
   async function catalogue(fx: Fixtures) {
@@ -271,7 +304,15 @@ describe('WorkoutsService (integration)', () => {
       buffer,
       mimetype: 'application/pdf',
       size: buffer.length,
+      originalname: '261109.pdf',
     });
+    const helenPdf = () =>
+      lessonPlanPdf('261109 // HELEN', {
+        rx: ['3 rounds for time:', '400-m run', '12 pull-ups'],
+        intermediate: [],
+        beginner: [],
+        skill: [],
+      });
 
     it('reads the RX column as the summary and its exercises, matching the catalogue, saving nothing', async () => {
       const fx = fixtures();
@@ -311,9 +352,18 @@ describe('WorkoutsService (integration)', () => {
           { name: 'Pull-up', exerciseId: c.pullUp.id, exerciseName: 'Pull-up' },
           { name: 'Handstand walk', exerciseId: null, exerciseName: null },
         ],
+        sourcePdf: draft.sourcePdf,
         warnings: [],
       });
-      // Only the RX column: no ring rows, no skin-the-cats; nothing saved.
+      // The PDF is kept, as uploaded.
+      expect(draft.sourcePdf).toMatchObject({
+        originalFilename: '261109.pdf',
+        sizeBytes: pdf.length,
+      });
+      expect((await storedPdfs(fx)).map((m) => m.id)).toEqual([
+        draft.sourcePdf!.id,
+      ]);
+      // Only the RX column: no ring rows, no skin-the-cats; no workout saved.
       expect(await svc(fx).list()).toEqual([]);
     });
 
@@ -382,6 +432,194 @@ describe('WorkoutsService (integration)', () => {
       ).toBe(
         'No workout was found in the PDF: the RX, INTERMEDIATE, BEGINNER and SKILL columns are missing',
       );
+      // None of them is kept.
+      expect(await storedPdfs(fx)).toEqual([]);
+      expect(readdirSync(privateDir)).toEqual([]);
+    });
+
+    it('keeps the PDF it read, privately and as uploaded, once per file', async () => {
+      const fx = fixtures();
+      const account = await fx.ds.getRepository(AccountEntity).save({
+        email: 'trainer@example.com',
+        passwordHash: null,
+        role: AccountRole.TRAINER,
+        status: AccountStatus.ACTIVE,
+      });
+      const pdf = helenPdf();
+
+      const draft = await importer(fx).fromPdf(file(pdf), account.id);
+      const again = await importer(fx).fromPdf(file(pdf), null);
+
+      expect(again.sourcePdf).toEqual(draft.sourcePdf);
+      const [row] = await storedPdfs(fx);
+      expect(row).toMatchObject({
+        id: draft.sourcePdf!.id,
+        originalFilename: '261109.pdf',
+        uploadedByAccountId: account.id,
+      });
+      expect((await storedPdfs(fx)).length).toBe(1);
+      const opened = await fx.moduleRef
+        .get(MediaService)
+        .openDocument(MediaKind.WORKOUT_PDF, draft.sourcePdf!.id);
+      const chunks: Buffer[] = [];
+      for await (const chunk of opened.stream) chunks.push(chunk as Buffer);
+      expect(Buffer.concat(chunks).equals(pdf)).toBe(true);
+    });
+
+    it('still fills the form without the private storage setting, warning that the PDF was not kept', async () => {
+      const fx = fixtures();
+      process.env.NODE_ENV = 'production';
+      delete process.env.MEDIA_PRIVATE_STORAGE_DIR;
+      try {
+        // A fresh MediaService: the suite's one has already read its settings.
+        const unconfigured = new WorkoutImportService(
+          fx.moduleRef.get(ExercisesService),
+          new MediaService(fx.ds.getRepository(MediaEntity)),
+        );
+
+        const draft = await unconfigured.fromPdf(file(helenPdf()), null);
+
+        expect(draft).toMatchObject({
+          title: 'Helen',
+          summary: '3 rounds for time:\n400-m run\n12 pull-ups',
+          sourcePdf: null,
+          warnings: [
+            'The PDF was not kept: file storage is not configured. The workout can still be saved, without its PDF.',
+          ],
+        });
+        expect(await storedPdfs(fx)).toEqual([]);
+      } finally {
+        process.env.NODE_ENV = env.NODE_ENV;
+        process.env.MEDIA_PRIVATE_STORAGE_DIR = privateDir;
+      }
+    });
+  });
+
+  describe('source PDF', () => {
+    async function importedPdf(fx: Fixtures, rx = '12 pull-ups') {
+      const pdf = lessonPlanPdf('261109 // HELEN', {
+        rx: ['For time:', rx],
+        intermediate: [],
+        beginner: [],
+        skill: [],
+      });
+      const draft = await fx.moduleRef
+        .get(WorkoutImportService)
+        .fromPdf(
+          { buffer: pdf, mimetype: 'application/pdf', size: pdf.length },
+          null,
+        );
+      return draft.sourcePdf!;
+    }
+
+    it('names the PDF a workout was imported from, in get and list', async () => {
+      const fx = fixtures();
+      const pdf = await importedPdf(fx);
+
+      const created = await svc(fx).create(
+        {
+          date: '2026-11-09',
+          summary: HELEN,
+          sourcePdfId: pdf.id,
+        },
+        null,
+      );
+
+      expect(created.sourcePdf).toEqual({
+        id: pdf.id,
+        originalFilename: null,
+        sizeBytes: pdf.sizeBytes,
+        uploadedAt: pdf.uploadedAt,
+      });
+      expect((await svc(fx).get(created.id)).sourcePdf).toEqual(
+        created.sourcePdf,
+      );
+      expect((await svc(fx).list()).map((w) => w.sourcePdf)).toEqual([
+        created.sourcePdf,
+      ]);
+      // Without one, it is null.
+      const typed = await svc(fx).create(
+        { date: '2026-11-10', summary: 'Rest' },
+        null,
+      );
+      expect(typed.sourcePdf).toBeNull();
+    });
+
+    it('lets an update replace the PDF or remove it, and leaves it alone when not sent', async () => {
+      const fx = fixtures();
+      const first = await importedPdf(fx, '12 pull-ups');
+      const second = await importedPdf(fx, '15 pull-ups');
+      const created = await svc(fx).create(
+        { date: '2026-11-09', summary: HELEN, sourcePdfId: first.id },
+        null,
+      );
+
+      const kept = await svc(fx).update(created.id, { title: 'Helen' });
+      const replaced = await svc(fx).update(created.id, {
+        sourcePdfId: second.id,
+      });
+      const removed = await svc(fx).update(created.id, { sourcePdfId: null });
+
+      expect(kept.sourcePdf?.id).toBe(first.id);
+      expect(replaced.sourcePdf?.id).toBe(second.id);
+      expect(removed.sourcePdf).toBeNull();
+      // The files stay: they are references, and another workout may use them.
+      expect((await storedPdfs(fx)).length).toBe(2);
+    });
+
+    it('lets several workouts share a PDF, and keeps it when a workout is deleted', async () => {
+      const fx = fixtures();
+      const pdf = await importedPdf(fx);
+      const rx = await svc(fx).create(
+        { date: '2026-11-09', summary: HELEN, sourcePdfId: pdf.id },
+        null,
+      );
+      const competitors = await svc(fx).create(
+        { date: '2026-11-09', summary: 'Heavier', sourcePdfId: pdf.id },
+        null,
+      );
+
+      await svc(fx).delete(rx.id);
+
+      expect((await svc(fx).get(competitors.id)).sourcePdf?.id).toBe(pdf.id);
+      expect((await storedPdfs(fx)).map((m) => m.id)).toEqual([pdf.id]);
+    });
+
+    it('refuses an id that is not a stored workout PDF (400), on create and update', async () => {
+      const fx = fixtures();
+      const image = await fx.ds.getRepository(MediaEntity).save({
+        id: '0b6d3f1e-2c4a-4b8e-9f10-1a2b3c4d5e6f',
+        kind: MediaKind.ARTICLE_IMAGE,
+        altText: 'Alt',
+        masterPath: 'article-images/x/master.jpg',
+        width: 10,
+        height: 10,
+        variants: [],
+        ogPath: 'article-images/x/og.jpg',
+        sizeBytes: 1,
+      });
+      const created = await svc(fx).create(
+        { date: '2026-11-09', summary: HELEN },
+        null,
+      );
+
+      for (const sourcePdfId of [UNKNOWN_ID, image.id]) {
+        const onCreate = await rejectionOf(
+          svc(fx).create(
+            { date: '2026-11-09', summary: HELEN, sourcePdfId },
+            null,
+          ),
+        );
+        const onUpdate = await rejectionOf(
+          svc(fx).update(created.id, { sourcePdfId }),
+        );
+        expect(onCreate).toBeInstanceOf(BadRequestException);
+        expect(onCreate.message).toBe('Unknown source PDF');
+        expect(onUpdate).toBeInstanceOf(BadRequestException);
+        expect(onUpdate.message).toBe('Unknown source PDF');
+      }
+      expect((await svc(fx).list()).length).toBe(1);
+      expect((await svc(fx).get(created.id)).sourcePdf).toBeNull();
     });
   });
 });

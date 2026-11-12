@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ExerciseEntity } from '../exercises/exercise.entity';
+import { MediaEntity } from '../media/media.entity';
 
 /**
  * A workout of the day (WOD). A day may have several (regular groups, competitors, skills...);
@@ -37,6 +38,18 @@ export class WorkoutEntity {
 
   @OneToMany(() => WorkoutExerciseEntity, (link) => link.workout)
   exercises!: WorkoutExerciseEntity[];
+
+  /**
+   * The lesson-plan PDF the workout was imported from (a `WORKOUT_PDF` media item), kept for
+   * reference: the workout's fields may have been edited since. Several workouts may share one.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  sourcePdfId!: string | null;
+
+  @ManyToOne(() => MediaEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'sourcePdfId' })
+  sourcePdf?: MediaEntity | null;
 
   @Column({ type: 'uuid', nullable: true })
   createdByAccountId!: string | null;

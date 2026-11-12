@@ -22,7 +22,7 @@ import { ALT_TEXT_MAX_LENGTH } from './dto/alt-text';
 import { ListMediaQueryDto } from './dto/list-media.query.dto';
 import { UpdateMediaDto } from './dto/update-media.dto';
 import { UploadMediaDto } from './dto/upload-media.dto';
-import { MediaService, UploadedImage } from './media.service';
+import { MediaService, UploadedMediaFile } from './media.service';
 
 type AuthenticatedRequest = {
   user: { sub: string; role: AccountRole };
@@ -59,7 +59,7 @@ export class MediaController {
     },
   })
   upload(
-    @UploadedFile() file: UploadedImage | undefined,
+    @UploadedFile() file: UploadedMediaFile | undefined,
     @Body() dto: UploadMediaDto,
     @Req() req: AuthenticatedRequest,
   ) {

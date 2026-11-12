@@ -11,6 +11,7 @@ import { ArticleCategoryEntity } from '../article-categories/article-category.en
 import { violatedUniqueIndex } from '../common/utils/db-errors';
 import { slugify, uniqueSlug } from '../common/utils/slug.util';
 import { MediaEntity } from '../media/media.entity';
+import { MediaKind } from '../media/media-kind';
 import {
   ArticleContent,
   EMPTY_CONTENT,
@@ -206,9 +207,12 @@ export class ArticlePublishingService {
       problems.push('The article needs some content');
     }
 
+    // Only article images: another kind's id (a workout's PDF) is never shown on the site.
     if (
       draft.featuredMediaId &&
-      !(await m.exists(MediaEntity, { where: { id: draft.featuredMediaId } }))
+      !(await m.exists(MediaEntity, {
+        where: { id: draft.featuredMediaId, kind: MediaKind.ARTICLE_IMAGE },
+      }))
     ) {
       problems.push('The featured image no longer exists');
     }
@@ -217,7 +221,7 @@ export class ArticlePublishingService {
     if (imageIds.length) {
       const found = await m.find(MediaEntity, {
         select: { id: true },
-        where: { id: In(imageIds) },
+        where: { id: In(imageIds), kind: MediaKind.ARTICLE_IMAGE },
       });
       const foundIds = new Set(found.map((f) => f.id));
       draft.content.blocks.forEach((block, index) => {
