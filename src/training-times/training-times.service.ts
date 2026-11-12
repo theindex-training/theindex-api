@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { CreateTrainingTimeDto } from './dto/create-training-time.dto';
 import { UpdateTrainingTimeDto } from './dto/update-training-time.dto';
 import { TrainingTimeEntity } from './training-time.entity';
@@ -52,7 +53,20 @@ export class TrainingTimesService {
 
   async delete(id: string) {
     const item = await this.edit(id);
-    await this.repo.remove(item);
+    try {
+      await this.repo.remove(item);
+    } catch (error) {
+      // Schedules (templates and weeks) point to their training times.
+      if (
+        error instanceof QueryFailedError &&
+        (error.driverError as { code?: string } | undefined)?.code === '23503'
+      ) {
+        throw new ConflictException(
+          'This training time is used in a schedule and cannot be deleted',
+        );
+      }
+      throw error;
+    }
     return { deleted: true };
   }
 

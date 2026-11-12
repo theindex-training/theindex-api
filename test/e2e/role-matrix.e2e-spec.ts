@@ -199,6 +199,17 @@ const MATRIX: Row[] = [
   r('PATCH /workouts/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /workouts/:id', ALLOW, ALLOW, GUARD),
 
+  // Weekly schedules: trainers read a gym template, only admins change it; weeks are staff's.
+  r('GET /schedule-templates/:gymId', ALLOW, ALLOW, GUARD),
+  r('POST /schedule-templates/:gymId/slots', ALLOW, GUARD, GUARD),
+  r('PATCH /schedule-templates/slots/:id', ALLOW, GUARD, GUARD),
+  r('DELETE /schedule-templates/slots/:id', ALLOW, GUARD, GUARD),
+  r('GET /schedules', ALLOW, ALLOW, GUARD),
+  r('POST /schedules', ALLOW, ALLOW, GUARD),
+  r('POST /schedules/:weekId/slots', ALLOW, ALLOW, GUARD),
+  r('PATCH /schedules/slots/:id', ALLOW, ALLOW, GUARD),
+  r('DELETE /schedules/slots/:id', ALLOW, ALLOW, GUARD),
+
   // The public site (theindex-web): published content, and the draft preview behind its token.
   r('GET /public/articles', PUBLIC, PUBLIC, PUBLIC),
   r('GET /public/articles/:slug', PUBLIC, PUBLIC, PUBLIC),

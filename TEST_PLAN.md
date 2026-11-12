@@ -745,3 +745,9 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/workouts/import-pdf` | ✅ | ✅ | 🔒 |
 | GET | `/workouts/source-pdfs/:id` | ✅ | ✅ | 🔒 |
 | GET / PATCH / DELETE | `/workouts/:id` | ✅ | ✅ | 🔒 |
+| GET | `/schedule-templates/:gymId` | ✅ | ✅ | 🔒 |
+| POST | `/schedule-templates/:gymId/slots` | ✅ | 🔒 | 🔒 |
+| PATCH / DELETE | `/schedule-templates/slots/:id` | ✅ | 🔒 | 🔒 |
+| GET / POST | `/schedules` | ✅ | ✅ | 🔒 |
+| POST | `/schedules/:weekId/slots` | ✅ | ✅ | 🔒 |
+| PATCH / DELETE | `/schedules/slots/:id` | ✅ | ✅ | 🔒 |
