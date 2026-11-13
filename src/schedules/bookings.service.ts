@@ -22,7 +22,12 @@ import {
   ScheduleWeekEntity,
 } from './schedule.entity';
 import { addDays, compareSlots, weekStartOf, weekdayOf } from './schedule-week';
-import { bookingCounts, isUniqueViolation, today } from './schedules.service';
+import {
+  bookingCounts,
+  isUniqueViolation,
+  lockSlot,
+  today,
+} from './schedules.service';
 
 /**
  * Trainees' side of the weekly schedules: the gyms' created weeks, and booking a place in a
@@ -82,22 +87,39 @@ export class BookingsService {
 
   async book(traineeId: string, slotId: string) {
     await this.checkTrainee(traineeId);
-    const slot = await this.slot(slotId);
-    const startsAt = slotStartsAt(slot.date, slot.trainingTime!.startTime);
-    if (!canBook(new Date(), startsAt)) {
-      throw new BadRequestException(
-        'Booking for this training has closed (30 minutes before it starts)',
-      );
-    }
     try {
-      await this.bookingRepo.insert({ slotId, traineeId });
+      await this.bookingRepo.manager.transaction(async (m) => {
+        // Shares the slot's lock with staff changes (SchedulesService), so a training can't be
+        // removed or moved to another time while it is being booked.
+        await lockSlot(m, slotId, 'pessimistic_read').catch(
+          (error: unknown) => {
+            throw error instanceof NotFoundException
+              ? new NotFoundException('Training not found')
+              : error;
+          },
+        );
+        const slot = await m.findOne(ScheduleSlotEntity, {
+          where: { id: slotId },
+          relations: { trainingTime: true },
+        });
+        const startsAt = slotStartsAt(
+          slot!.date,
+          slot!.trainingTime!.startTime,
+        );
+        if (!canBook(new Date(), startsAt)) {
+          throw new BadRequestException(
+            'Booking for this training has closed (30 minutes before it starts)',
+          );
+        }
+        await m.insert(ScheduleBookingEntity, { slotId, traineeId });
+      });
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConflictException('You have already booked this training');
       }
       throw error;
     }
-    return (await this.present(traineeId, [slot]))[0];
+    return (await this.present(traineeId, [await this.slot(slotId)]))[0];
   }
 
   async cancel(traineeId: string, slotId: string) {
