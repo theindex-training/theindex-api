@@ -30,6 +30,16 @@ describe('contact.util', () => {
     ])('rejects %p', (phone) => {
       expect(PHONE_PATTERN.test(phone)).toBe(false);
     });
+
+    it('runs in linear time on a long run of separators (public endpoint)', () => {
+      const spaces = ' '.repeat(200_000);
+      const started = performance.now();
+      for (const value of [spaces, `${spaces}x`, `+${spaces}`, `(${spaces}`]) {
+        expect(PHONE_PATTERN.test(value)).toBe(false);
+      }
+      // The old pattern took about 0.6 s for 20 000 spaces; this one stays in milliseconds.
+      expect(performance.now() - started).toBeLessThan(100);
+    });
   });
 
   it('normalizePhone trims and collapses whitespace', () => {

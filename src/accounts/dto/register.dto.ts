@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   Equals,
   IsEmail,
@@ -14,6 +15,10 @@ import { PhoneField, SocialLinkField } from '../../common/dto/contact-fields';
 /** `POST /api/auth/register`: anyone creates their own account. */
 export class RegisterDto {
   @ApiProperty({ example: 'ivan.petrov@example.com', maxLength: 254 })
+  // Trimmed before `IsEmail`, which rejects surrounding spaces; the service also lowercases it.
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsEmail()
   @MaxLength(254)
   email!: string;

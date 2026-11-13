@@ -71,10 +71,18 @@ describe('Self-registration (e2e)', () => {
     const registered = await c
       .http()
       .post('/api/auth/register')
-      .send(registerBody({ preferredGymId: gym.id, instagram: '@ivan' }))
+      .send(
+        registerBody({
+          email: '  Ivan@E2E.test ',
+          preferredGymId: gym.id,
+          instagram: '@ivan',
+        }),
+      )
       .expect(201);
     const accountId = (registered.body as { id: string }).id;
     expect(registered.body).not.toHaveProperty('accessToken');
+    // Trimmed before validation and stored lowercased.
+    expect(registered.body).toMatchObject({ email: 'ivan@e2e.test' });
 
     const refused = await c
       .http()

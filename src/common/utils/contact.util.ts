@@ -9,8 +9,11 @@ export const PHONE_MAX_LENGTH = 30;
 /**
  * A phone number as people write it: an optional leading `+`, then 6 to 15 digits, which may be
  * grouped with spaces, hyphens, dots, slashes or parentheses ("+359 88 123 4567", "0888/123-456").
+ * Written so no two repetitions can match the same characters: the endpoint is public, and a
+ * pattern that backtracks would let a long run of spaces stall the event loop (every validator runs,
+ * even after `MaxLength` fails).
  */
-export const PHONE_PATTERN = /^\s*\+?(?:[\s()\-./]*\d){6,15}[\s()\-./]*$/;
+export const PHONE_PATTERN = /^(?:\s*\+)?[\s()\-./]*(?:\d[\s()\-./]*){6,15}$/;
 
 /** Longest social profile (a handle or a link) stored. */
 export const SOCIAL_LINK_MAX_LENGTH = 200;
