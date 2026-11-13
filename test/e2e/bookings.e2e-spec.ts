@@ -104,6 +104,21 @@ describe('Bookings (e2e)', () => {
       ),
     ).toBe('This training has bookings, so it cannot be removed');
 
+    const details = await c
+      .http()
+      .get(`/api/bookings/trainings/${slotId}`)
+      .set(trainee)
+      .expect(200);
+    expect(details.body).toMatchObject({
+      id: slotId,
+      gym: { id: gym.id, name: 'Center' },
+      trainer: { name: 'Velcho' },
+      workout: null,
+      bookedCount: 1,
+      bookedByMe: true,
+      canCancel: true,
+    });
+
     const cancelled = await c
       .http()
       .delete(`/api/bookings/${slotId}`)
@@ -136,6 +151,12 @@ describe('Bookings (e2e)', () => {
       ),
     ).toEqual(['property note should not exist', 'slotId must be a UUID']);
     await c.http().get('/api/bookings/schedule').set(trainee).expect(400);
+    await c.http().get('/api/bookings/trainings/nope').set(trainee).expect(400);
+    await c
+      .http()
+      .get('/api/bookings/trainings/7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b')
+      .set(trainee)
+      .expect(404);
     await c
       .http()
       .post('/api/bookings')

@@ -6,6 +6,8 @@ import {
 import { freezeTime } from '../../test/int/clock';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
+import { ExercisesService } from '../exercises/exercises.service';
+import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { TrainingTimesModule } from '../training-times/training-times.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
@@ -141,6 +143,108 @@ describe('BookingsService (integration)', () => {
 
     expect(seen.slots[0].workout).toEqual({ title: 'Helen' });
     expect(JSON.stringify(seen)).not.toContain('Secret plan');
+  });
+
+  describe('one training', () => {
+    it('shows its gym, booking state and whole workout: summary and exercises in order, with descriptions and videos', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      const exercises = fx.moduleRef.get(ExercisesService);
+      const thruster = await exercises.create({
+        name: 'Thruster',
+        description: 'Front squat into a push press.',
+        videoUrl: 'https://youtu.be/L219ltL15zk',
+      });
+      const pullUp = await exercises.create({ name: 'Pull-up' });
+      const workout = await fx.moduleRef.get(WorkoutsService).create(
+        {
+          date: '2026-11-13',
+          title: 'Fran',
+          summary: '21-15-9\nThrusters\nPull-ups',
+          exerciseIds: [pullUp.id, thruster.id],
+        },
+        null,
+      );
+      await schedules(fx).updateSlot(w.friday.id, { workoutId: workout.id });
+      // An exercise made inactive later still shows in the workout that uses it.
+      await exercises.update(pullUp.id, { isActive: false });
+      await bookings(fx).book(w.boris.id, w.friday.id);
+
+      const seen = await bookings(fx).training(w.ana.id, w.friday.id);
+
+      expect(seen).toEqual({
+        id: w.friday.id,
+        date: '2026-11-13',
+        weekday: 5,
+        trainingTime: { startTime: '18:00:00', endTime: '19:00:00' },
+        trainer: { name: 'Velcho', nickname: null },
+        gym: { id: w.gym.id, name: 'Center' },
+        workout: {
+          title: 'Fran',
+          summary: '21-15-9\nThrusters\nPull-ups',
+          exercises: [
+            {
+              id: pullUp.id,
+              name: 'Pull-up',
+              description: null,
+              videoUrl: null,
+            },
+            {
+              id: thruster.id,
+              name: 'Thruster',
+              description: 'Front squat into a push press.',
+              videoUrl: 'https://www.youtube.com/watch?v=L219ltL15zk',
+            },
+          ],
+        },
+        startsAt: new Date('2026-11-13T16:00:00Z'),
+        bookedCount: 1,
+        bookedByMe: false,
+        bookingClosesAt: new Date('2026-11-13T15:30:00Z'),
+        cancelUntil: new Date('2026-11-13T15:00:00Z'),
+        canBook: true,
+        canCancel: false,
+      });
+      // Never who booked.
+      expect(JSON.stringify(seen)).not.toContain('Boris');
+    });
+
+    it('shows a training without a workout, and its own booking', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await bookings(fx).book(w.ana.id, w.saturday.id);
+
+      const seen = await bookings(fx).training(w.ana.id, w.saturday.id);
+
+      expect(seen).toMatchObject({
+        id: w.saturday.id,
+        gym: { name: 'Center' },
+        workout: null,
+        bookedCount: 1,
+        bookedByMe: true,
+        canBook: false,
+        canCancel: true,
+      });
+    });
+
+    it("is a 404 for an unknown training or one of an inactive gym's", async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      const unknown = await rejectionOf(
+        bookings(fx).training(w.ana.id, '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b'),
+      );
+      await fx.ds
+        .getRepository(GymLocationEntity)
+        .update({ id: w.gym.id }, { isActive: false });
+      const closed = await rejectionOf(
+        bookings(fx).training(w.ana.id, w.friday.id),
+      );
+
+      expect(unknown).toBeInstanceOf(NotFoundException);
+      expect(unknown.message).toBe('Training not found');
+      expect(closed).toBeInstanceOf(NotFoundException);
+      expect(closed.message).toBe('Training not found');
+    });
   });
 
   it("lists the active gyms only, by name, marking the trainee's preferred one", async () => {

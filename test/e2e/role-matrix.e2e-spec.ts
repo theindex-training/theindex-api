@@ -212,6 +212,7 @@ const MATRIX: Row[] = [
   // Bookings: trainees only, always their own (the id comes from their token).
   r('GET /bookings/gyms', GUARD, GUARD, ALLOW),
   r('GET /bookings/schedule', GUARD, GUARD, ALLOW),
+  r('GET /bookings/trainings/:slotId', GUARD, GUARD, ALLOW),
   r('POST /bookings', GUARD, GUARD, ALLOW),
   r('DELETE /bookings/:slotId', GUARD, GUARD, ALLOW),
 

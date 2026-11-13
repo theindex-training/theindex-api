@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
+import { WorkoutEntity } from '../workouts/workout.entity';
 import {
   bookingClosesAt,
   canBook,
@@ -82,6 +83,51 @@ export class BookingsService {
       weekEnd: addDays(weekStart, 6),
       week: week ? { id: week.id } : null,
       slots: views.sort(compareSlots),
+    };
+  }
+
+  /**
+   * One training of an active gym as a trainee sees it, with its gym and its whole workout: the
+   * title, the summary and the exercises in order, with their descriptions and videos (never the
+   * source PDF). Any training of a created week, booked or not, so the trainee can decide.
+   */
+  async training(traineeId: string, slotId: string) {
+    const m = this.bookingRepo.manager;
+    const slot = await m.findOne(ScheduleSlotEntity, {
+      where: { id: slotId },
+      relations: { trainingTime: true, trainer: true, week: { gym: true } },
+    });
+    if (!slot || !slot.week?.gym?.isActive) {
+      throw new NotFoundException('Training not found');
+    }
+    const workout = slot.workoutId
+      ? await m
+          .getRepository(WorkoutEntity)
+          .createQueryBuilder('w')
+          .leftJoinAndSelect('w.exercises', 'we')
+          .leftJoinAndSelect('we.exercise', 'e')
+          .where('w.id = :id', { id: slot.workoutId })
+          .orderBy('we.position', 'ASC')
+          .getOne()
+      : null;
+    const [view] = await this.present(traineeId, [slot]);
+    return {
+      ...view,
+      gym: { id: slot.week.gym.id, name: slot.week.gym.name },
+      workout: workout
+        ? {
+            title: workout.title,
+            summary: workout.summary,
+            exercises: [...workout.exercises]
+              .sort((a, b) => a.position - b.position)
+              .map(({ exercise }) => ({
+                id: exercise!.id,
+                name: exercise!.name,
+                description: exercise!.description,
+                videoUrl: exercise!.videoUrl,
+              })),
+          }
+        : null,
     };
   }
 
