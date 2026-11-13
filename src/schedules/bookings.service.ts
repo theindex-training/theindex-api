@@ -8,7 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
-import { WorkoutEntity } from '../workouts/workout.entity';
 import {
   bookingClosesAt,
   canBook,
@@ -28,6 +27,7 @@ import {
   isUniqueViolation,
   lockSlot,
   today,
+  trainingWorkout,
 } from './schedules.service';
 
 /**
@@ -100,34 +100,17 @@ export class BookingsService {
     if (!slot || !slot.week?.gym?.isActive) {
       throw new NotFoundException('Training not found');
     }
-    const workout = slot.workoutId
-      ? await m
-          .getRepository(WorkoutEntity)
-          .createQueryBuilder('w')
-          .leftJoinAndSelect('w.exercises', 'we')
-          .leftJoinAndSelect('we.exercise', 'e')
-          .where('w.id = :id', { id: slot.workoutId })
-          .orderBy('we.position', 'ASC')
-          .getOne()
-      : null;
+    const workout = await trainingWorkout(m, slot.workoutId);
     const [view] = await this.present(traineeId, [slot]);
     return {
       ...view,
       gym: { id: slot.week.gym.id, name: slot.week.gym.name },
-      workout: workout
-        ? {
-            title: workout.title,
-            summary: workout.summary,
-            exercises: [...workout.exercises]
-              .sort((a, b) => a.position - b.position)
-              .map(({ exercise }) => ({
-                id: exercise!.id,
-                name: exercise!.name,
-                description: exercise!.description,
-                videoUrl: exercise!.videoUrl,
-              })),
-          }
-        : null,
+      // The workout by its content only: trainees never get its id.
+      workout: workout && {
+        title: workout.title,
+        summary: workout.summary,
+        exercises: workout.exercises,
+      },
     };
   }
 

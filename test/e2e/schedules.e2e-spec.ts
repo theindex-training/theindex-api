@@ -101,6 +101,19 @@ describe('Weekly schedules (e2e)', () => {
     ).expect(200);
     expect((changed.body as Slot).trainingTime.startTime).toBe('07:10:00');
 
+    // One training's page: its gym and week, and who booked it (nobody yet).
+    const page = await get(`schedules/slots/${(added.body as Slot).id}`).expect(
+      200,
+    );
+    expect(page.body).toMatchObject({
+      id: (added.body as Slot).id,
+      date: addDays(future, 4),
+      gym: { id: gym.id, name: 'Center' },
+      weekStart: future,
+      bookedCount: 0,
+      trainees: [],
+    });
+
     await c
       .http()
       .delete(`/api/schedules/slots/${created.slots[0].id}`)
@@ -140,6 +153,10 @@ describe('Weekly schedules (e2e)', () => {
     await get('schedules').expect(400);
     await get(`schedules?gymId=${gym.id}&week=2026-02-30`).expect(400);
     await get('schedule-templates/not-a-uuid').expect(400);
+    await get('schedules/slots/not-a-uuid').expect(400);
+    await get('schedules/slots/7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b').expect(
+      404,
+    );
     expect(
       messageOf(
         (

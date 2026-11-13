@@ -750,7 +750,7 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | PATCH / DELETE | `/schedule-templates/slots/:id` | ✅ | 🔒 | 🔒 |
 | GET / POST | `/schedules` | ✅ | ✅ | 🔒 |
 | POST | `/schedules/:weekId/slots` | ✅ | ✅ | 🔒 |
-| PATCH / DELETE | `/schedules/slots/:id` | ✅ | ✅ | 🔒 |
+| GET / PATCH / DELETE | `/schedules/slots/:id` | ✅ | ✅ | 🔒 |
 | GET | `/bookings/gyms`, `/bookings/schedule`, `/bookings/trainings/:slotId` | 🔒 | 🔒 | ✅ |
 | POST | `/bookings` | 🔒 | 🔒 | ✅ |
 | DELETE | `/bookings/:slotId` | 🔒 | 🔒 | ✅ |

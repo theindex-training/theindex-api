@@ -5,9 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
+import { AttendanceEntity } from '../attendance/attendance.entity';
+import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { WorkoutEntity } from '../workouts/workout.entity';
@@ -37,6 +40,8 @@ import {
   weekStartOf,
   weekdayOf,
 } from './schedule-week';
+import { slotStartsAt } from './booking-rules';
+import { buildTrainingBookings } from './training-bookings';
 
 type SlotFields = {
   trainingTimeId?: string;
@@ -288,6 +293,91 @@ export class SchedulesService {
     return { deleted: true };
   }
 
+  /**
+   * One training of a week for staff: when and where, the trainer, its whole workout (as trainees
+   * see it, plus its id), and the trainees who booked it with what is left of their subscriptions (`training-bookings.ts`: projected
+   * until attendance is saved for the training, i.e. for the same trainee, gym and start time).
+   */
+  async training(id: string) {
+    const m = this.slotRepo.manager;
+    const slot = await this.slotRepo.findOne({
+      where: { id },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: { gym: true },
+      },
+    });
+    if (!slot) throw new NotFoundException('Schedule slot not found');
+    const gym = slot.week!.gym!;
+    const startsAt = slotStartsAt(slot.date, slot.trainingTime!.startTime);
+    const bookings = await m.find(ScheduleBookingEntity, {
+      where: { slotId: id },
+      relations: { trainee: true },
+    });
+    const traineeIds = bookings.map((b) => b.traineeId);
+    const [subscriptions, attendance] = traineeIds.length
+      ? await Promise.all([
+          m.find(SubscriptionEntity, {
+            where: {
+              traineeId: In(traineeIds),
+              status: SubscriptionStatus.ACTIVE,
+            },
+            relations: { plan: true },
+          }),
+          m.find(AttendanceEntity, {
+            where: {
+              traineeId: In(traineeIds),
+              locationId: gym.id,
+              trainedAt: startsAt,
+            },
+            relations: { subscription: { plan: true } },
+          }),
+        ])
+      : [[], []];
+
+    return {
+      ...presentSlot(slot, bookings.length),
+      workout: await trainingWorkout(m, slot.workoutId),
+      gym: { id: gym.id, name: gym.name },
+      weekStart: slot.week!.weekStart,
+      startsAt,
+      trainees: buildTrainingBookings(
+        bookings.map((b) => ({
+          traineeId: b.traineeId,
+          name: b.trainee!.name,
+          nickname: b.trainee!.nickname,
+          isActive: b.trainee!.isActive,
+          bookedAt: b.createdAt,
+        })),
+        subscriptions.map((sub) => ({
+          id: sub.id,
+          traineeId: sub.traineeId,
+          type: sub.type,
+          planTitle: sub.plan.title,
+          startsAt: sub.startsAt,
+          endsAt: sub.endsAt,
+          remainingCredits: sub.remainingCredits,
+          createdAt: sub.createdAt,
+        })),
+        attendance.map((a) => ({
+          traineeId: a.traineeId,
+          paymentStatus: a.paymentStatus,
+          subscription: a.subscription
+            ? {
+                type: a.subscription.type,
+                planTitle: a.subscription.plan.title,
+                endsAt: a.subscription.endsAt,
+              }
+            : null,
+        })),
+        startsAt,
+        new Date(),
+      ),
+    };
+  }
+
   private async slot(id: string) {
     const slot = await this.slotRepo.findOne({
       where: { id },
@@ -394,6 +484,40 @@ async function checkWorkout(
   if (workout.date !== date) {
     throw new BadRequestException("The workout must be on the training's day");
   }
+}
+
+/**
+ * A training's whole workout, as both trainees and staff see it on a training's page: the title,
+ * the summary and the exercises in order, with their descriptions and videos (never the source
+ * PDF). Null when the training has no workout.
+ */
+export async function trainingWorkout(
+  m: EntityManager,
+  workoutId: string | null,
+) {
+  if (!workoutId) return null;
+  const workout = await m
+    .getRepository(WorkoutEntity)
+    .createQueryBuilder('w')
+    .leftJoinAndSelect('w.exercises', 'we')
+    .leftJoinAndSelect('we.exercise', 'e')
+    .where('w.id = :id', { id: workoutId })
+    .orderBy('we.position', 'ASC')
+    .getOne();
+  if (!workout) return null;
+  return {
+    id: workout.id,
+    title: workout.title,
+    summary: workout.summary,
+    exercises: [...workout.exercises]
+      .sort((a, b) => a.position - b.position)
+      .map(({ exercise }) => ({
+        id: exercise!.id,
+        name: exercise!.name,
+        description: exercise!.description,
+        videoUrl: exercise!.videoUrl,
+      })),
+  };
 }
 
 export function isUniqueViolation(error: unknown): boolean {
