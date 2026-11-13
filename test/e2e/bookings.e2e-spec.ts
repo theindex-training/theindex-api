@@ -56,7 +56,40 @@ describe('Bookings (e2e)', () => {
       .set(admin)
       .send({ gymId: gym.id, week: future })
       .expect(201);
-    const slotId = (created.body as { slots: { id: string }[] }).slots[0].id;
+    const { week, slots } = created.body as {
+      week: { id: string; status: string };
+      slots: { id: string }[];
+    };
+    const slotId = slots[0].id;
+    expect(week.status).toBe('DRAFT');
+
+    // A draft is staff's only: trainees see no week and can't open or book its trainings.
+    const draft = await c
+      .http()
+      .get(`/api/bookings/schedule?gymId=${gym.id}&week=${future}`)
+      .set(trainee)
+      .expect(200);
+    expect(draft.body).toMatchObject({ week: null, slots: [] });
+    await c
+      .http()
+      .get(`/api/bookings/trainings/${slotId}`)
+      .set(trainee)
+      .expect(404);
+    await c
+      .http()
+      .post('/api/bookings')
+      .set(trainee)
+      .send({ slotId })
+      .expect(404);
+
+    const published = await c
+      .http()
+      .post(`/api/schedules/${week.id}/publish`)
+      .set(admin)
+      .expect(200);
+    expect(published.body).toMatchObject({
+      week: { id: week.id, status: 'PUBLISHED' },
+    });
 
     const booked = await c
       .http()

@@ -21,6 +21,7 @@ import {
   ScheduleSlotEntity,
   ScheduleWeekEntity,
 } from './schedule.entity';
+import { ScheduleWeekStatus } from './enums/schedule-week-status.enum';
 import { addDays, compareSlots, weekStartOf, weekdayOf } from './schedule-week';
 import {
   bookingCounts,
@@ -32,8 +33,9 @@ import {
 import { isWorkoutReleased, workoutReleasesAt } from './workout-release';
 
 /**
- * Trainees' side of the weekly schedules: the gyms' created weeks, and booking a place in a
- * training. Booking opens when the week is created and closes 30 minutes before the training;
+ * Trainees' side of the weekly schedules: the gyms' published weeks, and booking a place in a
+ * training. A draft week is unknown here (as if not created). Booking opens when the week is
+ * published and closes 30 minutes before the training;
  * a booking can be cancelled until 1 hour before. Trainees see how many booked, never who.
  * A training's workout shows only once its day's workouts are out (`workout-release.ts`: from
  * 20:00 gym-local the day before); until then it is null, as if none were chosen.
@@ -62,7 +64,10 @@ export class BookingsService {
     }));
   }
 
-  /** A gym's week as a trainee sees it; `week` is null (and no trainings) until it is created. */
+  /**
+   * A gym's week as a trainee sees it; `week` is null (and no trainings) until it is created and
+   * published.
+   */
   async week(traineeId: string, query: ScheduleWeekQueryDto) {
     const m = this.bookingRepo.manager;
     const gym = await m.findOne(GymLocationEntity, {
@@ -71,7 +76,7 @@ export class BookingsService {
     if (!gym) throw new NotFoundException('Gym not found');
     const weekStart = weekStartOf(query.week ?? today());
     const week = await m.findOne(ScheduleWeekEntity, {
-      where: { gymId: gym.id, weekStart },
+      where: { gymId: gym.id, weekStart, status: ScheduleWeekStatus.PUBLISHED },
     });
     const slots = week
       ? await m.find(ScheduleSlotEntity, {
@@ -92,7 +97,7 @@ export class BookingsService {
   /**
    * One training of an active gym as a trainee sees it, with its gym and its whole workout: the
    * title, the summary and the exercises in order, with their descriptions and videos (never the
-   * source PDF). Any training of a created week, booked or not, so the trainee can decide.
+   * source PDF). Any training of a published week, booked or not, so the trainee can decide.
    * The workout is null until its day's workouts are out.
    */
   async training(traineeId: string, slotId: string) {
@@ -101,7 +106,11 @@ export class BookingsService {
       where: { id: slotId },
       relations: { trainingTime: true, trainer: true, week: { gym: true } },
     });
-    if (!slot || !slot.week?.gym?.isActive) {
+    if (
+      !slot ||
+      !slot.week?.gym?.isActive ||
+      slot.week.status !== ScheduleWeekStatus.PUBLISHED
+    ) {
       throw new NotFoundException('Training not found');
     }
     const workout = isWorkoutReleased(slot.date, new Date())
@@ -135,8 +144,12 @@ export class BookingsService {
         );
         const slot = await m.findOne(ScheduleSlotEntity, {
           where: { id: slotId },
-          relations: { trainingTime: true },
+          relations: { trainingTime: true, week: true },
         });
+        // A draft week's trainings are unknown to trainees.
+        if (slot!.week!.status !== ScheduleWeekStatus.PUBLISHED) {
+          throw new NotFoundException('Training not found');
+        }
         const startsAt = slotStartsAt(
           slot!.date,
           slot!.trainingTime!.startTime,

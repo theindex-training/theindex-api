@@ -32,7 +32,7 @@ describe('BookingsService (integration)', () => {
   const bookings = (fx: Fixtures) => fx.moduleRef.get(BookingsService);
   const schedules = (fx: Fixtures) => fx.moduleRef.get(SchedulesService);
 
-  /** A created week with an evening training on Friday and a morning one on Saturday. */
+  /** A published week with an evening training on Friday and a morning one on Saturday. */
   async function week(fx: Fixtures) {
     freezeTime(THURSDAY_NOON);
     const gym = await fx.location('Center');
@@ -51,10 +51,11 @@ describe('BookingsService (integration)', () => {
       trainingTimeId: morning.id,
       trainerId: vasko.id,
     });
-    const created = await schedules(fx).createWeek(
+    const draft = await schedules(fx).createWeek(
       { gymId: gym.id, week: '2026-11-09' },
       null,
     );
+    const created = await schedules(fx).publishWeek(draft.week!.id, null);
     const [friday, saturday] = created.slots;
     const ana = await fx.trainee('Ana');
     const boris = await fx.trainee('Boris');
@@ -128,6 +129,47 @@ describe('BookingsService (integration)', () => {
       weekStart: '2026-11-16',
       week: null,
       slots: [],
+    });
+  });
+
+  it('keeps a draft week from trainees until it is published: no week, no training, no booking', async () => {
+    const fx = fixtures();
+    const w = await week(fx);
+    // The next week, created from the template but not published yet.
+    const draft = await schedules(fx).createWeek(
+      { gymId: w.gym.id, week: '2026-11-16' },
+      null,
+    );
+    const slotId = draft.slots[0].id;
+
+    expect(
+      await bookings(fx).week(w.ana.id, {
+        gymId: w.gym.id,
+        week: '2026-11-16',
+      }),
+    ).toMatchObject({ weekStart: '2026-11-16', week: null, slots: [] });
+    const opened = await rejectionOf(bookings(fx).training(w.ana.id, slotId));
+    expect(opened).toBeInstanceOf(NotFoundException);
+    expect(opened.message).toBe('Training not found');
+    const booked = await rejectionOf(bookings(fx).book(w.ana.id, slotId));
+    expect(booked).toBeInstanceOf(NotFoundException);
+    expect(booked.message).toBe('Training not found');
+    expect(
+      await fx.ds.getRepository(ScheduleBookingEntity).countBy({ slotId }),
+    ).toBe(0);
+
+    await schedules(fx).publishWeek(draft.week!.id, null);
+
+    const seen = await bookings(fx).week(w.ana.id, {
+      gymId: w.gym.id,
+      week: '2026-11-16',
+    });
+    expect(seen.week).toEqual({ id: draft.week!.id });
+    expect(seen.slots.map((s) => s.id)).toEqual([slotId, draft.slots[1].id]);
+    expect(await bookings(fx).book(w.ana.id, slotId)).toMatchObject({
+      id: slotId,
+      bookedByMe: true,
+      bookedCount: 1,
     });
   });
 
