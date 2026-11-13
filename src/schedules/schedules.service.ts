@@ -228,10 +228,10 @@ export class SchedulesService {
   }
 
   async updateSlot(id: string, dto: UpdateScheduleSlotDto) {
-    const slot = await this.slotRepo.findOne({ where: { id } });
-    if (!slot) throw new NotFoundException('Schedule slot not found');
-    assertEditable(slot.date);
     await this.slotRepo.manager.transaction(async (m) => {
+      // Locked, so a booking can't slip in between the count below and the change.
+      const slot = await lockSlot(m, id, 'pessimistic_write');
+      assertEditable(slot.date);
       const changes: Partial<ScheduleSlotEntity> = {};
       const trainingTimeId = await resolveTrainingTime(m, dto, false);
       if (trainingTimeId && trainingTimeId !== slot.trainingTimeId) {
@@ -260,15 +260,18 @@ export class SchedulesService {
   }
 
   async deleteSlot(id: string) {
-    const slot = await this.slotRepo.findOne({ where: { id } });
-    if (!slot) throw new NotFoundException('Schedule slot not found');
-    assertEditable(slot.date);
-    if (await bookingCount(this.slotRepo.manager, id)) {
-      throw new ConflictException(
-        'This training has bookings, so it cannot be removed',
-      );
-    }
-    await this.slotRepo.delete({ id });
+    await this.slotRepo.manager.transaction(async (m) => {
+      // Locked, so a booking can't slip in between the count and the delete (and be deleted
+      // with the training by the cascade).
+      const slot = await lockSlot(m, id, 'pessimistic_write');
+      assertEditable(slot.date);
+      if (await bookingCount(m, id)) {
+        throw new ConflictException(
+          'This training has bookings, so it cannot be removed',
+        );
+      }
+      await m.delete(ScheduleSlotEntity, { id });
+    });
     return { deleted: true };
   }
 
@@ -407,6 +410,24 @@ function presentTemplateSlot(slot: ScheduleTemplateSlotEntity) {
     trainingTime: presentTrainingTime(slot.trainingTime!),
     trainer: presentTrainer(slot.trainer!),
   };
+}
+
+/**
+ * Locks a week slot's row for the rest of the transaction. Staff changes that depend on its
+ * bookings take it for update; a booking takes it for share, so the two wait for each other
+ * while bookings of the same training don't.
+ */
+export async function lockSlot(
+  m: EntityManager,
+  id: string,
+  mode: 'pessimistic_write' | 'pessimistic_read',
+): Promise<ScheduleSlotEntity> {
+  const slot = await m.findOne(ScheduleSlotEntity, {
+    where: { id },
+    lock: { mode },
+  });
+  if (!slot) throw new NotFoundException('Schedule slot not found');
+  return slot;
 }
 
 /** How many trainees booked each of these trainings. */

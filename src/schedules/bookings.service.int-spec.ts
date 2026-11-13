@@ -11,7 +11,7 @@ import { TrainingTimesModule } from '../training-times/training-times.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { WorkoutsService } from '../workouts/workouts.service';
 import { BookingsService } from './bookings.service';
-import { ScheduleBookingEntity } from './schedule.entity';
+import { ScheduleBookingEntity, ScheduleSlotEntity } from './schedule.entity';
 import { SchedulesModule } from './schedules.module';
 import { SchedulesService } from './schedules.service';
 
@@ -230,6 +230,79 @@ describe('BookingsService (integration)', () => {
     const error = await rejectionOf(bookings(fx).book(gone.id, w.saturday.id));
 
     expect(error.message).toBe('An inactive trainee cannot book trainings');
+  });
+
+  describe('at the same time', () => {
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 200));
+
+    it('a booking waits for a training being removed, then finds it gone', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      // Staff are removing Saturday's training: its row is locked for update.
+      const staff = fx.ds.createQueryRunner();
+      await staff.connect();
+      await staff.startTransaction();
+      await staff.manager.findOne(ScheduleSlotEntity, {
+        where: { id: w.saturday.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      let done = false;
+      const booking = rejectionOf(
+        bookings(fx).book(w.ana.id, w.saturday.id),
+      ).finally(() => (done = true));
+      await pause();
+      expect(done).toBe(false);
+      await staff.manager.delete(ScheduleSlotEntity, { id: w.saturday.id });
+      await staff.commitTransaction();
+      await staff.release();
+
+      expect(await booking).toBeInstanceOf(NotFoundException);
+      expect(await fx.ds.getRepository(ScheduleBookingEntity).count()).toBe(0);
+    });
+
+    it('removing or moving a training waits for a booking in progress, then refuses', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      // A trainee is booking Saturday's training: its row is locked for share.
+      const trainee = fx.ds.createQueryRunner();
+      await trainee.connect();
+      await trainee.startTransaction();
+      await trainee.manager.findOne(ScheduleSlotEntity, {
+        where: { id: w.saturday.id },
+        lock: { mode: 'pessimistic_read' },
+      });
+      await trainee.manager.insert(ScheduleBookingEntity, {
+        slotId: w.saturday.id,
+        traineeId: w.ana.id,
+      });
+
+      let done = false;
+      const removal = rejectionOf(schedules(fx).deleteSlot(w.saturday.id));
+      const move = rejectionOf(
+        schedules(fx).updateSlot(w.saturday.id, {
+          trainingTimeId: w.evening.id,
+        }),
+      );
+      void Promise.all([removal, move]).finally(() => (done = true));
+      await pause();
+      expect(done).toBe(false);
+      await trainee.commitTransaction();
+      await trainee.release();
+
+      expect((await removal).message).toBe(
+        'This training has bookings, so it cannot be removed',
+      );
+      expect((await move).message).toBe(
+        'This training has bookings, so its time cannot change',
+      );
+      const staffView = await schedules(fx).week({ gymId: w.gym.id });
+      expect(staffView.slots[1]).toMatchObject({
+        id: w.saturday.id,
+        trainingTime: { startTime: '07:10:00' },
+        bookedCount: 1,
+      });
+    });
   });
 
   describe('staff side', () => {
