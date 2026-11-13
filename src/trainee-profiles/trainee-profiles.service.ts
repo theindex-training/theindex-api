@@ -1,3 +1,4 @@
+import { homeGymId } from '../gym-locations/home-gym.util';
 import {
   BadRequestException,
   Injectable,
@@ -80,7 +81,13 @@ export class TraineeProfilesService {
         );
     }
 
+    const preferredGymId = await homeGymId(
+      this.traineeRepo.manager,
+      dto.preferredGymId,
+    );
+
     const trainee = this.traineeRepo.create({
+      preferredGymId: preferredGymId ?? null,
       name: dto.name.trim(),
       nickname: dto.nickname?.trim() ?? null,
       phone: dto.phone?.trim() ?? null,
@@ -105,6 +112,11 @@ export class TraineeProfilesService {
     }
 
     if (dto.isActive !== undefined) trainee.isActive = dto.isActive;
+
+    if (dto.preferredGymId !== undefined) {
+      trainee.preferredGymId =
+        (await homeGymId(this.traineeRepo.manager, dto.preferredGymId)) ?? null;
+    }
 
     if (dto.gymSubscriptionId !== undefined) {
       const nextGymSubscriptionId = this.normalizeGymSubscriptionId(

@@ -1,3 +1,4 @@
+import { homeGymId } from '../gym-locations/home-gym.util';
 import {
   BadRequestException,
   Injectable,
@@ -39,7 +40,13 @@ export class TrainerProfilesService {
         );
     }
 
+    const primaryGymId = await homeGymId(
+      this.trainerRepo.manager,
+      dto.primaryGymId,
+    );
+
     const trainer = this.trainerRepo.create({
+      primaryGymId: primaryGymId ?? null,
       name: dto.name.trim(),
       nickname: dto.nickname?.trim() ?? null,
       accountId: dto.accountId ?? null,
@@ -59,6 +66,11 @@ export class TrainerProfilesService {
     }
 
     if (dto.isActive !== undefined) trainer.isActive = dto.isActive;
+
+    if (dto.primaryGymId !== undefined) {
+      trainer.primaryGymId =
+        (await homeGymId(this.trainerRepo.manager, dto.primaryGymId)) ?? null;
+    }
 
     if (dto.accountId !== undefined) {
       // allow unlink: null

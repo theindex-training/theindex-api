@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { AccountEntity } from '../accounts/account.entity';
 import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
 
@@ -43,6 +44,14 @@ export class TraineeProfileEntity {
   })
   @JoinColumn({ name: 'gymSubscriptionId' })
   gymSubscription?: GymSubscriptionEntity | null;
+
+  /** The gym the trainee usually trains in: the default gym of their pages. */
+  @Column({ type: 'uuid', nullable: true })
+  preferredGymId!: string | null;
+
+  @ManyToOne(() => GymLocationEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'preferredGymId' })
+  preferredGym?: GymLocationEntity | null;
 
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;

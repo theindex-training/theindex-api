@@ -29,6 +29,7 @@ import {
 import {
   addDays,
   compareSlots,
+  onlyWorkoutByDay,
   firstEditableDate,
   isEditableDate,
   isWeekOver,
@@ -182,15 +183,27 @@ export class SchedulesService {
           }),
         );
         const dates = weekDates(weekStart);
+        const workouts = await m
+          .createQueryBuilder(WorkoutEntity, 'w')
+          .select(['w.id', 'w.date'])
+          .where('w.date BETWEEN :from AND :to', {
+            from: dates[0],
+            to: dates[6],
+          })
+          .getMany();
+        const onlyWorkout = onlyWorkoutByDay(workouts);
         await m.insert(
           ScheduleSlotEntity,
-          template.map((slot) => ({
-            weekId: week.id,
-            date: dates[slot.weekday - 1],
-            trainingTimeId: slot.trainingTimeId,
-            trainerId: slot.trainerId,
-            workoutId: null,
-          })),
+          template.map((slot) => {
+            const date = dates[slot.weekday - 1];
+            return {
+              weekId: week.id,
+              date,
+              trainingTimeId: slot.trainingTimeId,
+              trainerId: slot.trainerId,
+              workoutId: onlyWorkout.get(date) ?? null,
+            };
+          }),
         );
       });
     } catch (error) {

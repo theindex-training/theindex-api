@@ -48,7 +48,7 @@ describe('Bookings (e2e)', () => {
     expect(before.body).toMatchObject({ week: null, slots: [] });
     expect(
       (await c.http().get('/api/bookings/gyms').set(trainee).expect(200)).body,
-    ).toEqual([{ id: gym.id, name: 'Center' }]);
+    ).toEqual([{ id: gym.id, name: 'Center', preferred: false }]);
 
     const created = await c
       .http()

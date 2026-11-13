@@ -71,3 +71,21 @@ export function compareSlots(a: Sortable, b: Sortable): number {
     a.trainer.name.localeCompare(b.trainer.name)
   );
 }
+
+/**
+ * The workout of each day that has exactly one: a week created from the template puts it on that
+ * day's trainings. A day with several workouts gets none (only a trainer knows which applies).
+ */
+export function onlyWorkoutByDay(
+  workouts: { id: string; date: string }[],
+): Map<string, string> {
+  const byDay = new Map<string, string[]>();
+  for (const workout of workouts) {
+    byDay.set(workout.date, [...(byDay.get(workout.date) ?? []), workout.id]);
+  }
+  const only = new Map<string, string>();
+  for (const [date, ids] of byDay) {
+    if (ids.length === 1) only.set(date, ids[0]);
+  }
+  return only;
+}

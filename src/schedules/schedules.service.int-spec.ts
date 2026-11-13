@@ -277,6 +277,45 @@ describe('SchedulesService (integration)', () => {
       ).toEqual(week);
     });
 
+    it("puts a day's only workout on its trainings; a day with several workouts gets none", async () => {
+      freezeTime(NOW);
+      const fx = fixtures();
+      const s = await withTemplate(fx);
+      const workouts = fx.moduleRef.get(WorkoutsService);
+      const monday = await workouts.create(
+        { date: '2026-11-16', title: 'Helen', summary: 'Run' },
+        null,
+      );
+      await workouts.create(
+        { date: '2026-11-20', title: 'Regular', summary: 'A' },
+        null,
+      );
+      await workouts.create(
+        { date: '2026-11-20', title: 'Competitors', summary: 'B' },
+        null,
+      );
+      // The next Monday's workout belongs to another week.
+      await workouts.create(
+        { date: '2026-11-23', title: 'Next week', summary: 'C' },
+        null,
+      );
+
+      const week = await svc(fx).createWeek(
+        { gymId: s.gym.id, week: '2026-11-16' },
+        null,
+      );
+
+      expect(
+        week.slots.map((slot) => [slot.date, slot.workout?.title ?? '-']),
+      ).toEqual([
+        ['2026-11-16', 'Helen'],
+        ['2026-11-20', '-'],
+        ['2026-11-20', '-'],
+        ['2026-11-22', '-'],
+      ]);
+      expect(week.slots[0].workout).toEqual({ id: monday.id, title: 'Helen' });
+    });
+
     it('refuses to create a week twice (409)', async () => {
       freezeTime(NOW);
       const fx = fixtures();

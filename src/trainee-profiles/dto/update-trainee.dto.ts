@@ -64,4 +64,14 @@ export class UpdateTraineeDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'The gym the trainee usually trains in (an active gym); null clears it',
+  })
+  @IsOptional()
+  @IsUUID()
+  preferredGymId?: string | null;
 }
