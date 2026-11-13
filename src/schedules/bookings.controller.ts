@@ -40,6 +40,15 @@ export class BookingsController {
     return this.service.week(traineeOf(req), query);
   }
 
+  /** One training with its gym and its whole workout (title, summary, exercises and videos). */
+  @Get('trainings/:slotId')
+  training(
+    @Param('slotId', ParseUUIDPipe) slotId: string,
+    @Req() req: TraineeRequest,
+  ) {
+    return this.service.training(traineeOf(req), slotId);
+  }
+
   @Post()
   book(@Body() dto: CreateBookingDto, @Req() req: TraineeRequest) {
     return this.service.book(traineeOf(req), dto.slotId);
