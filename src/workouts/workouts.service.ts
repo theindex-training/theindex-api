@@ -9,6 +9,7 @@ import { ExerciseEntity } from '../exercises/exercise.entity';
 import { MediaEntity } from '../media/media.entity';
 import { MediaKind } from '../media/media-kind';
 import { storedDocument } from '../media/media.service';
+import { ScheduleSlotEntity } from '../schedules/schedule.entity';
 import {
   CreateWorkoutDto,
   ListWorkoutsQueryDto,
@@ -88,7 +89,21 @@ export class WorkoutsService {
     await this.checkSourcePdf(dto.sourcePdfId);
     await this.repo.manager.transaction(async (m) => {
       const changes: Partial<WorkoutEntity> = {};
-      if (dto.date !== undefined) changes.date = dto.date;
+      if (dto.date !== undefined) {
+        changes.date = dto.date;
+        // A schedule's training follows a workout of its own day: moving the workout to another
+        // day takes it off the trainings that named it. (Without the schedules module, as in
+        // some test setups, there are none.)
+        if (m.connection.hasMetadata(ScheduleSlotEntity)) {
+          await m
+            .createQueryBuilder()
+            .update(ScheduleSlotEntity)
+            .set({ workoutId: null })
+            .where('"workoutId" = :id', { id })
+            .andWhere('"date" <> :date', { date: dto.date })
+            .execute();
+        }
+      }
       if (dto.title !== undefined) changes.title = dto.title || null;
       if (dto.summary !== undefined) changes.summary = dto.summary;
       if (dto.sourcePdfId !== undefined) {
