@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { WorkoutEntity } from '../workouts/workout.entity';
@@ -140,4 +141,35 @@ export class ScheduleSlotEntity {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+}
+
+/**
+ * A trainee's place in a training of a real week. Optional: it says who plans to come, not who
+ * came (attendance does that). Cancelling deletes it. One per trainee and training.
+ */
+@Entity('schedule_bookings')
+@Unique('UQ_schedule_bookings_slot_trainee', ['slotId', 'traineeId'])
+export class ScheduleBookingEntity {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ type: 'uuid' })
+  slotId!: string;
+
+  // CASCADE only for deletes the schedule doesn't make itself (a gym deleted with its weeks):
+  // SchedulesService refuses to remove a training that has bookings.
+  @ManyToOne(() => ScheduleSlotEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'slotId' })
+  slot?: ScheduleSlotEntity;
+
+  @Index()
+  @Column({ type: 'uuid' })
+  traineeId!: string;
+
+  @ManyToOne(() => TraineeProfileEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'traineeId' })
+  trainee?: TraineeProfileEntity;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt!: Date;
 }
