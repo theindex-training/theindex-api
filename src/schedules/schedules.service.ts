@@ -294,8 +294,8 @@ export class SchedulesService {
   }
 
   /**
-   * One training of a week for staff: when and where, the trainer, the workout, and the trainees
-   * who booked it with what is left of their subscriptions (`training-bookings.ts`: projected
+   * One training of a week for staff: when and where, the trainer, its whole workout (as trainees
+   * see it, plus its id), and the trainees who booked it with what is left of their subscriptions (`training-bookings.ts`: projected
    * until attendance is saved for the training, i.e. for the same trainee, gym and start time).
    */
   async training(id: string) {
@@ -339,6 +339,7 @@ export class SchedulesService {
 
     return {
       ...presentSlot(slot, bookings.length),
+      workout: await trainingWorkout(m, slot.workoutId),
       gym: { id: gym.id, name: gym.name },
       weekStart: slot.week!.weekStart,
       startsAt,
@@ -483,6 +484,40 @@ async function checkWorkout(
   if (workout.date !== date) {
     throw new BadRequestException("The workout must be on the training's day");
   }
+}
+
+/**
+ * A training's whole workout, as both trainees and staff see it on a training's page: the title,
+ * the summary and the exercises in order, with their descriptions and videos (never the source
+ * PDF). Null when the training has no workout.
+ */
+export async function trainingWorkout(
+  m: EntityManager,
+  workoutId: string | null,
+) {
+  if (!workoutId) return null;
+  const workout = await m
+    .getRepository(WorkoutEntity)
+    .createQueryBuilder('w')
+    .leftJoinAndSelect('w.exercises', 'we')
+    .leftJoinAndSelect('we.exercise', 'e')
+    .where('w.id = :id', { id: workoutId })
+    .orderBy('we.position', 'ASC')
+    .getOne();
+  if (!workout) return null;
+  return {
+    id: workout.id,
+    title: workout.title,
+    summary: workout.summary,
+    exercises: [...workout.exercises]
+      .sort((a, b) => a.position - b.position)
+      .map(({ exercise }) => ({
+        id: exercise!.id,
+        name: exercise!.name,
+        description: exercise!.description,
+        videoUrl: exercise!.videoUrl,
+      })),
+  };
 }
 
 export function isUniqueViolation(error: unknown): boolean {

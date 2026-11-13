@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { freezeTime } from '../../test/int/clock';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
+import { ExercisesService } from '../exercises/exercises.service';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { TrainingTimesModule } from '../training-times/training-times.module';
 import { WorkoutsModule } from '../workouts/workouts.module';
@@ -48,9 +49,22 @@ describe('SchedulesService.training (integration)', () => {
   it('shows the training with its gym and week, and the trainees who booked it with what would be left after it', async () => {
     const fx = fixtures();
     const f = await friday(fx);
-    const workout = await fx.moduleRef
-      .get(WorkoutsService)
-      .create({ date: '2026-11-13', title: 'Fran', summary: '21-15-9' }, null);
+    const exercises = fx.moduleRef.get(ExercisesService);
+    const thruster = await exercises.create({
+      name: 'Thruster',
+      description: 'Front squat into a push press.',
+      videoUrl: 'https://youtu.be/L219ltL15zk',
+    });
+    const pullUp = await exercises.create({ name: 'Pull-up' });
+    const workout = await fx.moduleRef.get(WorkoutsService).create(
+      {
+        date: '2026-11-13',
+        title: 'Fran',
+        summary: '21-15-9\nThrusters\nPull-ups',
+        exerciseIds: [pullUp.id, thruster.id],
+      },
+      null,
+    );
     await schedules(fx).updateSlot(f.slot.id, { workoutId: workout.id });
 
     const ana = await fx.trainee('Ana', { nickname: 'Ani' });
@@ -72,11 +86,25 @@ describe('SchedulesService.training (integration)', () => {
       weekday: 5,
       trainingTime: { startTime: '18:00:00', endTime: '19:00:00' },
       trainer: { id: f.velcho.id, name: 'Velcho', nickname: 'Vel' },
-      workout: { id: workout.id, title: 'Fran' },
       bookedCount: 4,
       gym: { id: f.gym.id, name: 'Center' },
       weekStart: '2026-11-09',
       startsAt: new Date('2026-11-13T16:00:00Z'),
+    });
+    // The whole workout, as trainees see it on their training page, plus its id.
+    expect(seen.workout).toEqual({
+      id: workout.id,
+      title: 'Fran',
+      summary: '21-15-9\nThrusters\nPull-ups',
+      exercises: [
+        { id: pullUp.id, name: 'Pull-up', description: null, videoUrl: null },
+        {
+          id: thruster.id,
+          name: 'Thruster',
+          description: 'Front squat into a push press.',
+          videoUrl: 'https://www.youtube.com/watch?v=L219ltL15zk',
+        },
+      ],
     });
     expect(
       seen.trainees.map((t) => [
@@ -144,6 +172,7 @@ describe('SchedulesService.training (integration)', () => {
 
     expect(seen.bookedCount).toBe(0);
     expect(seen.trainees).toEqual([]);
+    expect(seen.workout).toBeNull();
   });
 
   it('answers 404 for an unknown training', async () => {
