@@ -199,7 +199,11 @@ describe('Auth (e2e)', () => {
 
     // CHARACTERIZATION: possibly unintended
     it('AUTH-06 valid credentials with a password shorter than 3 chars -> 400 (MinLength runs after auth)', async () => {
-      await insertAccount({ passwordHash: await bcrypt.hash('ab', 4) });
+      // ADMIN: other roles need a profile to log in (AUTH-12).
+      await insertAccount({
+        role: AccountRole.ADMIN,
+        passwordHash: await bcrypt.hash('ab', 4),
+      });
 
       const ok = await login({ email: 'direct@e2e.test', password: 'ab' });
       const wrong = await login({ email: 'direct@e2e.test', password: 'xy' });
@@ -213,7 +217,7 @@ describe('Auth (e2e)', () => {
       expect(messageOf(wrong.body)).toBe('Invalid credentials');
     });
 
-    it('AUTH-07 email lookup is exact: case-sensitive and not trimmed', async () => {
+    it('AUTH-07 email lookup ignores case and surrounding spaces', async () => {
       for (const email of [
         E2E_ADMIN.email.toUpperCase(),
         ` ${E2E_ADMIN.email}`,
@@ -222,10 +226,33 @@ describe('Auth (e2e)', () => {
         const res = await login({
           email,
           password: E2E_ADMIN.password,
-        }).expect(401);
-        expect(messageOf(res.body)).toBe('Invalid credentials');
+        }).expect(201);
+        expect(
+          jwtPayload((res.body as { accessToken: string }).accessToken),
+        ).toMatchObject({ email: E2E_ADMIN.email, role: 'ADMIN' });
       }
-      await login(E2E_ADMIN).expect(201);
+    });
+
+    it('AUTH-07 an exact match wins when two emails differ only in case', async () => {
+      await insertAccount({ email: 'Twin@e2e.test', role: AccountRole.ADMIN });
+      await insertAccount({
+        email: 'twin@e2e.test',
+        role: AccountRole.ADMIN,
+        passwordHash: await bcrypt.hash('other-pass-1', 4),
+      });
+
+      await login({ email: 'Twin@e2e.test', password: 'direct-pass-1' }).expect(
+        201,
+      );
+      await login({ email: 'twin@e2e.test', password: 'other-pass-1' }).expect(
+        201,
+      );
+      // Neither matches exactly and both match ignoring case: no account is picked.
+      const res = await login({
+        email: 'TWIN@e2e.test',
+        password: 'direct-pass-1',
+      }).expect(401);
+      expect(messageOf(res.body)).toBe('Invalid credentials');
     });
   });
 

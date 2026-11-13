@@ -2,7 +2,9 @@ import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import type { AccountEntity } from '../accounts/account.entity';
+import { AccountRegistrationService } from '../accounts/account-registration.service';
 import { LoginDto } from '../accounts/dto/login.dto';
+import { RegisterDto } from '../accounts/dto/register.dto';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -10,7 +12,25 @@ import { LocalAuthGuard } from './guards/local-auth.guard';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly registration: AccountRegistrationService,
+  ) {}
+
+  /**
+   * Public: anyone creates their own account. It can log in once an admin connects it to a
+   * profile, so the answer is the account, not a token.
+   */
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.registration.register(dto);
+  }
+
+  /** Public: the active gyms and gym subscriptions the register form offers. */
+  @Get('register/options')
+  registerOptions() {
+    return this.registration.options();
+  }
 
   @Post('login')
   @UseGuards(LocalAuthGuard)

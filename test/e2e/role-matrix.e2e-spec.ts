@@ -71,6 +71,8 @@ const MATRIX: Row[] = [
   r('GET /', PUBLIC, PUBLIC, PUBLIC),
   r('GET /health', PUBLIC, PUBLIC, PUBLIC),
   r('POST /auth/login', PUBLIC, PUBLIC, PUBLIC, E2E_ADMIN),
+  r('POST /auth/register', PUBLIC, PUBLIC, PUBLIC),
+  r('GET /auth/register/options', PUBLIC, PUBLIC, PUBLIC),
   r('GET /auth/me', ALLOW, ALLOW, ALLOW),
 
   // ⚠ ACC-15: TRAINER can manage every account, incl. ADMIN ones.
@@ -86,6 +88,15 @@ const MATRIX: Row[] = [
     CHANGE_PASSWORD,
   ),
   r('POST /accounts/:profileType/:profileId', ALLOW, ALLOW, GUARD),
+  // The Accounts page (self-registered accounts): ADMIN only.
+  r('GET /accounts', ALLOW, GUARD, GUARD),
+  r('GET /accounts/:id/details', ALLOW, GUARD, GUARD),
+  r('POST /accounts/:id/link', ALLOW, GUARD, GUARD),
+  r('DELETE /accounts/:id/permanent', ALLOW, GUARD, GUARD),
+
+  // "My details": trainees and trainers, always their own.
+  r('GET /my-profile', GUARD, ALLOW, ALLOW),
+  r('PATCH /my-profile', GUARD, ALLOW, ALLOW),
 
   r('GET /plans', ALLOW, ALLOW, ALLOW),
   r('GET /plans/:id', ALLOW, ALLOW, ALLOW),

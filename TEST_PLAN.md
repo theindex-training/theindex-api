@@ -320,7 +320,7 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
   - Missing `email` or `password` → 401 (passport-local), not 400.
   - Valid credentials + an unknown body field → 400.
   - ⚠ Suspect: valid credentials with a password shorter than 3 characters → 400 (LoginDto `MinLength(3)` runs after auth succeeds).
-- [x] **AUTH-07** [E] P2. Email lookup is exact and case-sensitive (`Admin` ≠ `admin`) and not trimmed.
+- [x] **AUTH-07** [E] P2. Email lookup ignores case and surrounding spaces (self-registered emails are stored lowercased); an exact match wins when two emails differ only in case, and with no exact match and several case-insensitive ones nobody logs in. (Was exact and case-sensitive until self-registration.)
 - [x] **AUTH-08** [E] P0. `GET /auth/me` returns the JWT payload as-is (incl. `iat`, `exp`). No token, a bad signature, or an expired token (sign with a past `exp`) → 401.
 - [x] **AUTH-09** [E] P0. ⚠ Suspect: a token stays valid after the account is DISABLED or deleted, or its role/profile changes. `JwtStrategy.validate` doesn't check the DB. Assert a disabled user's old token still gets 200 on a protected route.
 - [x] **AUTH-10** [U] P0. `RolesGuard.canActivate` with a real `Reflector` and a fake `ExecutionContext`:
@@ -395,6 +395,14 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 - [x] **ACC-15** [E] P0. ⚠ Suspect (security): TRAINER can PATCH (email/password/status) and DELETE **any** account, incl. ADMIN accounts. TRAINER can reset an ADMIN's password via `change-password` without the current password, then log in as ADMIN. TRAINER can provision accounts. Write the escalation as one scenario test and flag it prominently in TEST_NOTES.
 - [x] **ACC-16** [E] P1. Route resolution: `POST /accounts/:id/change-password` is declared first, so it wins over `POST /accounts/:profileType/:profileId` for two-segment paths ending in `change-password`. The routes used in `tests.md` (`/accounts/provision/trainer/:id`, `PATCH /accounts/:id/status`) **don't exist** (404). `tests.md` is stale; don't use it as a spec.
 - [x] **ACC-17** [E] P2. DTO rules that encode business rules: password `MinLength(8)` on provision/update/change, `IsEmail` on provision/update, enum checks on role/status.
+
+### Self-registration and connecting accounts (new feature, tests written with it)
+- [x] **ACC-20** [I+E] P0. `POST /auth/register` (public): stores the account (TRAINEE role, no profile, email trimmed and lowercased, `hasUpdatedInitialPassword: true`), the `registration` as entered and `consentAt`; answers the sanitized account, no token. 400 without `acceptTerms: true`, for passwords that differ, a bad phone, an inactive/unknown gym or gym subscription; 409 for an email taken in any case.
+- [x] **ACC-21** [I+E] P0. Login: a non-admin account without an account-side profile link → 403 `NOT_LINKED_MESSAGE`, only after the right password (a wrong one stays 401).
+- [x] **ACC-22** [I+E] P0. `GET /accounts?link&search` (ADMIN): `unlinked` (default; no admins), `linked`, `all`; newest first; search over email, registered name and phone, profile name; registration gyms resolved by name. `GET /accounts/:id/details`.
+- [x] **ACC-23** [I+E] P0. `POST /accounts/:id/link` (ADMIN): to a new or an existing active trainee/trainer without an account; the profile stores the sent fields (left out = kept), the account takes the role and the link, and can log in with the profile claim. 400 admin account, inactive profile, gym subscription for a trainer; 404 unknown account/profile; 409 already connected account or profile.
+- [x] **ACC-24** [I+E] P1. `DELETE /accounts/:id/permanent` (ADMIN): removes an unconnected account; 409 for a connected one (either side) or an admin.
+- [x] **ACC-25** [I+E] P0. `GET/PATCH /my-profile` (TRAINEE, TRAINER): own details from the database (never the nickname, never the name or email to change); phone can't be cleared; trainers have no gym subscription.
 
 ---
 
@@ -690,6 +698,8 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 |---|---|---|---|---|
 | GET | `/` , `/health` | — | — | — |
 | POST | `/auth/login` | — | — | — |
+| POST | `/auth/register` | — | — | — |
+| GET | `/auth/register/options` | — | — | — |
 | GET | `/auth/me` | ✅ | ✅ | ✅ |
 | PATCH | `/accounts/:id` | ✅ | ✅ ⚠ | 🔒 |
 | DELETE | `/accounts/:id` | ✅ | ✅ ⚠ | 🔒 |
@@ -697,6 +707,10 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | GET | `/accounts/:id/password-status` | ✅ | ✅ | 👤 (account id = `sub`) |
 | POST | `/accounts/:id/change-password` | ✅ | ✅ ⚠ | 👤 (account id = `sub`) |
 | POST | `/accounts/:profileType/:profileId` | ✅ | ✅ ⚠ | 🔒 |
+| GET | `/accounts`, `/accounts/:id/details` | ✅ | 🔒 | 🔒 |
+| POST | `/accounts/:id/link` | ✅ | 🔒 | 🔒 |
+| DELETE | `/accounts/:id/permanent` | ✅ | 🔒 | 🔒 |
+| GET / PATCH | `/my-profile` | 🔒 | ✅ (own) | ✅ (own) |
 | GET | `/plans`, `/plans/:id` | ✅ | ✅ | ✅ |
 | POST / PATCH / DELETE | `/plans`, `/plans/:id` | ✅ | ✅ | 🔒 |
 | GET | `/trainers`, `/trainers/:id` | ✅ | ✅ | ✅ (no class roles) |
