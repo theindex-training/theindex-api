@@ -36,13 +36,21 @@ export class BookingsService {
     private readonly bookingRepo: Repository<ScheduleBookingEntity>,
   ) {}
 
-  /** The active gyms, by name. */
-  async gyms() {
-    const gyms = await this.bookingRepo.manager.find(GymLocationEntity, {
-      where: { isActive: true },
-      order: { name: 'ASC' },
-    });
-    return gyms.map((g) => ({ id: g.id, name: g.name }));
+  /** The active gyms, by name; `preferred` marks the trainee's preferred gym. */
+  async gyms(traineeId: string) {
+    const m = this.bookingRepo.manager;
+    const [gyms, trainee] = await Promise.all([
+      m.find(GymLocationEntity, {
+        where: { isActive: true },
+        order: { name: 'ASC' },
+      }),
+      m.findOne(TraineeProfileEntity, { where: { id: traineeId } }),
+    ]);
+    return gyms.map((g) => ({
+      id: g.id,
+      name: g.name,
+      preferred: g.id === trainee?.preferredGymId,
+    }));
   }
 
   /** A gym's week as a trainee sees it; `week` is null (and no trainings) until it is created. */

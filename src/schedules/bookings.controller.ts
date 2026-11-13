@@ -31,8 +31,8 @@ export class BookingsController {
   constructor(private readonly service: BookingsService) {}
 
   @Get('gyms')
-  gyms() {
-    return this.service.gyms();
+  gyms(@Req() req: TraineeRequest) {
+    return this.service.gyms(traineeOf(req));
   }
 
   @Get('schedule')

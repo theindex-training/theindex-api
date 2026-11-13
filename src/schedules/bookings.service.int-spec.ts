@@ -143,16 +143,23 @@ describe('BookingsService (integration)', () => {
     expect(JSON.stringify(seen)).not.toContain('Secret plan');
   });
 
-  it('lists the active gyms only, by name', async () => {
+  it("lists the active gyms only, by name, marking the trainee's preferred one", async () => {
     const fx = fixtures();
-    await fx.location('West');
+    const west = await fx.location('West');
     await fx.location('Center');
     await fx.location('Closed', { isActive: false });
+    const ana = await fx.trainee('Ana', { preferredGymId: west.id });
+    const boris = await fx.trainee('Boris');
 
-    expect((await bookings(fx).gyms()).map((g) => g.name)).toEqual([
-      'Center',
-      'West',
+    expect(
+      (await bookings(fx).gyms(ana.id)).map((g) => [g.name, g.preferred]),
+    ).toEqual([
+      ['Center', false],
+      ['West', true],
     ]);
+    expect((await bookings(fx).gyms(boris.id)).map((g) => g.preferred)).toEqual(
+      [false, false],
+    );
   });
 
   it('a trainee books a training once (409 the second time)', async () => {
