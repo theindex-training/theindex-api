@@ -29,11 +29,14 @@ import {
   today,
   trainingWorkout,
 } from './schedules.service';
+import { isWorkoutReleased, workoutReleasesAt } from './workout-release';
 
 /**
  * Trainees' side of the weekly schedules: the gyms' created weeks, and booking a place in a
  * training. Booking opens when the week is created and closes 30 minutes before the training;
  * a booking can be cancelled until 1 hour before. Trainees see how many booked, never who.
+ * A training's workout shows only once its day's workouts are out (`workout-release.ts`: from
+ * 20:00 gym-local the day before); until then it is null, as if none were chosen.
  */
 @Injectable()
 export class BookingsService {
@@ -90,6 +93,7 @@ export class BookingsService {
    * One training of an active gym as a trainee sees it, with its gym and its whole workout: the
    * title, the summary and the exercises in order, with their descriptions and videos (never the
    * source PDF). Any training of a created week, booked or not, so the trainee can decide.
+   * The workout is null until its day's workouts are out.
    */
   async training(traineeId: string, slotId: string) {
     const m = this.bookingRepo.manager;
@@ -100,7 +104,9 @@ export class BookingsService {
     if (!slot || !slot.week?.gym?.isActive) {
       throw new NotFoundException('Training not found');
     }
-    const workout = await trainingWorkout(m, slot.workoutId);
+    const workout = isWorkoutReleased(slot.date, new Date())
+      ? await trainingWorkout(m, slot.workoutId)
+      : null;
     const [view] = await this.present(traineeId, [slot]);
     return {
       ...view,
@@ -218,7 +224,12 @@ export class BookingsService {
           endTime: slot.trainingTime!.endTime,
         },
         trainer: { name: slot.trainer!.name, nickname: slot.trainer!.nickname },
-        workout: slot.workout ? { title: slot.workout.title } : null,
+        workout:
+          slot.workout && isWorkoutReleased(slot.date, now)
+            ? { title: slot.workout.title }
+            : null,
+        /** The training's day's workouts are shown from this moment (20:00 the day before). */
+        workoutReleasesAt: workoutReleasesAt(slot.date),
         startsAt,
         bookedCount: counts.get(slot.id) ?? 0,
         bookedByMe: booked,

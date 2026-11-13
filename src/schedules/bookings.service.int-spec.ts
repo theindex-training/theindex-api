@@ -22,6 +22,8 @@ import { SchedulesService } from './schedules.service';
  * 18:00 training on Friday 13 Nov starts at 16:00Z: booking closes at 15:30Z, cancelling at 15:00Z.
  */
 const THURSDAY_NOON = '2026-11-12T10:00:00Z';
+/** 20:00 in Sofia on Thursday 12 Nov: Friday's workouts come out for trainees. */
+const THURSDAY_EIGHT_PM = '2026-11-12T18:00:00Z';
 
 describe('BookingsService (integration)', () => {
   const fixtures = setupIntegrationSuite({
@@ -91,6 +93,7 @@ describe('BookingsService (integration)', () => {
         trainingTime: { startTime: '18:00:00', endTime: '19:00:00' },
         trainer: { name: 'Velcho', nickname: null },
         workout: null,
+        workoutReleasesAt: new Date('2026-11-12T18:00:00Z'),
         startsAt: new Date('2026-11-13T16:00:00Z'),
         bookedCount: 2,
         bookedByMe: true,
@@ -138,6 +141,7 @@ describe('BookingsService (integration)', () => {
         null,
       );
     await schedules(fx).updateSlot(w.friday.id, { workoutId: workout.id });
+    freezeTime(THURSDAY_EIGHT_PM);
 
     const seen = await bookings(fx).week(w.ana.id, { gymId: w.gym.id });
 
@@ -168,6 +172,7 @@ describe('BookingsService (integration)', () => {
       await schedules(fx).updateSlot(w.friday.id, { workoutId: workout.id });
       // An exercise made inactive later still shows in the workout that uses it.
       await exercises.update(pullUp.id, { isActive: false });
+      freezeTime(THURSDAY_EIGHT_PM);
       await bookings(fx).book(w.boris.id, w.friday.id);
 
       const seen = await bookings(fx).training(w.ana.id, w.friday.id);
@@ -197,6 +202,7 @@ describe('BookingsService (integration)', () => {
             },
           ],
         },
+        workoutReleasesAt: new Date('2026-11-12T18:00:00Z'),
         startsAt: new Date('2026-11-13T16:00:00Z'),
         bookedCount: 1,
         bookedByMe: false,
@@ -244,6 +250,105 @@ describe('BookingsService (integration)', () => {
       expect(unknown.message).toBe('Training not found');
       expect(closed).toBeInstanceOf(NotFoundException);
       expect(closed.message).toBe('Training not found');
+    });
+  });
+
+  describe("a day's workout comes out for trainees at 20:00 the day before", () => {
+    /** Workouts on the Friday and the Saturday trainings, named on the Thursday. */
+    async function withWorkouts(fx: Fixtures) {
+      const w = await week(fx);
+      const workouts = fx.moduleRef.get(WorkoutsService);
+      const fran = await workouts.create(
+        { date: '2026-11-13', title: 'Fran', summary: 'Friday plan' },
+        null,
+      );
+      const helen = await workouts.create(
+        { date: '2026-11-14', title: 'Helen', summary: 'Saturday plan' },
+        null,
+      );
+      await schedules(fx).updateSlot(w.friday.id, { workoutId: fran.id });
+      await schedules(fx).updateSlot(w.saturday.id, { workoutId: helen.id });
+      return w;
+    }
+
+    const titles = async (
+      fx: Fixtures,
+      w: { ana: { id: string }; gym: { id: string } },
+    ) =>
+      (await bookings(fx).week(w.ana.id, { gymId: w.gym.id })).slots.map(
+        (s) => [s.date, s.workout?.title ?? null, s.workoutReleasesAt],
+      );
+
+    it('hides tomorrow before 20:00 and the days after it, in the week and on the training page', async () => {
+      const fx = fixtures();
+      const w = await withWorkouts(fx);
+      freezeTime('2026-11-12T17:59:59Z'); // 19:59:59 on Thursday in Sofia
+
+      expect(await titles(fx, w)).toEqual([
+        ['2026-11-13', null, new Date('2026-11-12T18:00:00Z')],
+        ['2026-11-14', null, new Date('2026-11-13T18:00:00Z')],
+      ]);
+      const friday = await bookings(fx).training(w.ana.id, w.friday.id);
+      expect(friday.workout).toBeNull();
+      expect(JSON.stringify(friday)).not.toContain('Friday plan');
+      // Booking doesn't reveal it either.
+      const booked = await bookings(fx).book(w.ana.id, w.friday.id);
+      expect(booked.workout).toBeNull();
+    });
+
+    it('shows tomorrow from 20:00, while the day after stays hidden', async () => {
+      const fx = fixtures();
+      const w = await withWorkouts(fx);
+      freezeTime(THURSDAY_EIGHT_PM);
+
+      expect((await titles(fx, w)).map(([d, t]) => [d, t])).toEqual([
+        ['2026-11-13', 'Fran'],
+        ['2026-11-14', null],
+      ]);
+      expect(
+        (await bookings(fx).training(w.ana.id, w.friday.id)).workout,
+      ).toMatchObject({ title: 'Fran', summary: 'Friday plan' });
+      expect(
+        (await bookings(fx).training(w.ana.id, w.saturday.id)).workout,
+      ).toBeNull();
+      const booked = await bookings(fx).book(w.ana.id, w.friday.id);
+      expect(booked.workout).toEqual({ title: 'Fran' });
+    });
+
+    it('at 21:00 on Friday shows today and tomorrow; on Sunday, the past days', async () => {
+      const fx = fixtures();
+      const w = await withWorkouts(fx);
+      freezeTime('2026-11-13T19:00:00Z'); // 21:00 on Friday in Sofia
+      expect((await titles(fx, w)).map(([d, t]) => [d, t])).toEqual([
+        ['2026-11-13', 'Fran'],
+        ['2026-11-14', 'Helen'],
+      ]);
+
+      freezeTime('2026-11-15T08:00:00Z');
+      expect((await titles(fx, w)).map(([d, t]) => [d, t])).toEqual([
+        ['2026-11-13', 'Fran'],
+        ['2026-11-14', 'Helen'],
+      ]);
+      expect(
+        (await bookings(fx).training(w.ana.id, w.saturday.id)).workout,
+      ).toMatchObject({ title: 'Helen', summary: 'Saturday plan' });
+    });
+
+    it('staff see every workout at any time', async () => {
+      const fx = fixtures();
+      const w = await withWorkouts(fx);
+
+      const staff = await schedules(fx).week({
+        gymId: w.gym.id,
+        week: '2026-11-09',
+      });
+      const training = await schedules(fx).training(w.saturday.id);
+
+      expect(staff.slots.map((s) => s.workout?.title)).toEqual([
+        'Fran',
+        'Helen',
+      ]);
+      expect(training.workout).toMatchObject({ summary: 'Saturday plan' });
     });
   });
 
