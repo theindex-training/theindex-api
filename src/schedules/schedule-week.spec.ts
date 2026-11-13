@@ -1,6 +1,7 @@
 import {
   addDays,
   compareSlots,
+  onlyWorkoutByDay,
   firstEditableDate,
   isEditableDate,
   isWeekOver,
@@ -89,5 +90,19 @@ describe('schedule-week', () => {
         .sort(compareSlots)
         .map((s) => `${s.weekday} ${s.trainingTime.startTime}`),
     ).toEqual(['1 07:00:00', '1 18:00:00', '3 07:00:00']);
+  });
+
+  it("keeps a day's workout only when it is the day's single workout", () => {
+    const only = onlyWorkoutByDay([
+      { id: 'w-mon', date: '2026-11-09' },
+      { id: 'w-wed-1', date: '2026-11-11' },
+      { id: 'w-wed-2', date: '2026-11-11' },
+      { id: 'w-fri', date: '2026-11-13' },
+    ]);
+
+    expect([...only.entries()]).toEqual([
+      ['2026-11-09', 'w-mon'],
+      ['2026-11-13', 'w-fri'],
+    ]);
   });
 });
