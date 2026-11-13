@@ -5,9 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
+import { AttendanceEntity } from '../attendance/attendance.entity';
+import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { WorkoutEntity } from '../workouts/workout.entity';
@@ -37,6 +40,8 @@ import {
   weekStartOf,
   weekdayOf,
 } from './schedule-week';
+import { slotStartsAt } from './booking-rules';
+import { buildTrainingBookings } from './training-bookings';
 
 type SlotFields = {
   trainingTimeId?: string;
@@ -286,6 +291,90 @@ export class SchedulesService {
       await m.delete(ScheduleSlotEntity, { id });
     });
     return { deleted: true };
+  }
+
+  /**
+   * One training of a week for staff: when and where, the trainer, the workout, and the trainees
+   * who booked it with what is left of their subscriptions (`training-bookings.ts`: projected
+   * until attendance is saved for the training, i.e. for the same trainee, gym and start time).
+   */
+  async training(id: string) {
+    const m = this.slotRepo.manager;
+    const slot = await this.slotRepo.findOne({
+      where: { id },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: { gym: true },
+      },
+    });
+    if (!slot) throw new NotFoundException('Schedule slot not found');
+    const gym = slot.week!.gym!;
+    const startsAt = slotStartsAt(slot.date, slot.trainingTime!.startTime);
+    const bookings = await m.find(ScheduleBookingEntity, {
+      where: { slotId: id },
+      relations: { trainee: true },
+    });
+    const traineeIds = bookings.map((b) => b.traineeId);
+    const [subscriptions, attendance] = traineeIds.length
+      ? await Promise.all([
+          m.find(SubscriptionEntity, {
+            where: {
+              traineeId: In(traineeIds),
+              status: SubscriptionStatus.ACTIVE,
+            },
+            relations: { plan: true },
+          }),
+          m.find(AttendanceEntity, {
+            where: {
+              traineeId: In(traineeIds),
+              locationId: gym.id,
+              trainedAt: startsAt,
+            },
+            relations: { subscription: { plan: true } },
+          }),
+        ])
+      : [[], []];
+
+    return {
+      ...presentSlot(slot, bookings.length),
+      gym: { id: gym.id, name: gym.name },
+      weekStart: slot.week!.weekStart,
+      startsAt,
+      trainees: buildTrainingBookings(
+        bookings.map((b) => ({
+          traineeId: b.traineeId,
+          name: b.trainee!.name,
+          nickname: b.trainee!.nickname,
+          isActive: b.trainee!.isActive,
+          bookedAt: b.createdAt,
+        })),
+        subscriptions.map((sub) => ({
+          id: sub.id,
+          traineeId: sub.traineeId,
+          type: sub.type,
+          planTitle: sub.plan.title,
+          startsAt: sub.startsAt,
+          endsAt: sub.endsAt,
+          remainingCredits: sub.remainingCredits,
+          createdAt: sub.createdAt,
+        })),
+        attendance.map((a) => ({
+          traineeId: a.traineeId,
+          paymentStatus: a.paymentStatus,
+          subscription: a.subscription
+            ? {
+                type: a.subscription.type,
+                planTitle: a.subscription.plan.title,
+                endsAt: a.subscription.endsAt,
+              }
+            : null,
+        })),
+        startsAt,
+        new Date(),
+      ),
+    };
   }
 
   private async slot(id: string) {

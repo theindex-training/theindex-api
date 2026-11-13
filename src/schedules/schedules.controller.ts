@@ -97,6 +97,12 @@ export class SchedulesController {
     return this.service.addSlot(weekId, dto);
   }
 
+  /** One training with the trainees who booked it and what their subscriptions have left. */
+  @Get('slots/:id')
+  training(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.training(id);
+  }
+
   @Patch('slots/:id')
   updateSlot(
     @Param('id', ParseUUIDPipe) id: string,

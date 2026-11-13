@@ -207,6 +207,7 @@ const MATRIX: Row[] = [
   r('GET /schedules', ALLOW, ALLOW, GUARD),
   r('POST /schedules', ALLOW, ALLOW, GUARD),
   r('POST /schedules/:weekId/slots', ALLOW, ALLOW, GUARD),
+  r('GET /schedules/slots/:id', ALLOW, ALLOW, GUARD),
   r('PATCH /schedules/slots/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /schedules/slots/:id', ALLOW, ALLOW, GUARD),
   // Bookings: trainees only, always their own (the id comes from their token).
