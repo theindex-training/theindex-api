@@ -206,6 +206,8 @@ const MATRIX: Row[] = [
   r('DELETE /schedule-templates/slots/:id', ALLOW, GUARD, GUARD),
   r('GET /schedules', ALLOW, ALLOW, GUARD),
   r('POST /schedules', ALLOW, ALLOW, GUARD),
+  r('POST /schedules/:weekId/publish', ALLOW, ALLOW, GUARD),
+  r('DELETE /schedules/:weekId', ALLOW, ALLOW, GUARD),
   r('POST /schedules/:weekId/slots', ALLOW, ALLOW, GUARD),
   r('GET /schedules/slots/:id', ALLOW, ALLOW, GUARD),
   r('PATCH /schedules/slots/:id', ALLOW, ALLOW, GUARD),

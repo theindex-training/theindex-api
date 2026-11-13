@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -67,7 +68,10 @@ export class ScheduleTemplatesController {
   }
 }
 
-/** The gyms' real weeks, created from their templates: ADMIN and TRAINER. */
+/**
+ * The gyms' real weeks, created from their templates as drafts and then published: ADMIN and
+ * TRAINER.
+ */
 @ApiTags('schedules')
 @ApiBearerAuth('jwt')
 @Controller('schedules')
@@ -87,6 +91,22 @@ export class SchedulesController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.service.createWeek(dto, req.user.sub);
+  }
+
+  /** Shows a draft week to trainees and opens its booking. */
+  @Post(':weekId/publish')
+  @HttpCode(200)
+  publishWeek(
+    @Param('weekId', ParseUUIDPipe) weekId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.service.publishWeek(weekId, req.user.sub);
+  }
+
+  /** Discards a draft week with its trainings; a published week answers 409. */
+  @Delete(':weekId')
+  deleteWeek(@Param('weekId', ParseUUIDPipe) weekId: string) {
+    return this.service.deleteWeek(weekId);
   }
 
   @Post(':weekId/slots')

@@ -39,10 +39,12 @@ describe('SchedulesService.training (integration)', () => {
       trainingTimeId: evening.id,
       trainerId: velcho.id,
     });
-    const week = await schedules(fx).createWeek(
+    const draft = await schedules(fx).createWeek(
       { gymId: gym.id, week: '2026-11-09' },
       null,
     );
+    // Trainees book trainings of published weeks only.
+    const week = await schedules(fx).publishWeek(draft.week!.id, null);
     return { gym, other, velcho, slot: week.slots[0] };
   }
 

@@ -29,6 +29,7 @@ import {
   ScheduleTemplateSlotEntity,
   ScheduleWeekEntity,
 } from './schedule.entity';
+import { ScheduleWeekStatus } from './enums/schedule-week-status.enum';
 import {
   addDays,
   compareSlots,
@@ -56,6 +57,7 @@ export function today(): string {
 
 /**
  * Gym schedule templates (ADMIN) and the real weeks created from them (ADMIN and TRAINER).
+ * A week starts as a draft only staff see, and trainees see it once it is published.
  * Days up to today are read-only in a week; the template has no dates.
  */
 @Injectable()
@@ -154,15 +156,15 @@ export class SchedulesService {
       weekEnd: addDays(weekStart, 6),
       /** Slots before this day are read-only. */
       editableFrom: firstEditableDate(today()),
-      week: week ? { id: week.id, createdAt: week.createdAt } : null,
+      week: week ? presentWeek(week) : null,
       slots,
     };
   }
 
   /**
-   * Creates a gym's week from its template: every template slot becomes a dated slot, past days
-   * included (they stay read-only). Refused for a week that is over, one that exists already,
-   * and a gym without a template.
+   * Creates a gym's week from its template as a **draft**: every template slot becomes a dated
+   * slot, past days included (they stay read-only). Trainees don't see it until it is published.
+   * Refused for a week that is over, one that exists already, and a gym without a template.
    */
   async createWeek(dto: CreateScheduleWeekDto, accountId: string | null) {
     const gym = await this.gym(dto.gymId);
@@ -185,6 +187,7 @@ export class SchedulesService {
             gymId: gym.id,
             weekStart,
             createdByAccountId: accountId,
+            status: ScheduleWeekStatus.DRAFT,
           }),
         );
         const dates = weekDates(weekStart);
@@ -218,6 +221,47 @@ export class SchedulesService {
       throw error;
     }
     return this.week({ gymId: gym.id, week: weekStart });
+  }
+
+  /**
+   * Publishes a draft week: trainees see it and can book its trainings from now on. Once only;
+   * a published week stays published (409 when it already is).
+   */
+  async publishWeek(weekId: string, accountId: string | null) {
+    const week = await this.weekRepo.manager.transaction(async (m) => {
+      const week = await lockWeek(m, weekId);
+      if (week.status === ScheduleWeekStatus.PUBLISHED) {
+        throw new ConflictException('This week is already published');
+      }
+      await m.update(
+        ScheduleWeekEntity,
+        { id: weekId },
+        {
+          status: ScheduleWeekStatus.PUBLISHED,
+          publishedAt: new Date(),
+          publishedByAccountId: accountId,
+        },
+      );
+      return week;
+    });
+    return this.week({ gymId: week.gymId, week: week.weekStart });
+  }
+
+  /**
+   * Discards a draft week with its trainings, so the week can be created again (e.g. after the
+   * template changed). A published week can't be discarded (409): trainees may have booked it.
+   */
+  async deleteWeek(weekId: string) {
+    await this.weekRepo.manager.transaction(async (m) => {
+      const week = await lockWeek(m, weekId);
+      if (week.status !== ScheduleWeekStatus.DRAFT) {
+        throw new ConflictException(
+          'A published week cannot be discarded, only changed',
+        );
+      }
+      await m.delete(ScheduleWeekEntity, { id: weekId });
+    });
+    return { deleted: true };
   }
 
   async addSlot(weekId: string, dto: CreateScheduleSlotDto) {
@@ -409,6 +453,26 @@ export class SchedulesService {
     if (!gym) throw new NotFoundException('Gym not found');
     return gym;
   }
+}
+
+/** Locks a week's row for the rest of the transaction, so publish and discard can't overlap. */
+async function lockWeek(m: EntityManager, id: string) {
+  const week = await m.findOne(ScheduleWeekEntity, {
+    where: { id },
+    lock: { mode: 'pessimistic_write' },
+  });
+  if (!week) throw new NotFoundException('Schedule week not found');
+  return week;
+}
+
+function presentWeek(week: ScheduleWeekEntity) {
+  return {
+    id: week.id,
+    createdAt: week.createdAt,
+    /** DRAFT: only staff see it; PUBLISHED: trainees see and book it. */
+    status: week.status,
+    publishedAt: week.publishedAt,
+  };
 }
 
 function assertEditable(date: string) {

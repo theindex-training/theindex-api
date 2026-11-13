@@ -15,6 +15,7 @@ import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { TrainingTimeEntity } from '../training-times/training-time.entity';
 import { WorkoutEntity } from '../workouts/workout.entity';
+import { ScheduleWeekStatus } from './enums/schedule-week-status.enum';
 
 /**
  * One training of a gym's usual week: a weekday, a training time and the trainer who leads it.
@@ -60,8 +61,9 @@ export class ScheduleTemplateSlotEntity {
 }
 
 /**
- * A gym's real week, created on purpose from its template by a trainer or an admin. Booking a
- * training of the week opens once it exists. One per gym and week.
+ * A gym's real week, created on purpose from its template by a trainer or an admin. It starts as
+ * a draft only staff see; trainees see it, and booking opens, once it is published. One per gym
+ * and week.
  */
 @Entity('schedule_weeks')
 @Unique('UQ_schedule_weeks_gym_week', ['gymId', 'weekStart'])
@@ -88,6 +90,25 @@ export class ScheduleWeekEntity {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  /**
+   * DRAFT until staff publish it. The default is PUBLISHED so that the weeks created before
+   * drafts existed (already seen and booked by trainees) stay published; new weeks are created
+   * as DRAFT explicitly.
+   */
+  @Column({
+    type: 'enum',
+    enum: ScheduleWeekStatus,
+    default: ScheduleWeekStatus.PUBLISHED,
+  })
+  status!: ScheduleWeekStatus;
+
+  /** When it was published; null for a draft and for weeks published before drafts existed. */
+  @Column({ type: 'timestamptz', nullable: true })
+  publishedAt!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  publishedByAccountId!: string | null;
 }
 
 /**

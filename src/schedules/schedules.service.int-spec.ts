@@ -11,7 +11,11 @@ import { TrainingTimesModule } from '../training-times/training-times.module';
 import { TrainingTimesService } from '../training-times/training-times.service';
 import { WorkoutsModule } from '../workouts/workouts.module';
 import { WorkoutsService } from '../workouts/workouts.service';
-import { ScheduleTemplateSlotEntity } from './schedule.entity';
+import {
+  ScheduleSlotEntity,
+  ScheduleTemplateSlotEntity,
+  ScheduleWeekEntity,
+} from './schedule.entity';
 import { SchedulesModule } from './schedules.module';
 import { SchedulesService } from './schedules.service';
 
@@ -264,7 +268,7 @@ describe('SchedulesService (integration)', () => {
         null,
       );
 
-      expect(week.week).not.toBeNull();
+      expect(week.week).toMatchObject({ status: 'DRAFT', publishedAt: null });
       expect(week.slots.map(line)).toEqual([
         '2026-11-09 07:10:00 Velcho',
         '2026-11-13 07:10:00 Velcho',
@@ -361,6 +365,77 @@ describe('SchedulesService (integration)', () => {
       );
 
       expect(week.slots).toHaveLength(4);
+    });
+
+    it('publishes a draft week once, and stamps when and by whom', async () => {
+      freezeTime(NOW);
+      const fx = fixtures();
+      const s = await withTemplate(fx);
+      const adminId = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
+      const draft = await svc(fx).createWeek(
+        { gymId: s.gym.id, week: '2026-11-16' },
+        null,
+      );
+
+      const published = await svc(fx).publishWeek(draft.week!.id, adminId);
+
+      expect(published.week).toEqual({
+        id: draft.week!.id,
+        createdAt: draft.week!.createdAt,
+        status: 'PUBLISHED',
+        publishedAt: new Date(NOW),
+      });
+      expect(published.slots).toEqual(draft.slots);
+      const row = await fx.ds
+        .getRepository(ScheduleWeekEntity)
+        .findOneByOrFail({ id: draft.week!.id });
+      expect(row.publishedByAccountId).toBe(adminId);
+
+      const again = await rejectionOf(
+        svc(fx).publishWeek(draft.week!.id, null),
+      );
+      expect(again).toBeInstanceOf(ConflictException);
+      expect(again.message).toBe('This week is already published');
+      const unknown = await rejectionOf(svc(fx).publishWeek(UNKNOWN_ID, null));
+      expect(unknown).toBeInstanceOf(NotFoundException);
+    });
+
+    it('discards a draft week with its trainings, so it can be created again; never a published one', async () => {
+      freezeTime(NOW);
+      const fx = fixtures();
+      const s = await withTemplate(fx);
+      const draft = await svc(fx).createWeek(
+        { gymId: s.gym.id, week: '2026-11-16' },
+        null,
+      );
+
+      expect(await svc(fx).deleteWeek(draft.week!.id)).toEqual({
+        deleted: true,
+      });
+
+      const gone = await svc(fx).week({ gymId: s.gym.id, week: '2026-11-16' });
+      expect(gone.week).toBeNull();
+      expect(
+        await fx.ds
+          .getRepository(ScheduleSlotEntity)
+          .countBy({ weekId: draft.week!.id }),
+      ).toBe(0);
+      const again = await svc(fx).createWeek(
+        { gymId: s.gym.id, week: '2026-11-16' },
+        null,
+      );
+      await svc(fx).publishWeek(again.week!.id, null);
+
+      const refused = await rejectionOf(svc(fx).deleteWeek(again.week!.id));
+      expect(refused).toBeInstanceOf(ConflictException);
+      expect(refused.message).toBe(
+        'A published week cannot be discarded, only changed',
+      );
+      expect(
+        (await svc(fx).week({ gymId: s.gym.id, week: '2026-11-16' })).slots,
+      ).toHaveLength(4);
+      const unknown = await rejectionOf(svc(fx).deleteWeek(UNKNOWN_ID));
+      expect(unknown).toBeInstanceOf(NotFoundException);
     });
 
     it('keeps the week and the template independent of each other', async () => {

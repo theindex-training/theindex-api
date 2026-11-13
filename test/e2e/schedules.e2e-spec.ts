@@ -19,7 +19,7 @@ type Week = {
   weekStart: string;
   weekEnd: string;
   editableFrom: string;
-  week: { id: string } | null;
+  week: { id: string; status: string; publishedAt: string | null } | null;
   slots: Slot[];
 };
 
@@ -129,6 +129,81 @@ describe('Weekly schedules (e2e)', () => {
     const template = (await get(`schedule-templates/${gym.id}`).expect(200))
       .body as { slots: Slot[] };
     expect(template.slots.map((s) => s.weekday)).toEqual([1, 3]);
+
+    // Reviewed, then published: once, and for good.
+    expect(created.week).toMatchObject({ status: 'DRAFT', publishedAt: null });
+    const published = (
+      await c
+        .http()
+        .post(`/api/schedules/${created.week!.id}/publish`)
+        .set(auth)
+        .expect(200)
+    ).body as Week;
+    expect(published.week).toMatchObject({
+      id: created.week!.id,
+      status: 'PUBLISHED',
+    });
+    expect(published.week!.publishedAt).not.toBeNull();
+    expect(published.slots).toHaveLength(2);
+    expect(
+      messageOf(
+        (
+          await c
+            .http()
+            .post(`/api/schedules/${created.week!.id}/publish`)
+            .set(auth)
+            .expect(409)
+        ).body,
+      ),
+    ).toBe('This week is already published');
+    expect(
+      messageOf(
+        (
+          await c
+            .http()
+            .delete(`/api/schedules/${created.week!.id}`)
+            .set(auth)
+            .expect(409)
+        ).body,
+      ),
+    ).toBe('A published week cannot be discarded, only changed');
+  });
+
+  it('discards a draft week, which can then be created again', async () => {
+    const { c, auth, send, get, gym, trainer } = await staff();
+    await send('post', `schedule-templates/${gym.id}/slots`, {
+      weekday: 2,
+      trainingTime: { startTime: '07:10', endTime: '08:10' },
+      trainerId: trainer.id,
+    }).expect(201);
+    const draft = (
+      await send('post', 'schedules', { gymId: gym.id, week: future }).expect(
+        201,
+      )
+    ).body as Week;
+
+    await c
+      .http()
+      .delete(`/api/schedules/${draft.week!.id}`)
+      .set(auth)
+      .expect(200);
+
+    expect(
+      (await get(`schedules?gymId=${gym.id}&week=${future}`).expect(200)).body,
+    ).toMatchObject({ week: null, slots: [] });
+    await c
+      .http()
+      .get(`/api/schedules/slots/${draft.slots[0].id}`)
+      .set(auth)
+      .expect(404);
+    await c
+      .http()
+      .delete(`/api/schedules/${draft.week!.id}`)
+      .set(auth)
+      .expect(404);
+    await send('post', 'schedules', { gymId: gym.id, week: future }).expect(
+      201,
+    );
   });
 
   it('validates the requests', async () => {
