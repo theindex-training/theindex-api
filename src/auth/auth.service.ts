@@ -1,9 +1,19 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { AccountEntity } from '../accounts/account.entity';
 import { AccountsService } from '../accounts/accounts.service';
+import { isLinked } from '../accounts/account-view';
+import { AccountRole } from '../common/enums/account-role.enum';
 import { AccountStatus } from '../common/enums/account-status.enum';
+
+/** The 403 a login gets while the account waits for an admin to connect it to a profile. */
+export const NOT_LINKED_MESSAGE =
+  'Your account is not connected to a profile yet. An admin will connect it, and then you can log in.';
 
 @Injectable()
 export class AuthService {
@@ -13,7 +23,7 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, password: string) {
-    const acc = await this.accounts.findByEmail(email);
+    const acc = await this.accounts.findForLogin(email);
     if (!acc) throw new UnauthorizedException('Invalid credentials');
 
     if (acc.status !== AccountStatus.ACTIVE) {
@@ -25,6 +35,11 @@ export class AuthService {
 
     const ok = await bcrypt.compare(password, acc.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
+
+    // Only after the password: a wrong one never reveals that the account waits.
+    if (acc.role !== AccountRole.ADMIN && !isLinked(acc)) {
+      throw new ForbiddenException(NOT_LINKED_MESSAGE);
+    }
 
     return acc;
   }

@@ -39,6 +39,19 @@ export class TrainerProfileEntity {
   @JoinColumn({ name: 'primaryGymId' })
   primaryGym?: GymLocationEntity | null;
 
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  phone!: string | null;
+
+  /** Social network profiles (a handle or a link, as typed); null when not given. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  instagram!: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  facebook!: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  tiktok!: string | null;
+
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 

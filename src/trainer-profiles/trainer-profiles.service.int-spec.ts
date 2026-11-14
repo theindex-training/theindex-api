@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,7 +11,7 @@ import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
 import { AccountEntity } from '../accounts/account.entity';
 import { AccountsService } from '../accounts/accounts.service';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, NOT_LINKED_MESSAGE } from '../auth/auth.service';
 import { AccountRole } from '../common/enums/account-role.enum';
 import { AccountStatus } from '../common/enums/account-status.enum';
 import { TrainerProfileEntity } from './trainer-profile.entity';
@@ -135,15 +136,14 @@ describe('TrainerProfilesService (integration)', () => {
         (await accountRow(fx, trainerAccount.id)).trainerProfileId,
       ).toBeNull();
 
-      const auth = fx.moduleRef.get(AuthService);
-      const { accessToken } = await auth.login(
-        await auth.validateUser(trainerAccount.email!, PASSWORD),
+      // Only the account side counts as a link, so that account can't log in.
+      const err = await rejectionOf(
+        fx.moduleRef
+          .get(AuthService)
+          .validateUser(trainerAccount.email!, PASSWORD),
       );
-      expect(decodeVerifiedJwt(accessToken).payload).toMatchObject({
-        sub: trainerAccount.id,
-        role: AccountRole.TRAINER,
-        trainerProfileId: null,
-      });
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect(err.message).toBe(NOT_LINKED_MESSAGE);
     });
 
     // CHARACTERIZATION: possibly unintended

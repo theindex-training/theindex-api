@@ -110,18 +110,17 @@ describe('AuthService (integration)', () => {
       expect(err.message).toBe('Account has no password set');
     });
 
-    it('AUTH-07 email lookup is exact: case-sensitive and not trimmed', async () => {
+    it('AUTH-07 email lookup ignores case and surrounding spaces', async () => {
       const fx = fixtures();
-      await insertAccount(fx, {});
+      const acc = await insertAccount(fx, {});
 
       for (const email of [
         'Admin@example.com',
         ' admin@example.com',
         'admin@example.com ',
       ]) {
-        const err = await rejectionOf(auth(fx).validateUser(email, PASSWORD));
-        expect(err).toBeInstanceOf(UnauthorizedException);
-        expect(err.message).toBe('Invalid credentials');
+        const user = await auth(fx).validateUser(email, PASSWORD);
+        expect(user.id).toBe(acc.id);
       }
     });
   });

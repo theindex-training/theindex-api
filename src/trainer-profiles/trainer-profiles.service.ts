@@ -1,3 +1,4 @@
+import { normalizePhone, socialLinksPatch } from '../common/utils/contact.util';
 import { homeGymId } from '../gym-locations/home-gym.util';
 import {
   BadRequestException,
@@ -51,6 +52,11 @@ export class TrainerProfilesService {
       nickname: dto.nickname?.trim() ?? null,
       accountId: dto.accountId ?? null,
       isActive: dto.isActive ?? true,
+      phone: dto.phone ? normalizePhone(dto.phone) : null,
+      instagram: null,
+      facebook: null,
+      tiktok: null,
+      ...socialLinksPatch(dto),
     });
 
     return this.trainerRepo.save(trainer);
@@ -66,6 +72,12 @@ export class TrainerProfilesService {
     }
 
     if (dto.isActive !== undefined) trainer.isActive = dto.isActive;
+
+    if (dto.phone !== undefined) {
+      trainer.phone = dto.phone === null ? null : normalizePhone(dto.phone);
+    }
+
+    Object.assign(trainer, socialLinksPatch(dto));
 
     if (dto.primaryGymId !== undefined) {
       trainer.primaryGymId =

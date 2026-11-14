@@ -4,9 +4,12 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,9 +18,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
+import { AccountAdminService } from './account-admin.service';
 import { AccountsService } from './accounts.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateProvisionedAccountDto } from './dto/create-provisioned-account.dto';
+import { LinkAccountDto } from './dto/link-account.dto';
+import { ListAccountsQueryDto } from './dto/list-accounts.query.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 
 type ProfileType = 'trainer' | 'trainee';
@@ -34,7 +40,10 @@ type AuthenticatedRequest = {
 @Roles(AccountRole.ADMIN, AccountRole.TRAINER)
 @Controller('accounts')
 export class AccountsController {
-  constructor(private readonly accounts: AccountsService) {}
+  constructor(
+    private readonly accounts: AccountsService,
+    private readonly admin: AccountAdminService,
+  ) {}
 
   private ensureTraineeCanAccessOnlySelf(
     req: AuthenticatedRequest,
@@ -47,6 +56,33 @@ export class AccountsController {
         'TRAINEE can only access their own account password endpoints',
       );
     }
+  }
+
+  /** The Accounts page: accounts not connected to a profile yet by default. */
+  @Get()
+  @Roles(AccountRole.ADMIN)
+  list(@Query() query: ListAccountsQueryDto) {
+    return this.admin.list(query);
+  }
+
+  @Get(':id/details')
+  @Roles(AccountRole.ADMIN)
+  details(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.details(id);
+  }
+
+  // Declared before `POST :profileType/:profileId`, which would match it too.
+  @Post(':id/link')
+  @HttpCode(200)
+  @Roles(AccountRole.ADMIN)
+  link(@Param('id', ParseUUIDPipe) id: string, @Body() dto: LinkAccountDto) {
+    return this.admin.link(id, dto);
+  }
+
+  @Delete(':id/permanent')
+  @Roles(AccountRole.ADMIN)
+  deletePermanently(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.deletePermanently(id);
   }
 
   @Patch(':id')

@@ -1,3 +1,4 @@
+import { socialLinksPatch } from '../common/utils/contact.util';
 import { homeGymId } from '../gym-locations/home-gym.util';
 import {
   BadRequestException,
@@ -94,6 +95,10 @@ export class TraineeProfilesService {
       accountId: dto.accountId ?? null,
       gymSubscriptionId,
       isActive: dto.isActive ?? true,
+      instagram: null,
+      facebook: null,
+      tiktok: null,
+      ...socialLinksPatch(dto),
     });
 
     return this.traineeRepo.save(trainee);
@@ -112,6 +117,8 @@ export class TraineeProfilesService {
     }
 
     if (dto.isActive !== undefined) trainee.isActive = dto.isActive;
+
+    Object.assign(trainee, socialLinksPatch(dto));
 
     if (dto.preferredGymId !== undefined) {
       trainee.preferredGymId =

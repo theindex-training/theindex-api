@@ -6,6 +6,7 @@ import {
   IsUUID,
   Length,
 } from 'class-validator';
+import { SocialLinkField } from '../../common/dto/contact-fields';
 
 export class UpdateTraineeDto {
   @ApiProperty({
@@ -74,4 +75,13 @@ export class UpdateTraineeDto {
   @IsOptional()
   @IsUUID()
   preferredGymId?: string | null;
+
+  @SocialLinkField('instagram')
+  instagram?: string | null;
+
+  @SocialLinkField('facebook')
+  facebook?: string | null;
+
+  @SocialLinkField('tiktok')
+  tiktok?: string | null;
 }

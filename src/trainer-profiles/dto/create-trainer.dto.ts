@@ -6,6 +6,7 @@ import {
   IsUUID,
   Length,
 } from 'class-validator';
+import { PhoneField, SocialLinkField } from '../../common/dto/contact-fields';
 
 export class CreateTrainerDto {
   @ApiProperty({
@@ -56,4 +57,16 @@ export class CreateTrainerDto {
   @IsOptional()
   @IsUUID()
   primaryGymId?: string | null;
+
+  @PhoneField('optional')
+  phone?: string | null;
+
+  @SocialLinkField('instagram')
+  instagram?: string | null;
+
+  @SocialLinkField('facebook')
+  facebook?: string | null;
+
+  @SocialLinkField('tiktok')
+  tiktok?: string | null;
 }

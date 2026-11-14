@@ -28,6 +28,23 @@ export class AccountsService {
     return this.repo.findOne({ where: { email } });
   }
 
+  /**
+   * The account a login names: the exact email, else the one account whose email matches it
+   * ignoring case and surrounding spaces (self-registered emails are stored lowercased).
+   */
+  async findForLogin(email: string) {
+    const exact = await this.findByEmail(email);
+    if (exact) return exact;
+    const trimmed = email.trim();
+    if (!trimmed) return null;
+    const matches = await this.repo
+      .createQueryBuilder('a')
+      .where('LOWER(a.email) = LOWER(:email)', { email: trimmed })
+      .limit(2)
+      .getMany();
+    return matches.length === 1 ? matches[0] : null;
+  }
+
   async findById(id: string) {
     return this.repo.findOne({ where: { id } });
   }
