@@ -95,9 +95,9 @@ export class BookingsService {
   }
 
   /**
-   * One training of an active gym as a trainee sees it, with its gym and its whole workout: the
-   * title, the summary and the exercises in order, with their descriptions and videos (never the
-   * source PDF). Any training of a published week, booked or not, so the trainee can decide.
+   * One training of an active gym as a trainee sees it, with its end, its gym (name and address)
+   * and its whole workout: the title, the summary and the exercises in order, with their
+   * descriptions and videos (never the source PDF). Any training of a published week, booked or not, so the trainee can decide.
    * The workout is null until its day's workouts are out.
    */
   async training(traineeId: string, slotId: string) {
@@ -119,7 +119,13 @@ export class BookingsService {
     const [view] = await this.present(traineeId, [slot]);
     return {
       ...view,
-      gym: { id: slot.week.gym.id, name: slot.week.gym.name },
+      /** When it ends (gym-local end time of its day), e.g. for a calendar event. */
+      endsAt: slotStartsAt(slot.date, slot.trainingTime!.endTime),
+      gym: {
+        id: slot.week.gym.id,
+        name: slot.week.gym.name,
+        address: slot.week.gym.address,
+      },
       // The workout by its content only: trainees never get its id.
       workout: workout && {
         title: workout.title,

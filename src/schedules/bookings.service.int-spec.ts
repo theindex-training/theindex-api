@@ -225,7 +225,7 @@ describe('BookingsService (integration)', () => {
         weekday: 5,
         trainingTime: { startTime: '18:00:00', endTime: '19:00:00' },
         trainer: { name: 'Velcho', nickname: null },
-        gym: { id: w.gym.id, name: 'Center' },
+        gym: { id: w.gym.id, name: 'Center', address: null },
         workout: {
           title: 'Fran',
           summary: '21-15-9\nThrusters\nPull-ups',
@@ -246,6 +246,7 @@ describe('BookingsService (integration)', () => {
         },
         workoutReleasesAt: new Date('2026-11-12T18:00:00Z'),
         startsAt: new Date('2026-11-13T16:00:00Z'),
+        endsAt: new Date('2026-11-13T17:00:00Z'),
         bookedCount: 1,
         bookedByMe: false,
         bookingClosesAt: new Date('2026-11-13T15:30:00Z'),
@@ -266,12 +267,33 @@ describe('BookingsService (integration)', () => {
 
       expect(seen).toMatchObject({
         id: w.saturday.id,
-        gym: { name: 'Center' },
+        gym: { name: 'Center', address: null },
         workout: null,
         bookedCount: 1,
         bookedByMe: true,
         canBook: false,
         canCancel: true,
+      });
+    });
+
+    it("gives the gym's address and when the training ends, for a calendar event", async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await fx.ds
+        .getRepository(GymLocationEntity)
+        .update({ id: w.gym.id }, { address: 'ul. Ranni list 13, Plovdiv' });
+
+      const seen = await bookings(fx).training(w.ana.id, w.saturday.id);
+
+      // Saturday 14 Nov 07:10-08:10 in Sofia (UTC+2).
+      expect(seen).toMatchObject({
+        gym: {
+          id: w.gym.id,
+          name: 'Center',
+          address: 'ul. Ranni list 13, Plovdiv',
+        },
+        startsAt: new Date('2026-11-14T05:10:00Z'),
+        endsAt: new Date('2026-11-14T06:10:00Z'),
       });
     });
 
