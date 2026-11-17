@@ -15,6 +15,7 @@ import { GymLocationsModule } from './gym-locations/gym-locations.module';
 import { GymSubscriptionsModule } from './gym-subscriptions/gym-subscriptions.module';
 import { MediaModule } from './media/media.module';
 import { MyProfileModule } from './my-profile/my-profile.module';
+import { AccountSetupModule } from './account-setup/account-setup.module';
 import { PlansModule } from './plans/plans.module';
 import { PublicContentModule } from './public-content/public-content.module';
 import { SchedulesModule } from './schedules/schedules.module';
@@ -68,6 +69,7 @@ import { WorkoutsModule } from './workouts/workouts.module';
     WorkoutsModule,
     SchedulesModule,
     MyProfileModule,
+    AccountSetupModule,
   ],
   controllers: [AppController],
   providers: [AppService],

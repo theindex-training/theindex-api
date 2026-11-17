@@ -176,6 +176,7 @@ describe('AuthService (integration)', () => {
           'role',
           'trainerProfileId',
           'traineeProfileId',
+          'setupRequired',
           'iat',
           'exp',
         ].sort(),
@@ -186,6 +187,8 @@ describe('AuthService (integration)', () => {
         role: AccountRole.TRAINEE,
         trainerProfileId: null,
         traineeProfileId: trainee.id,
+        // Provisioned by an admin: the first-login setup is still ahead.
+        setupRequired: true,
       });
       expect((payload.exp as number) - (payload.iat as number)).toBe(
         SEVEN_DAYS_S,

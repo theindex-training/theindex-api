@@ -5,6 +5,7 @@ import type { AccountEntity } from '../accounts/account.entity';
 import { AccountRegistrationService } from '../accounts/account-registration.service';
 import { LoginDto } from '../accounts/dto/login.dto';
 import { RegisterDto } from '../accounts/dto/register.dto';
+import { AllowDuringSetup } from './allow-during-setup.decorator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -41,6 +42,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @AllowDuringSetup()
   @ApiBearerAuth('jwt')
   @UseGuards(JwtAuthGuard)
   me(@Req() req: Request & { user: Record<string, unknown> }) {

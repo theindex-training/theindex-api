@@ -310,7 +310,7 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
 
 - [x] **AUTH-01** [E] P0. Login success → `{ accessToken, account }`. Assert `account` has exactly these keys: `id, email, role, status, hasUpdatedInitialPassword, trainerProfileId, traineeProfileId, createdAt, updatedAt` (no `passwordHash`).
 - [x] **AUTH-02** [E] P0. JWT claims (cross-repo contract with the frontend):
-  - Assert exactly `sub, email, role, trainerProfileId, traineeProfileId, iat, exp`.
+  - Assert exactly `sub, email, role, trainerProfileId, traineeProfileId, setupRequired, iat, exp` (`setupRequired` since the first-login setup, ACC-26).
   - Assert profile ids are `null` when absent.
   - Assert `exp − iat` = `JWT_EXPIRES_IN` (7d default).
 - [x] **AUTH-03** [E] P0. Wrong password and unknown email both → 401 `Invalid credentials` (same message).
@@ -391,7 +391,7 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 
 ### HTTP
 - [x] **ACC-13** [E] P1. `GET /accounts/:id` returns the sanitized account. ⚠ Suspect: an unknown id → **200 with an empty body** (`null`), where other modules return 404.
-- [x] **ACC-14** [E] P0. TRAINEE may call `password-status` and `change-password` **only** for their own account id; others → 403 `TRAINEE can only access their own account password endpoints`. TRAINEE → 403 on PATCH, DELETE, GET and provision.
+- [x] **ACC-14** [E] P0. TRAINEE may call `password-status` and `change-password` **only** for their own account id, and only once the first-login setup is done (ACC-26; before it, 403 `ACCOUNT_SETUP_REQUIRED`); others → 403 `TRAINEE can only access their own account password endpoints`. TRAINEE → 403 on PATCH, DELETE, GET and provision.
 - [x] **ACC-15** [E] P0. ⚠ Suspect (security): TRAINER can PATCH (email/password/status) and DELETE **any** account, incl. ADMIN accounts. TRAINER can reset an ADMIN's password via `change-password` without the current password, then log in as ADMIN. TRAINER can provision accounts. Write the escalation as one scenario test and flag it prominently in TEST_NOTES.
 - [x] **ACC-16** [E] P1. Route resolution: `POST /accounts/:id/change-password` is declared first, so it wins over `POST /accounts/:profileType/:profileId` for two-segment paths ending in `change-password`. The routes used in `tests.md` (`/accounts/provision/trainer/:id`, `PATCH /accounts/:id/status`) **don't exist** (404). `tests.md` is stale; don't use it as a spec.
 - [x] **ACC-17** [E] P2. DTO rules that encode business rules: password `MinLength(8)` on provision/update/change, `IsEmail` on provision/update, enum checks on role/status.
@@ -403,6 +403,7 @@ Code: `accounts/accounts.service.ts`, `accounts.controller.ts`.
 - [x] **ACC-23** [I+E] P0. `POST /accounts/:id/link` (ADMIN): to a new or an existing active trainee/trainer without an account; the profile stores the sent fields (left out = kept), the account takes the role and the link, and can log in with the profile claim. 400 admin account, inactive profile, gym subscription for a trainer; 404 unknown account/profile; 409 already connected account or profile.
 - [x] **ACC-24** [I+E] P1. `DELETE /accounts/:id/permanent` (ADMIN): removes an unconnected account; 409 for a connected one (either side) or an admin.
 - [x] **ACC-25** [I+E] P0. `GET/PATCH /my-profile` (TRAINEE, TRAINER): own details from the database (never the nickname, never the name or email to change); phone can't be cleared; trainers have no gym subscription.
+- [x] **ACC-26** [U+E] P0. First-login setup (`/account-setup`, `test/e2e/account-setup.e2e-spec.ts`; the rule in `accounts/account-setup.spec.ts`). A TRAINEE/TRAINER account that still has the admin's password, or never consented, gets `setupRequired: true` in its login token and 403 `{ error: 'ACCOUNT_SETUP_REQUIRED' }` on every guarded route except `GET /auth/me` and `/account-setup` (read from the DB, so a token issued earlier gets through only once the setup is done). `GET` prefills the admin's data (never the nickname); `POST` (the register fields) requires a new password different from the admin's while it is in place and refuses one afterwards, 400 without consent or phone, 409 for a taken email (any case) or when already set up; it answers `{ accessToken, account }` with `setupRequired: false`. Self-registered accounts never need it. The e2e helper `provisionAndLogin` marks accounts as set up unless `{ setUp: false }`.
 
 ---
 

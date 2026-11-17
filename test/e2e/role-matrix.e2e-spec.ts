@@ -98,6 +98,10 @@ const MATRIX: Row[] = [
   r('GET /my-profile', GUARD, ALLOW, ALLOW),
   r('PATCH /my-profile', GUARD, ALLOW, ALLOW),
 
+  // First-login setup: trainees and trainers, always their own (already set up here: 409).
+  r('GET /account-setup', GUARD, ALLOW, ALLOW),
+  r('POST /account-setup', GUARD, ALLOW, ALLOW),
+
   r('GET /plans', ALLOW, ALLOW, ALLOW),
   r('GET /plans/:id', ALLOW, ALLOW, ALLOW),
   r('POST /plans', ALLOW, ALLOW, GUARD),

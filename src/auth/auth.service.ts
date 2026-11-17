@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { AccountEntity } from '../accounts/account.entity';
 import { AccountsService } from '../accounts/accounts.service';
+import { needsAccountSetup } from '../accounts/account-setup';
 import { isLinked } from '../accounts/account-view';
 import { AccountRole } from '../common/enums/account-role.enum';
 import { AccountStatus } from '../common/enums/account-status.enum';
@@ -53,6 +54,13 @@ export class AuthService {
       role: acc.role,
       trainerProfileId: acc.trainerProfileId ?? null,
       traineeProfileId: acc.traineeProfileId ?? null,
+      // The front sends the person to the first-login setup while this is true; the API
+      // enforces it from the database (`JwtAuthGuard`).
+      setupRequired: needsAccountSetup({
+        role: acc.role,
+        hasUpdatedInitialPassword: acc.hasUpdatedInitialPassword ?? false,
+        consentAt: acc.consentAt ?? null,
+      }),
     };
 
     return {
