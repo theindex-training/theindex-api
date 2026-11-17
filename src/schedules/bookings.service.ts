@@ -13,6 +13,7 @@ import {
   canBook,
   canCancel,
   cancelUntil,
+  slotEndsAt,
   slotStartsAt,
 } from './booking-rules';
 import { ScheduleWeekQueryDto } from './dto/schedule.dto';
@@ -120,7 +121,7 @@ export class BookingsService {
     return {
       ...view,
       /** When it ends (gym-local end time of its day), e.g. for a calendar event. */
-      endsAt: slotStartsAt(slot.date, slot.trainingTime!.endTime),
+      endsAt: slotEndsAt(slot.date, slot.trainingTime!.endTime),
       gym: {
         id: slot.week.gym.id,
         name: slot.week.gym.name,

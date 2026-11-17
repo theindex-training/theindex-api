@@ -3,6 +3,7 @@ import {
   canBook,
   canCancel,
   cancelUntil,
+  slotEndsAt,
   slotStartsAt,
 } from './booking-rules';
 
@@ -13,6 +14,15 @@ describe('booking rules', () => {
     );
     expect(slotStartsAt('2026-07-01', '18:00:00').toISOString()).toBe(
       '2026-07-01T15:00:00.000Z',
+    );
+  });
+
+  it('a training ends at its gym-local end time, in winter and in summer', () => {
+    expect(slotEndsAt('2026-11-13', '08:10:00').toISOString()).toBe(
+      '2026-11-13T06:10:00.000Z',
+    );
+    expect(slotEndsAt('2026-07-01', '19:00:00').toISOString()).toBe(
+      '2026-07-01T16:00:00.000Z',
     );
   });
 
