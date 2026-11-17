@@ -13,6 +13,7 @@ import {
   SchedulesController,
 } from './schedules.controller';
 import { SchedulesService } from './schedules.service';
+import { TrainingCalendarController } from './training-calendar.controller';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { SchedulesService } from './schedules.service';
     ScheduleTemplatesController,
     SchedulesController,
     BookingsController,
+    TrainingCalendarController,
   ],
   providers: [SchedulesService, BookingsService],
   exports: [SchedulesService, BookingsService],

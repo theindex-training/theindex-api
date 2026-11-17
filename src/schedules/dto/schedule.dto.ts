@@ -1,15 +1,20 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsISO8601,
   IsInt,
+  IsNotEmpty,
   IsOptional,
+  IsString,
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
+import { CALENDAR_LANGUAGES, type CalendarLanguage } from '../training-ics';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -131,4 +136,24 @@ export class CreateBookingDto {
   })
   @IsUUID()
   slotId!: string;
+}
+
+export class TrainingCalendarQueryDto {
+  @ApiProperty({
+    description:
+      "The training's calendarToken (GET /api/bookings/trainings/:slotId, while booked)",
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  token!: string;
+
+  @ApiPropertyOptional({
+    enum: CALENDAR_LANGUAGES,
+    default: 'bg',
+    description: "The event's language",
+  })
+  @IsOptional()
+  @IsIn(CALENDAR_LANGUAGES)
+  lang?: CalendarLanguage;
 }
