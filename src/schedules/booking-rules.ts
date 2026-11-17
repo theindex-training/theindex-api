@@ -9,8 +9,18 @@ const MINUTE_MS = 60 * 1000;
 
 /** When a training starts: its gym-local day and start time (Postgres `time`, '07:10:00'). */
 export function slotStartsAt(date: string, startTime: string): Date {
+  return gymLocalInstant(date, startTime);
+}
+
+/** When a training ends: its gym-local day and end time (Postgres `time`, '08:10:00'). */
+export function slotEndsAt(date: string, endTime: string): Date {
+  return gymLocalInstant(date, endTime);
+}
+
+/** A gym-local day ('2026-11-13') and time of day ('07:10:00') as an instant. */
+function gymLocalInstant(date: string, time: string): Date {
   const [year, month, day] = date.split('-').map(Number);
-  const [hour, minute] = startTime.split(':').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
   return fromGymLocalToUtc(year, month, day, hour, minute);
 }
 
