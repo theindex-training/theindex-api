@@ -1,7 +1,6 @@
 import * as bcrypt from 'bcrypt';
 import { AccountEntity } from '../../src/accounts/account.entity';
 import { AccountStatus } from '../../src/common/enums/account-status.enum';
-import { TraineeProfileEntity } from '../../src/trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../../src/trainer-profiles/trainer-profile.entity';
 import { E2E_ADMIN, jwtPayload, messageOf, setupE2eSuite } from './e2e-app';
 
@@ -124,16 +123,16 @@ describe('Accounts (e2e)', () => {
       return { admin, token, ownId: String(jwtPayload(token).sub), trainee };
     }
 
-    it('ACC-14 TRAINEE can read password-status and change the password of their own account', async () => {
+    it('ACC-14 TRAINEE can read password-status and change the password of their own account once set up', async () => {
       const c = ctx();
-      const { token, ownId, trainee } = await seedTrainee();
+      const { token, ownId } = await seedTrainee();
 
       await c
         .http()
         .get(`/api/accounts/${ownId}/password-status`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200)
-        .expect({ accountId: ownId, hasUpdatedInitialPassword: false });
+        .expect({ accountId: ownId, hasUpdatedInitialPassword: true });
 
       await c
         .http()
@@ -143,7 +142,6 @@ describe('Accounts (e2e)', () => {
           currentPassword: 'password-123',
           newPassword: 'new-password-1',
           confirmPassword: 'new-password-1',
-          phone: ' 0888 ',
         })
         .expect(201)
         .expect({ accountId: ownId, hasUpdatedInitialPassword: true });
@@ -152,10 +150,47 @@ describe('Accounts (e2e)', () => {
       expect(await bcrypt.compare('new-password-1', acc.passwordHash!)).toBe(
         true,
       );
-      const profile = await c.ds
-        .getRepository(TraineeProfileEntity)
-        .findOneByOrFail({ id: trainee.id });
-      expect(profile.phone).toBe('0888');
+    });
+
+    it('ACC-14 before the first-login setup, the own password endpoints answer 403 ACCOUNT_SETUP_REQUIRED and nothing changes', async () => {
+      const c = ctx();
+      const trainee = await c.trainee();
+      const token = await c.provisionAndLogin(
+        'trainee',
+        trainee.id,
+        undefined,
+        {
+          setUp: false,
+        },
+      );
+      const ownId = String(jwtPayload(token).sub);
+      const before = await accountRepo().findOneByOrFail({ id: ownId });
+
+      const status = await c
+        .http()
+        .get(`/api/accounts/${ownId}/password-status`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+      const change = await c
+        .http()
+        .post(`/api/accounts/${ownId}/change-password`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          currentPassword: 'password-123',
+          newPassword: 'new-password-1',
+          confirmPassword: 'new-password-1',
+          phone: '0888',
+        })
+        .expect(403);
+
+      for (const res of [status, change]) {
+        expect((res.body as { error: string }).error).toBe(
+          'ACCOUNT_SETUP_REQUIRED',
+        );
+      }
+      const after = await accountRepo().findOneByOrFail({ id: ownId });
+      expect(after.passwordHash).toBe(before.passwordHash);
+      expect(after.hasUpdatedInitialPassword).toBe(false);
     });
 
     it("ACC-14 TRAINEE -> 403 on another account's password endpoints; nothing changes", async () => {

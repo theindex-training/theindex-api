@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource, DeepPartial } from 'typeorm';
+import { AccountEntity } from '../../src/accounts/account.entity';
 import { AppModule } from '../../src/app.module';
 import { AttendanceEntity } from '../../src/attendance/attendance.entity';
 import { BootstrapService } from '../../src/bootstrap/bootstrap.service';
@@ -142,11 +143,17 @@ export class E2eContext {
    * Provisions an account for a profile through the real admin route
    * (`POST /api/accounts/:profileType/:profileId`) and logs it in, so the
    * token carries the real JWT claims.
+   *
+   * By default the account is then marked as having finished its first-login
+   * setup (password changed, consent given; the password stays
+   * `password-123`), since every guarded route refuses it until then. Pass
+   * `{ setUp: false }` for the state right after an admin created it.
    */
   async provisionAndLogin(
     profileType: 'trainer' | 'trainee',
     profileId: string,
     email = `${profileType}-${profileId}@e2e.test`,
+    { setUp = true }: { setUp?: boolean } = {},
   ): Promise<string> {
     const adminToken = await this.loginAsAdmin();
     const password = 'password-123';
@@ -162,6 +169,14 @@ export class E2eContext {
         confirmPassword: password,
       })
       .expect(201);
+    if (setUp) {
+      await this.ds
+        .getRepository(AccountEntity)
+        .update(
+          { email },
+          { hasUpdatedInitialPassword: true, consentAt: new Date() },
+        );
+    }
     return this.loginAs(email, password);
   }
 

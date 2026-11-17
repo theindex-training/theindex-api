@@ -48,7 +48,9 @@ describe('Auth (e2e)', () => {
     it('AUTH-01 success -> 201 { accessToken, account } with exactly the sanitized account keys', async () => {
       const c = ctx();
       const trainee = await c.trainee('Ivan');
-      await c.provisionAndLogin('trainee', trainee.id, 'ivan@e2e.test');
+      await c.provisionAndLogin('trainee', trainee.id, 'ivan@e2e.test', {
+        setUp: false,
+      });
 
       const res = await login({
         email: 'ivan@e2e.test',
@@ -100,6 +102,7 @@ describe('Auth (e2e)', () => {
           'role',
           'trainerProfileId',
           'traineeProfileId',
+          'setupRequired',
           'iat',
           'exp',
         ].sort(),
@@ -110,6 +113,7 @@ describe('Auth (e2e)', () => {
         role: 'ADMIN',
         trainerProfileId: null,
         traineeProfileId: null,
+        setupRequired: false,
       });
       expect((payload.exp as number) - (payload.iat as number)).toBe(
         SEVEN_DAYS_S,
@@ -119,6 +123,7 @@ describe('Auth (e2e)', () => {
         role: 'TRAINER',
         trainerProfileId: trainer.id,
         traineeProfileId: null,
+        setupRequired: false,
       });
     });
 
