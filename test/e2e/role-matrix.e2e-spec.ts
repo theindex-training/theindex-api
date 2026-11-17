@@ -229,6 +229,8 @@ const MATRIX: Row[] = [
   r('GET /bookings/trainings/:slotId', GUARD, GUARD, ALLOW),
   r('POST /bookings', GUARD, GUARD, ALLOW),
   r('DELETE /bookings/:slotId', GUARD, GUARD, ALLOW),
+  // A booked training's calendar file: no login, its signed token is the key.
+  r('GET /bookings/calendar.ics', PUBLIC, PUBLIC, PUBLIC),
 
   // The public site (theindex-web): published content, and the draft preview behind its token.
   r('GET /public/articles', PUBLIC, PUBLIC, PUBLIC),

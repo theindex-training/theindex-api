@@ -16,6 +16,11 @@ import {
   slotEndsAt,
   slotStartsAt,
 } from './booking-rules';
+import {
+  InvalidCalendarTokenError,
+  signCalendarToken,
+  verifyCalendarToken,
+} from './calendar-token';
 import { ScheduleWeekQueryDto } from './dto/schedule.dto';
 import {
   ScheduleBookingEntity,
@@ -31,6 +36,7 @@ import {
   today,
   trainingWorkout,
 } from './schedules.service';
+import { CalendarLanguage, trainingIcs } from './training-ics';
 import { isWorkoutReleased, workoutReleasesAt } from './workout-release';
 
 /**
@@ -118,10 +124,19 @@ export class BookingsService {
       ? await trainingWorkout(m, slot.workoutId)
       : null;
     const [view] = await this.present(traineeId, [slot]);
+    const endsAt = slotEndsAt(slot.date, slot.trainingTime!.endTime);
     return {
       ...view,
       /** When it ends (gym-local end time of its day), e.g. for a calendar event. */
-      endsAt: slotEndsAt(slot.date, slot.trainingTime!.endTime),
+      endsAt,
+      /** While booked: for its calendar file (`GET /api/bookings/calendar.ics?token=`). */
+      calendarToken: view.bookedByMe
+        ? signCalendarToken(
+            { slotId: slot.id, traineeId },
+            endsAt,
+            process.env.JWT_SECRET ?? '',
+          )
+        : null,
       gym: {
         id: slot.week.gym.id,
         name: slot.week.gym.name,
@@ -134,6 +149,63 @@ export class BookingsService {
         exercises: workout.exercises,
       },
     };
+  }
+
+  /**
+   * A booked training as an iCalendar file (`training-ics.ts`), for the link the trainee's
+   * calendar opens without their login: the token (from `training`) names the training and the
+   * trainee. 404 for a bad or expired token, and once the booking is cancelled or the training is
+   * gone from trainees' view. The workout's name only once it is out.
+   */
+  async calendar(token: string, language: CalendarLanguage) {
+    let claims: { slotId: string; traineeId: string };
+    try {
+      claims = verifyCalendarToken(token, process.env.JWT_SECRET ?? '');
+    } catch (error) {
+      if (error instanceof InvalidCalendarTokenError) {
+        throw new NotFoundException(error.message);
+      }
+      throw error;
+    }
+    const m = this.bookingRepo.manager;
+    const slot = await m.findOne(ScheduleSlotEntity, {
+      where: { id: claims.slotId },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: { gym: true },
+      },
+    });
+    if (
+      !slot ||
+      !slot.week?.gym?.isActive ||
+      slot.week.status !== ScheduleWeekStatus.PUBLISHED
+    ) {
+      throw new NotFoundException('Training not found');
+    }
+    const booked = await this.bookingRepo.exists({
+      where: { slotId: slot.id, traineeId: claims.traineeId },
+    });
+    if (!booked) {
+      throw new NotFoundException("You haven't booked this training");
+    }
+    const now = new Date();
+    return trainingIcs(
+      {
+        slotId: slot.id,
+        startsAt: slotStartsAt(slot.date, slot.trainingTime!.startTime),
+        endsAt: slotEndsAt(slot.date, slot.trainingTime!.endTime),
+        gym: { name: slot.week.gym.name, address: slot.week.gym.address },
+        trainerName: slot.trainer!.name,
+        workoutTitle:
+          slot.workout && isWorkoutReleased(slot.date, now)
+            ? slot.workout.title
+            : null,
+      },
+      language,
+      now,
+    );
   }
 
   async book(traineeId: string, slotId: string) {

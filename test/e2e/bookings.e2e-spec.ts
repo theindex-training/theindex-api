@@ -152,6 +152,29 @@ describe('Bookings (e2e)', () => {
       canCancel: true,
     });
 
+    // Its calendar file, fetched without a login, as Apple Calendar does.
+    const calendarToken = (details.body as { calendarToken: string })
+      .calendarToken;
+    const ics = await c
+      .http()
+      .get('/api/bookings/calendar.ics')
+      .query({ token: calendarToken, lang: 'en' })
+      .expect(200);
+    expect(ics.headers['content-type']).toBe('text/calendar; charset=utf-8');
+    expect(ics.headers['content-disposition']).toBe(
+      'attachment; filename="crossfit-training.ics"',
+    );
+    expect(ics.headers['cache-control']).toBe('private, no-store');
+    expect(ics.text).toMatch(/^BEGIN:VCALENDAR\r\n/);
+    expect(ics.text).toContain('SUMMARY:CrossFit training\r\n');
+    expect(ics.text).toContain('TRIGGER:-PT30M\r\n');
+    // Not a login token.
+    await c
+      .http()
+      .get(`/api/bookings/trainings/${slotId}`)
+      .set({ Authorization: `Bearer ${calendarToken}` })
+      .expect(401);
+
     const cancelled = await c
       .http()
       .delete(`/api/bookings/${slotId}`)
@@ -162,6 +185,32 @@ describe('Bookings (e2e)', () => {
       bookedByMe: false,
       canBook: true,
     });
+    // A cancelled booking's calendar link stops working.
+    await c
+      .http()
+      .get('/api/bookings/calendar.ics')
+      .query({ token: calendarToken })
+      .expect(404);
+  });
+
+  it("validates the calendar file's link", async () => {
+    const c = ctx();
+    const missing = await c.http().get('/api/bookings/calendar.ics');
+    const language = await c
+      .http()
+      .get('/api/bookings/calendar.ics')
+      .query({ token: 'x', lang: 'de' });
+    const forged = await c
+      .http()
+      .get('/api/bookings/calendar.ics')
+      .query({ token: 'not-a-token' });
+
+    expect(missing.status).toBe(400);
+    expect(language.status).toBe(400);
+    expect(forged.status).toBe(404);
+    expect((forged.body as { message: string }).message).toBe(
+      'This calendar link is invalid or has expired',
+    );
   });
 
   it('validates the requests', async () => {

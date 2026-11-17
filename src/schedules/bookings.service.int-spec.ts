@@ -26,6 +26,10 @@ const THURSDAY_NOON = '2026-11-12T10:00:00Z';
 const THURSDAY_EIGHT_PM = '2026-11-12T18:00:00Z';
 
 describe('BookingsService (integration)', () => {
+  // A booked training's calendar token is signed with a key derived from JWT_SECRET.
+  beforeAll(() => {
+    process.env.JWT_SECRET = 'int-test-only-secret';
+  });
   const fixtures = setupIntegrationSuite({
     extraImports: [SchedulesModule, TrainingTimesModule, WorkoutsModule],
   });
@@ -247,6 +251,7 @@ describe('BookingsService (integration)', () => {
         workoutReleasesAt: new Date('2026-11-12T18:00:00Z'),
         startsAt: new Date('2026-11-13T16:00:00Z'),
         endsAt: new Date('2026-11-13T17:00:00Z'),
+        calendarToken: null,
         bookedCount: 1,
         bookedByMe: false,
         bookingClosesAt: new Date('2026-11-13T15:30:00Z'),
@@ -312,6 +317,122 @@ describe('BookingsService (integration)', () => {
 
       expect(unknown).toBeInstanceOf(NotFoundException);
       expect(unknown.message).toBe('Training not found');
+      expect(closed).toBeInstanceOf(NotFoundException);
+      expect(closed.message).toBe('Training not found');
+    });
+  });
+
+  describe("a booked training's calendar file (Apple Calendar and other .ics apps)", () => {
+    /** The file's content lines, unfolded. */
+    const lines = (ics: string) => ics.replace(/\r\n /g, '').split('\r\n');
+
+    it('gives a booked training a token for its file, with the time, the address, the trainer and a reminder', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await fx.ds
+        .getRepository(GymLocationEntity)
+        .update({ id: w.gym.id }, { address: 'ul. Ranni list 13, Plovdiv' });
+      await bookings(fx).book(w.ana.id, w.saturday.id);
+
+      const { calendarToken } = await bookings(fx).training(
+        w.ana.id,
+        w.saturday.id,
+      );
+      const ics = await bookings(fx).calendar(calendarToken!, 'en');
+
+      // Saturday 14 Nov 07:10-08:10 in Sofia (UTC+2).
+      expect(lines(ics)).toEqual(
+        expect.arrayContaining([
+          `UID:training-${w.saturday.id}@theindex.training`,
+          'DTSTART:20261114T051000Z',
+          'DTEND:20261114T061000Z',
+          'SUMMARY:CrossFit training',
+          'LOCATION:ul. Ranni list 13\\, Plovdiv',
+          'DESCRIPTION:Group instructor: Vasko',
+          'TRIGGER:-PT30M',
+        ]),
+      );
+    });
+
+    it('gives no token for a training the trainee has not booked', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await bookings(fx).book(w.boris.id, w.saturday.id);
+
+      const seen = await bookings(fx).training(w.ana.id, w.saturday.id);
+
+      expect(seen.calendarToken).toBeNull();
+    });
+
+    it("names the workout only once it is out, in the trainee's language", async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      const workout = await fx.moduleRef
+        .get(WorkoutsService)
+        .create(
+          { date: '2026-11-13', title: 'Fran', summary: '21-15-9' },
+          null,
+        );
+      await schedules(fx).updateSlot(w.friday.id, { workoutId: workout.id });
+      await bookings(fx).book(w.ana.id, w.friday.id);
+      const { calendarToken } = await bookings(fx).training(
+        w.ana.id,
+        w.friday.id,
+      );
+
+      const before = await bookings(fx).calendar(calendarToken!, 'bg');
+      freezeTime(THURSDAY_EIGHT_PM);
+      const after = await bookings(fx).calendar(calendarToken!, 'bg');
+
+      expect(lines(before)).toContain('DESCRIPTION:Групов инструктор: Velcho');
+      expect(lines(after)).toContain(
+        'DESCRIPTION:Групов инструктор: Velcho\\nТренировка на деня: Fran',
+      );
+      expect(lines(after)).toContain('SUMMARY:CrossFit тренировка');
+      expect(lines(after)).toContain('LOCATION:Center');
+    });
+
+    it('is a 404 once the booking is cancelled, and for a bad token', async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await bookings(fx).book(w.ana.id, w.saturday.id);
+      const { calendarToken } = await bookings(fx).training(
+        w.ana.id,
+        w.saturday.id,
+      );
+      await bookings(fx).cancel(w.ana.id, w.saturday.id);
+
+      const cancelled = await rejectionOf(
+        bookings(fx).calendar(calendarToken!, 'en'),
+      );
+      const forged = await rejectionOf(
+        bookings(fx).calendar(`${calendarToken!}x`, 'en'),
+      );
+
+      expect(cancelled).toBeInstanceOf(NotFoundException);
+      expect(cancelled.message).toBe("You haven't booked this training");
+      expect(forged).toBeInstanceOf(NotFoundException);
+      expect(forged.message).toBe(
+        'This calendar link is invalid or has expired',
+      );
+    });
+
+    it("is a 404 once the training's gym is inactive", async () => {
+      const fx = fixtures();
+      const w = await week(fx);
+      await bookings(fx).book(w.ana.id, w.saturday.id);
+      const { calendarToken } = await bookings(fx).training(
+        w.ana.id,
+        w.saturday.id,
+      );
+      await fx.ds
+        .getRepository(GymLocationEntity)
+        .update({ id: w.gym.id }, { isActive: false });
+
+      const closed = await rejectionOf(
+        bookings(fx).calendar(calendarToken!, 'en'),
+      );
+
       expect(closed).toBeInstanceOf(NotFoundException);
       expect(closed.message).toBe('Training not found');
     });
