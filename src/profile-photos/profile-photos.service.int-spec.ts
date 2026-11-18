@@ -401,6 +401,50 @@ describe('ProfilePhotosService (integration)', () => {
     });
   });
 
+  describe('concurrency', () => {
+    /** Waits until `count` queries of this database wait for a lock. */
+    async function lockWaiters(fx: Fixtures, count: number) {
+      for (let tries = 0; tries < 200; tries++) {
+        const [{ waiting }] = await fx.ds.query<{ waiting: number }[]>(
+          `SELECT count(*)::int AS waiting FROM pg_stat_activity
+           WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        if (waiting >= count) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error(`Never saw ${count} queries waiting for a lock`);
+    }
+
+    it('removes the files of a photo saved while its profile was being deleted', async () => {
+      const fx = fixtures();
+      const { account, owner, profile } = await traineeWithAccount(fx);
+
+      // Another transaction holds the profile's row: the upload, then the delete, queue behind it.
+      const blocker = fx.ds.createQueryRunner();
+      await blocker.connect();
+      await blocker.startTransaction();
+      await blocker.query(
+        'SELECT id FROM trainee_profiles WHERE id = $1 FOR UPDATE',
+        [profile.id],
+      );
+      const saving = svc(fx).replace(owner, await halves(), LEFT, account.id);
+      await lockWaiters(fx, 1);
+      const deleting = fx.moduleRef
+        .get(TraineeProfilesService)
+        .hardDelete(profile.id);
+      await lockWaiters(fx, 2);
+      await blocker.commitTransaction();
+      await blocker.release();
+
+      // The upload goes first and saves the photo; the delete then takes it, files included.
+      await saving;
+      await deleting;
+      expect(await photoRows(fx)).toEqual([]);
+      expect(await mediaRows(fx)).toEqual([]);
+      expect([...publicFiles(), ...privateFiles()]).toEqual([]);
+    });
+  });
+
   describe('where photos are shown', () => {
     it('is part of "My details"', async () => {
       const fx = fixtures();

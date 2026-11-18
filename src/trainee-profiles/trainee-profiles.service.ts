@@ -183,8 +183,8 @@ export class TraineeProfilesService {
   /** Deletes the profile for good, and its profile photo's files with it. */
   async hardDelete(id: string) {
     const trainee = await this.getById(id);
-    await this.photos.deleteWithProfile({ traineeProfileId: trainee.id }, () =>
-      this.traineeRepo.remove(trainee),
+    await this.photos.deleteWithProfile({ traineeProfileId: trainee.id }, (m) =>
+      m.remove(trainee),
     );
     return { deleted: true };
   }

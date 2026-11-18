@@ -169,15 +169,21 @@ export class ProfilePhotosService {
   }
 
   /**
-   * Runs `deleteProfile` (which deletes the profile, and with it the photo's row), then removes
-   * the photo's files, so a deleted person's pictures don't stay behind.
+   * Runs `deleteProfile` (which deletes the profile, and with it the photo's row) in a transaction
+   * holding the profile's lock, so no photo change slips in between; then removes the photo's
+   * files, so a deleted person's pictures don't stay behind.
    */
   async deleteWithProfile<T>(
     owner: PhotoOwner,
-    deleteProfile: () => Promise<T>,
+    deleteProfile: (m: EntityManager) => Promise<T>,
   ): Promise<T> {
-    const row = await this.repo.findOne({ where: whereOwner(owner) });
-    const result = await deleteProfile();
+    const { result, row } = await this.repo.manager.transaction(async (m) => {
+      await lockProfile(m, owner);
+      const found = await m.findOne(ProfilePhotoEntity, {
+        where: whereOwner(owner),
+      });
+      return { result: await deleteProfile(m), row: found };
+    });
     if (row) {
       await this.media.removeItems([row.photoMediaId, row.originalMediaId]);
     }
