@@ -9,6 +9,7 @@ import { ArticlesModule } from './articles/articles.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
+import { BenchmarksModule } from './benchmarks/benchmarks.module';
 import { CashRegisterModule } from './cash-register/cash-register.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { GymLocationsModule } from './gym-locations/gym-locations.module';
@@ -67,6 +68,7 @@ import { WorkoutsModule } from './workouts/workouts.module';
     PublicContentModule,
     ExercisesModule,
     WorkoutsModule,
+    BenchmarksModule,
     SchedulesModule,
     MyProfileModule,
     AccountSetupModule,
