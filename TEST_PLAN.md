@@ -642,6 +642,14 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 - [x] **BM-07** [I] P1. Concurrency (Codex review): a first result and a score-type change run in parallel never both succeed, and what is stored fits the benchmark's final score type (8 rounds; fails every time with the row locks removed); a delete racing a first result never leaves an orphan.
 - [x] **BM-06** [I+E] P0. Leaderboards: Rx and scaled apart, names (never nicknames), notes, `isMe`, inactive people kept. The overview gives the active ones of a kind by name, the top 5 of each list, the counts and the requester's own places. `mine` flags each personal best (Rx and scaled apart).
 
+## 18. Profile photos (new feature, tests written with it)
+- [x] **Module done** (pure: `media/profile-photo-processing.spec.ts`, `media/media-kind.spec.ts`; services: `profile-photos/profile-photos.service.int-spec.ts`; HTTP: `test/e2e/profile-photos.e2e-spec.ts` and the role matrix)
+
+- [x] **PP-01** [U] P0. Crop (`cropArea`): fractions of the turned picture (a quarter turn swaps width and height) to a square in pixels; the browser's rounding is accepted and the square kept inside; not square, outside or under 64 px is refused.
+- [x] **PP-02** [U+I] P0. Privacy: the kept picture is upright and has no metadata, in the private area only; only the 128/512 px WebP crops are public.
+- [x] **PP-03** [I] P0. Replace / re-crop / remove: a new crop gets new URLs and the previous files and rows go; a refused picture or crop keeps nothing and leaves the photo as it was; two pictures sent at once leave one photo and no stray files; deleting a profile for good removes its photo's files.
+- [x] **PP-04** [I+E] P1. Shown: `photo` in `GET`/`PATCH /my-profile`, `photoUrl` (thumbnail or null) on leaderboard rows and the records overview, for trainees and trainers. Over HTTP the crop comes as form fields (converted, checked: 400) or JSON; the kept picture is `private, no-store`.
+
 ---
 
 ## Out of scope

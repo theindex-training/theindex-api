@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProfilePhotosService } from '../profile-photos/profile-photos.service';
 import { Repository } from 'typeorm';
 import { CreateTrainerDto } from './dto/create-trainer.dto';
 import { UpdateTrainerDto } from './dto/update-trainer.dto';
@@ -16,6 +17,7 @@ export class TrainerProfilesService {
   constructor(
     @InjectRepository(TrainerProfileEntity)
     private readonly trainerRepo: Repository<TrainerProfileEntity>,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   async list(active?: boolean) {
@@ -111,9 +113,12 @@ export class TrainerProfilesService {
     return this.trainerRepo.save(trainer);
   }
 
+  /** Deletes the profile for good, and its profile photo's files with it. */
   async hardDelete(id: string) {
     const trainer = await this.getById(id);
-    await this.trainerRepo.remove(trainer);
+    await this.photos.deleteWithProfile({ trainerProfileId: trainer.id }, (m) =>
+      m.remove(trainer),
+    );
     return { deleted: true };
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ExercisesModule } from '../exercises/exercises.module';
+import { ProfilePhotosModule } from '../profile-photos/profile-photos.module';
 import { BenchmarkResultsController } from './benchmark-results.controller';
 import { BenchmarkResultsService } from './benchmark-results.service';
 import {
@@ -22,6 +23,7 @@ import { BenchmarksService } from './benchmarks.service';
       BenchmarkResultEntity,
     ]),
     ExercisesModule,
+    ProfilePhotosModule,
   ],
   controllers: [
     BenchmarksController,

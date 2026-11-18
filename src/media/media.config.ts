@@ -126,6 +126,19 @@ function overlaps(a: string, b: string): boolean {
   return inside(a, b) || inside(b, a);
 }
 
+/**
+ * The upload size limit for multer: MEDIA_MAX_UPLOAD_MB, or the default when the media settings
+ * are incomplete (the upload then fails with 503 in the service, which logs the problem).
+ */
+export function maxUploadBytes(env: Env = process.env): number {
+  try {
+    return loadMediaConfig(env, { production: isProduction(env) })
+      .maxUploadBytes;
+  } catch {
+    return DEFAULT_MAX_UPLOAD_MB * 1024 * 1024;
+  }
+}
+
 export function isProduction(env: Env): boolean {
   return env.NODE_ENV === 'production';
 }
