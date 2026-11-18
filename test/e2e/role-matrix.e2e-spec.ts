@@ -50,6 +50,13 @@ const OWN_TRAININGS = {
   ownKind: 'trainee',
 } as const;
 
+// The seeded e2e admin has no trainee or trainer profile, so no results of its own.
+const NO_RESULTS = {
+  handler:
+    'Results are logged by trainees and trainers: this account has no trainee or trainer profile',
+};
+const RANDOM_RESULT_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
+
 const PERIOD = { periodStart: '2025-12-01', periodEnd: '2025-12-31' };
 // Valid ChangePasswordDto, so a TRAINEE on someone else's id reaches the
 // handler check (pipes run before the handler) instead of failing with 400.
@@ -213,6 +220,25 @@ const MATRIX: Row[] = [
   r('GET /workouts/:id', ALLOW, ALLOW, GUARD),
   r('PATCH /workouts/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /workouts/:id', ALLOW, ALLOW, GUARD),
+
+  // Benchmarks and heavy lifts: everyone reads them and their leaderboards; staff change them.
+  r('GET /benchmarks', ALLOW, ALLOW, ALLOW),
+  r('POST /benchmarks', ALLOW, ALLOW, GUARD),
+  r('GET /benchmarks/:id', ALLOW, ALLOW, ALLOW),
+  r('GET /benchmarks/:id/leaderboard', ALLOW, ALLOW, ALLOW),
+  r('PATCH /benchmarks/:id', ALLOW, ALLOW, GUARD),
+  r('DELETE /benchmarks/:id', ALLOW, ALLOW, GUARD),
+  r('GET /leaderboards', ALLOW, ALLOW, ALLOW),
+  // Results: everyone's own (from the token); an admin without a profile has none, but deletes any.
+  r('GET /benchmark-results/mine', NO_RESULTS, ALLOW, ALLOW),
+  r('POST /benchmark-results', NO_RESULTS, ALLOW, ALLOW, {
+    benchmarkId: RANDOM_RESULT_ID,
+    performedOn: '2026-01-01',
+    timeSeconds: 100,
+  }),
+  r('GET /benchmark-results/:id', NO_RESULTS, ALLOW, ALLOW),
+  r('PATCH /benchmark-results/:id', NO_RESULTS, ALLOW, ALLOW),
+  r('DELETE /benchmark-results/:id', ALLOW, ALLOW, ALLOW),
 
   // Weekly schedules: trainers read a gym template, only admins change it; weeks are staff's.
   r('GET /schedule-templates/:gymId', ALLOW, ALLOW, GUARD),

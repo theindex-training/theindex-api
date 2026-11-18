@@ -631,6 +631,18 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 
 ---
 
+## 17. Benchmarks and records (new feature, tests written with it)
+- [x] **Module done** (pure: `benchmarks/benchmark-score.spec.ts`, `benchmark-ranking.spec.ts`, `benchmark-owner.spec.ts`, `benchmark-library.spec.ts`; services: `benchmarks.service.int-spec.ts`, `benchmark-results.service.int-spec.ts`; HTTP: `test/e2e/benchmarks.e2e-spec.ts` and the role matrix)
+
+- [x] **BM-01** [U] P0. Scores (`scoreFor`): each score type takes its own fields only. TIME: a time within the cap, or `capped` + reps only with a cap; ROUNDS_REPS: rounds (+ reps, 0 by default); REPS; LOAD.
+- [x] **BM-02** [U] P0. Ranking: lower time wins, finished beats capped, capped by more reps; more rounds then reps; more reps; more kg. Each person once with their best; equal scores share a rank (1, 2, 2, 4), whoever did it first listed first.
+- [x] **BM-03** [I+E] P1. Catalogue: a lift is LOAD with one exercise; a benchmark is never LOAD and needs a description; a time cap only for TIME; names unique in any case (409); score type fixed once there are results (409); delete refused with results (409); an exercise a benchmark uses can't be deleted (409). Trainees list active ones only.
+- [x] **BM-04** [I] P1. Starter library: seeded once into an empty catalogue, on top of the starter exercises; an entry whose movements are missing is left out.
+- [x] **BM-05** [I+E] P0. Results: logged for the token's own profile (trainee or trainer; 403 without one); not in the future (gym-local today accepted); never scaled for a lift; note trimmed, empty = none. Only the owner reads/changes/deletes (403), an admin deletes any. A profile's deletion deletes its results.
+- [x] **BM-06** [I+E] P0. Leaderboards: Rx and scaled apart, names (never nicknames), notes, `isMe`, inactive people kept. The overview gives the active ones of a kind by name, the top 5 of each list, the counts and the requester's own places. `mine` flags each personal best (Rx and scaled apart).
+
+---
+
 ## Out of scope
 
 - `hardDelete()` in plans, trainees, trainers and gym-locations: no route calls them.
@@ -760,6 +772,10 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/workouts/import-pdf` | ✅ | ✅ | 🔒 |
 | GET | `/workouts/source-pdfs/:id` | ✅ | ✅ | 🔒 |
 | GET / PATCH / DELETE | `/workouts/:id` | ✅ | ✅ | 🔒 |
+| GET | `/benchmarks`, `/benchmarks/:id`, `/benchmarks/:id/leaderboard`, `/leaderboards` | ✅ | ✅ | ✅ |
+| POST / PATCH / DELETE | `/benchmarks`, `/benchmarks/:id` | ✅ | ✅ | 🔒 |
+| GET / POST / PATCH | `/benchmark-results/mine`, `/benchmark-results`, `/benchmark-results/:id` | ✋ without a profile | ✅ own | ✅ own |
+| DELETE | `/benchmark-results/:id` | ✅ any | ✅ own | ✅ own |
 | GET | `/schedule-templates/:gymId` | ✅ | ✅ | 🔒 |
 | POST | `/schedule-templates/:gymId/slots` | ✅ | 🔒 | 🔒 |
 | PATCH / DELETE | `/schedule-templates/slots/:id` | ✅ | 🔒 | 🔒 |

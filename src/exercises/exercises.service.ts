@@ -111,20 +111,40 @@ export class ExercisesService implements OnModuleInit {
     return this.get(id);
   }
 
-  /** Deletes a movement no workout uses; a used one can only be made inactive. */
+  /** Deletes a movement no workout or benchmark uses; a used one can only be made inactive. */
   async delete(id: string) {
     const exercise = await this.get(id);
-    const [{ used }] = await this.repo.query<{ used: boolean }[]>(
-      `SELECT EXISTS (SELECT 1 FROM "workout_exercises" WHERE "exerciseId" = $1) AS used`,
-      [exercise.id],
-    );
-    if (used) {
+    if (await this.usedIn('workout_exercises', exercise.id)) {
       throw new ConflictException(
         `"${exercise.name}" is used in workouts and can't be deleted. Make it inactive instead.`,
       );
     }
+    if (await this.usedIn('benchmark_exercises', exercise.id)) {
+      throw new ConflictException(
+        `"${exercise.name}" is used in benchmarks or heavy lifts and can't be deleted. Make it inactive instead.`,
+      );
+    }
     await this.repo.delete({ id: exercise.id });
     return { deleted: true };
+  }
+
+  /**
+   * Whether a link table names the exercise. A table the app doesn't have (a module left out, as
+   * in some test setups) names none.
+   */
+  private async usedIn(
+    table: 'workout_exercises' | 'benchmark_exercises',
+    exerciseId: string,
+  ): Promise<boolean> {
+    const known = this.repo.manager.connection.entityMetadatas.some(
+      (meta) => meta.tableName === table,
+    );
+    if (!known) return false;
+    const [{ used }] = await this.repo.query<{ used: boolean }[]>(
+      `SELECT EXISTS (SELECT 1 FROM "${table}" WHERE "exerciseId" = $1) AS used`,
+      [exerciseId],
+    );
+    return used;
   }
 
   /**
