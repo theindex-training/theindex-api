@@ -9,6 +9,11 @@ import { AccountEntity } from '../accounts/account.entity';
 import { normalizePhone, socialLinksPatch } from '../common/utils/contact.util';
 import { homeGymId } from '../gym-locations/home-gym.util';
 import { activeGymSubscriptionId } from '../gym-subscriptions/gym-subscription.util';
+import {
+  PhotoOwner,
+  ProfilePhoto,
+  ProfilePhotosService,
+} from '../profile-photos/profile-photos.service';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
@@ -32,6 +37,8 @@ export type MyProfile = {
   tiktok: string | null;
   /** When they agreed to the use of their personal data and to emails; null if never asked. */
   consentAt: Date | null;
+  /** Their profile photo (`/api/my-profile/photo`), or null. */
+  photo: ProfilePhoto | null;
 };
 
 @Injectable()
@@ -39,16 +46,28 @@ export class MyProfileService {
   constructor(
     @InjectRepository(AccountEntity)
     private readonly accounts: Repository<AccountEntity>,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   async get(accountId: string): Promise<MyProfile> {
     const m = this.accounts.manager;
     const { account, trainee, trainer } = await this.load(m, accountId);
-    return view(account, trainee, trainer);
+    return this.withPhoto(view(account, trainee, trainer), trainee, trainer);
+  }
+
+  /** The profile connected to the account, whose photo `/my-profile/photo` changes (403 if none). */
+  async photoOwner(accountId: string): Promise<PhotoOwner> {
+    const { trainee, trainer } = await this.load(
+      this.accounts.manager,
+      accountId,
+    );
+    return trainee
+      ? { traineeProfileId: trainee.id }
+      : { trainerProfileId: trainer!.id };
   }
 
   async update(accountId: string, dto: UpdateMyProfileDto): Promise<MyProfile> {
-    return this.accounts.manager.transaction(async (m) => {
+    const updated = await this.accounts.manager.transaction(async (m) => {
       const { account, trainee, trainer } = await this.load(m, accountId, true);
       const profile = trainee ?? trainer!;
 
@@ -76,8 +95,22 @@ export class MyProfileService {
 
       Object.assign(profile, socialLinksPatch(dto));
       await m.save(profile);
-      return view(account, trainee, trainer);
+      return { profile: view(account, trainee, trainer), trainee, trainer };
     });
+    return this.withPhoto(updated.profile, updated.trainee, updated.trainer);
+  }
+
+  private async withPhoto(
+    profile: Omit<MyProfile, 'photo'>,
+    trainee: TraineeProfileEntity | null,
+    trainer: TrainerProfileEntity | null,
+  ): Promise<MyProfile> {
+    const photo = await this.photos.get(
+      trainee
+        ? { traineeProfileId: trainee.id }
+        : { trainerProfileId: trainer!.id },
+    );
+    return { ...profile, photo };
   }
 
   private async load(m: EntityManager, accountId: string, lock = false) {
@@ -113,7 +146,7 @@ function view(
   account: AccountEntity,
   trainee: TraineeProfileEntity | null,
   trainer: TrainerProfileEntity | null,
-): MyProfile {
+): Omit<MyProfile, 'photo'> {
   const profile = (trainee ?? trainer)!;
   return {
     profileType: trainee ? 'trainee' : 'trainer',

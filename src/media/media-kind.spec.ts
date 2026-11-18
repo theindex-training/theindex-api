@@ -19,6 +19,17 @@ describe('media kinds', () => {
     expect(itemFolder(MediaKind.WORKOUT_PDF, 'abc')).toBe('workout-pdfs/abc');
   });
 
+  it('serves profile photos publicly but keeps the pictures they were cropped from private', () => {
+    expect(MEDIA_KINDS[MediaKind.PROFILE_PHOTO]).toEqual({
+      area: 'public',
+      folder: 'profile-photos',
+    });
+    expect(MEDIA_KINDS[MediaKind.PROFILE_PHOTO_ORIGINAL]).toEqual({
+      area: 'private',
+      folder: 'profile-photo-originals',
+    });
+  });
+
   it('gives a stored file its content type from the extension', () => {
     expect(contentTypeOf('workout-pdfs/a/original.pdf')).toBe(
       'application/pdf',

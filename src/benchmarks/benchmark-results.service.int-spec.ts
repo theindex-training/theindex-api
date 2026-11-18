@@ -531,6 +531,7 @@ describe('BenchmarkResultsService (integration)', () => {
           rank: 2,
           resultId: johnBest.id,
           name: 'John Doe',
+          photoUrl: null,
           personType: 'TRAINEE',
           isMe: true,
           performedOn: '2026-06-20',

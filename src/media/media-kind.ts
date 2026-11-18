@@ -8,7 +8,7 @@
  * - `private` files are never served by nginx: only the API reads them, behind a guard (lesson
  *   plans are CrossFit's copyrighted material and must not be on the web).
  *
- * To add a kind (e.g. PROFILE_PHOTO): add it here with its area and folder; the database enum
+ * To add a kind: add it here with its area and folder; the database enum
  * gets the value through `synchronize`.
  */
 export enum MediaKind {
@@ -16,6 +16,17 @@ export enum MediaKind {
   ARTICLE_IMAGE = 'ARTICLE_IMAGE',
   /** A lesson-plan PDF a workout was imported from, kept as uploaded for reference. */
   WORKOUT_PDF = 'WORKOUT_PDF',
+  /**
+   * A profile picture as people see it: square WebP crops of a PROFILE_PHOTO_ORIGINAL. Public
+   * (shown next to names, e.g. on leaderboards) under a new random id each time the crop changes,
+   * so a URL never changes content and caches for good.
+   */
+  PROFILE_PHOTO = 'PROFILE_PHOTO',
+  /**
+   * The picture a profile photo was cropped from (upright, metadata removed, at most 2048 px),
+   * kept so its owner can change the crop later. Private: only its owner gets it, from the API.
+   */
+  PROFILE_PHOTO_ORIGINAL = 'PROFILE_PHOTO_ORIGINAL',
 }
 
 export type MediaArea = 'public' | 'private';
@@ -29,6 +40,11 @@ export interface MediaKindSettings {
 export const MEDIA_KINDS: Record<MediaKind, MediaKindSettings> = {
   [MediaKind.ARTICLE_IMAGE]: { area: 'public', folder: 'article-images' },
   [MediaKind.WORKOUT_PDF]: { area: 'private', folder: 'workout-pdfs' },
+  [MediaKind.PROFILE_PHOTO]: { area: 'public', folder: 'profile-photos' },
+  [MediaKind.PROFILE_PHOTO_ORIGINAL]: {
+    area: 'private',
+    folder: 'profile-photo-originals',
+  },
 };
 
 /** The folder of one item, e.g. "workout-pdfs/<id>". */

@@ -8,6 +8,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { AccountRole } from '../common/enums/account-role.enum';
+import {
+  PhotoThumbnails,
+  ProfilePhotosService,
+} from '../profile-photos/profile-photos.service';
 import { lockBenchmark } from './benchmark-lock';
 import { byName } from './benchmark-name';
 import { ownerKey, Requester, ResultOwner } from './benchmark-owner';
@@ -43,6 +47,7 @@ export class BenchmarkResultsService {
     private readonly repo: Repository<BenchmarkResultEntity>,
     @InjectRepository(BenchmarkEntity)
     private readonly benchmarks: Repository<BenchmarkEntity>,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   async create(requester: Requester, dto: CreateBenchmarkResultDto) {
@@ -151,10 +156,12 @@ export class BenchmarkResultsService {
       where: { id: benchmarkId },
     });
     if (!benchmark) throw new NotFoundException('Benchmark not found');
+    const results = await this.resultsOf([benchmark.id]);
     const boards = boardsOf(
       benchmark,
-      await this.resultsOf([benchmark.id]),
+      results,
       requester,
+      await this.photosOf(results),
     );
     return { rx: boards.rx, scaled: boards.scaled };
   }
@@ -174,11 +181,13 @@ export class BenchmarkResultsService {
       .addOrderBy('be.position', 'ASC')
       .getMany();
     const results = await this.resultsOf(benchmarks.map((b) => b.id));
+    const photos = await this.photosOf(results);
     return benchmarks.sort(byName).map((benchmark) => {
       const boards = boardsOf(
         benchmark,
         results.filter((r) => r.benchmarkId === benchmark.id),
         requester,
+        photos,
       );
       const mineOn = (board: Entry[]) => board.find((e) => e.isMe) ?? null;
       return {
@@ -214,6 +223,18 @@ export class BenchmarkResultsService {
       .addSelect(['tr.id', 'tr.name'])
       .where('r.benchmarkId IN (:...benchmarkIds)', { benchmarkIds })
       .getMany();
+  }
+
+  /** The profile photos (thumbnails) of the people who logged the results. */
+  private photosOf(results: BenchmarkResultEntity[]) {
+    return this.photos.thumbnails({
+      traineeProfileIds: results
+        .map((r) => r.traineeProfileId)
+        .filter((id): id is string => !!id),
+      trainerProfileIds: results
+        .map((r) => r.trainerProfileId)
+        .filter((id): id is string => !!id),
+    });
   }
 
   private ownResults(benchmarkId: string, owner: ResultOwner) {
@@ -325,23 +346,35 @@ function boardsOf(
   benchmark: BenchmarkEntity,
   results: BenchmarkResultEntity[],
   requester: Requester,
+  photos: PhotoThumbnails,
 ) {
   const me = requester.owner ? ownerKey(requester.owner) : null;
   const board = (scaled: boolean) =>
     leaderboard(
       benchmark.scoreType,
       results.filter((r) => r.scaled === scaled).map(ranked),
-    ).map((entry) => presentEntry(entry, me));
+    ).map((entry) => presentEntry(entry, me, photos));
   return { rx: board(false), scaled: board(true) };
 }
 
-/** A leaderboard row: the person's name (never their nickname or ids), score, day and note. */
-function presentEntry(entry: Ranked & { rank: number }, me: string | null) {
+/**
+ * A leaderboard row: the person's name (never their nickname or ids), their profile photo's
+ * thumbnail (null without one), score, day and note.
+ */
+function presentEntry(
+  entry: Ranked & { rank: number },
+  me: string | null,
+  photos: PhotoThumbnails,
+) {
   const r = entry.result;
   return {
     rank: entry.rank,
     resultId: r.id,
     name: r.traineeProfile?.name ?? r.trainerProfile?.name ?? '',
+    photoUrl:
+      (r.traineeProfileId
+        ? photos.trainee.get(r.traineeProfileId)
+        : photos.trainer.get(r.trainerProfileId!)) ?? null,
     personType: r.traineeProfileId ? 'TRAINEE' : 'TRAINER',
     isMe: entry.ownerKey === me,
     performedOn: r.performedOn,

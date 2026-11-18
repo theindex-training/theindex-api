@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ProfilePhotosModule } from '../profile-photos/profile-photos.module';
 import { AttendanceEntity } from '../attendance/attendance.entity';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.entity';
@@ -15,6 +16,7 @@ import { TraineeProfilesService } from './trainee-profiles.service';
       AttendanceEntity,
       GymSubscriptionEntity,
     ]),
+    ProfilePhotosModule,
   ],
   controllers: [TraineeProfilesController],
   providers: [TraineeProfilesService],

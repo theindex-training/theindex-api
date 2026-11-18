@@ -536,6 +536,7 @@ describe('Self-registration and connecting accounts (integration)', () => {
         facebook: null,
         tiktok: null,
         consentAt: (await accountRow(fx, acc.id)).consentAt,
+        photo: null,
       });
       expect(before.consentAt).toBeInstanceOf(Date);
       expect(JSON.stringify(before)).not.toContain('Vanko');

@@ -1,26 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  DEFAULT_MAX_UPLOAD_MB,
-  isProduction,
-  loadMediaConfig,
-} from './media.config';
+import { maxUploadBytes } from './media.config';
 import { MediaController } from './media.controller';
 import { MediaEntity } from './media.entity';
 import { MediaService } from './media.service';
-
-/** Upload size limit for multer. Falls back to the default when the config is incomplete
- * (the upload then fails with 503 in the service, which logs the problem). */
-function maxUploadBytes(): number {
-  try {
-    return loadMediaConfig(process.env, {
-      production: isProduction(process.env),
-    }).maxUploadBytes;
-  } catch {
-    return DEFAULT_MAX_UPLOAD_MB * 1024 * 1024;
-  }
-}
 
 @Module({
   imports: [

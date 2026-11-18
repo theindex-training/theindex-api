@@ -104,6 +104,11 @@ const MATRIX: Row[] = [
   // "My details": trainees and trainers, always their own.
   r('GET /my-profile', GUARD, ALLOW, ALLOW),
   r('PATCH /my-profile', GUARD, ALLOW, ALLOW),
+  // Their profile photo (no file or crop here: 400; no photo yet: 404).
+  r('PUT /my-profile/photo', GUARD, ALLOW, ALLOW),
+  r('PATCH /my-profile/photo', GUARD, ALLOW, ALLOW),
+  r('GET /my-profile/photo/original', GUARD, ALLOW, ALLOW),
+  r('DELETE /my-profile/photo', GUARD, ALLOW, ALLOW),
 
   // First-login setup: trainees and trainers, always their own (already set up here: 409).
   r('GET /account-setup', GUARD, ALLOW, ALLOW),

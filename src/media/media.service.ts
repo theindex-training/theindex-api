@@ -36,6 +36,13 @@ import {
   processImage,
 } from './media-processing';
 import { LocalMediaStorage, MediaStorage } from './media-storage';
+import {
+  PROFILE_PHOTO_SIZES,
+  PhotoCrop,
+  cropArea,
+  profileOriginal,
+  profilePhotoFiles,
+} from './profile-photo-processing';
 
 /** The parts of an uploaded file the service needs (a multer file has them). */
 export interface UploadedMediaFile {
@@ -105,6 +112,21 @@ export interface DocumentDownload {
   contentType: string;
   /** The name to offer: the original file name, or the id with the stored file's extension. */
   filename: string;
+  size: number;
+  stream: Readable;
+}
+
+/** The URLs of a profile photo's square sizes. */
+export interface ProfilePhotoUrls {
+  /** 512 × 512 px. */
+  url: string;
+  /** 128 × 128 px, for small avatars (lists, the navigation). */
+  thumbnailUrl: string;
+}
+
+/** An image the API streams itself (from the private area). */
+export interface PrivateImage {
+  contentType: string;
   size: number;
   stream: Readable;
 }
@@ -253,6 +275,177 @@ export class MediaService {
       size: file.size,
       stream: file.stream,
     };
+  }
+
+  /**
+   * Keeps an uploaded picture as a private profile photo original (profile-photo-processing.ts):
+   * upright, at most 2048 px, without metadata. 400 for anything but a JPEG, PNG or WebP.
+   */
+  async storeProfilePhotoOriginal(
+    file: UploadedMediaFile | undefined,
+    accountId: string | null,
+  ): Promise<MediaEntity> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('file is required');
+    }
+    const kind = MediaKind.PROFILE_PHOTO_ORIGINAL;
+    const storage = this.storage(MEDIA_KINDS[kind].area);
+    let original: Awaited<ReturnType<typeof profileOriginal>>;
+    try {
+      original = await profileOriginal(file.buffer);
+    } catch (error) {
+      if (error instanceof UnsupportedImageError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+    const id = randomUUID();
+    const folder = itemFolder(kind, id);
+    return this.writeThenRecord(storage, folder, async () => {
+      await storage.write(`${folder}/${original.name}`, original.data);
+      return this.repo.save(
+        this.repo.create({
+          id,
+          kind,
+          masterPath: `${folder}/${original.name}`,
+          width: original.width,
+          height: original.height,
+          originalFilename: originalName(file.originalname),
+          sizeBytes: file.size,
+          uploadedByAccountId: accountId,
+        }),
+      );
+    });
+  }
+
+  /**
+   * Crops a stored original into a new public profile photo (a new id, so new URLs). 400 when
+   * the crop can't be used on it (outside, not square, too small); 404 for an unknown original.
+   */
+  async createProfilePhoto(
+    originalId: string,
+    crop: PhotoCrop,
+    accountId: string | null,
+  ): Promise<MediaEntity> {
+    const original = await this.repo.findOne({
+      where: { id: originalId, kind: MediaKind.PROFILE_PHOTO_ORIGINAL },
+    });
+    if (!original) throw new NotFoundException('Profile photo not found');
+    const result = cropArea(original.width!, original.height!, crop);
+    if ('error' in result) throw new BadRequestException(result.error);
+
+    const data = await this.readPrivate(original);
+    const files = await profilePhotoFiles(data, crop.rotation, result.area);
+    const kind = MediaKind.PROFILE_PHOTO;
+    const { storage } = this.setup();
+    const id = randomUUID();
+    const folder = itemFolder(kind, id);
+    const largest = files[files.length - 1];
+    return this.writeThenRecord(storage, folder, async () => {
+      for (const f of files) await storage.write(`${folder}/${f.name}`, f.data);
+      return this.repo.save(
+        this.repo.create({
+          id,
+          kind,
+          masterPath: `${folder}/${largest.name}`,
+          width: largest.width,
+          height: largest.height,
+          variants: files.map((f) => fileOf(folder, f)),
+          originalFilename: null,
+          sizeBytes: files.reduce((sum, f) => sum + f.data.length, 0),
+          uploadedByAccountId: accountId,
+        }),
+      );
+    });
+  }
+
+  /** A profile photo original, to stream it to its owner. 404 when it (or its file) is gone. */
+  async openProfilePhotoOriginal(id: string): Promise<PrivateImage> {
+    const row = await this.repo.findOne({
+      where: { id, kind: MediaKind.PROFILE_PHOTO_ORIGINAL },
+    });
+    const file = row ? await this.privateStorage().open(row.masterPath) : null;
+    if (!row || !file) {
+      if (row) {
+        this.logger.error(
+          `The file of media ${row.id} is missing: ${row.masterPath}`,
+        );
+      }
+      throw new NotFoundException('Profile photo not found');
+    }
+    return {
+      contentType: contentTypeOf(row.masterPath),
+      size: file.size,
+      stream: file.stream,
+    };
+  }
+
+  /**
+   * The URLs of profile photos, by id; ids that aren't a profile photo are left out. Needs the
+   * media settings only when there is something to resolve.
+   */
+  async profilePhotoUrls(
+    ids: string[],
+  ): Promise<Map<string, ProfilePhotoUrls>> {
+    const unique = [...new Set(ids)];
+    const result = new Map<string, ProfilePhotoUrls>();
+    if (!unique.length) return result;
+    const rows = await this.repo.find({
+      where: { id: In(unique), kind: MediaKind.PROFILE_PHOTO },
+    });
+    for (const row of rows) result.set(row.id, this.profilePhotoUrlsOf(row));
+    return result;
+  }
+
+  /** The URLs of one stored profile photo. */
+  profilePhotoUrlsOf(row: MediaEntity): ProfilePhotoUrls {
+    const { publicUrl } = this.setup().config;
+    const bySize = (size: number) =>
+      row.variants!.find((v) => v.width === size) ?? {
+        path: row.masterPath,
+      };
+    return {
+      url: `${publicUrl}/${bySize(PROFILE_PHOTO_SIZES[1]).path}`,
+      thumbnailUrl: `${publicUrl}/${bySize(PROFILE_PHOTO_SIZES[0]).path}`,
+    };
+  }
+
+  /**
+   * Deletes media items and their files (for kinds their owning feature replaces, such as profile
+   * photos). Files are removed after the rows; a file that can't be removed is logged, not
+   * thrown, since its row is already gone.
+   */
+  async removeItems(ids: string[]): Promise<void> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return;
+    const rows = await this.repo.find({ where: { id: In(unique) } });
+    if (!rows.length) return;
+    await this.repo.delete({ id: In(rows.map((r) => r.id)) });
+    for (const row of rows) {
+      const folder = itemFolder(row.kind, row.id);
+      try {
+        await this.storage(MEDIA_KINDS[row.kind].area).removeFolder(folder);
+      } catch (error) {
+        this.logger.error(
+          `Could not remove the files of media ${folder}`,
+          error,
+        );
+      }
+    }
+  }
+
+  /** A private item's main file, read whole (a profile photo original: at most a few MB). */
+  private async readPrivate(row: MediaEntity): Promise<Buffer> {
+    const file = await this.privateStorage().open(row.masterPath);
+    if (!file) {
+      this.logger.error(
+        `The file of media ${row.id} is missing: ${row.masterPath}`,
+      );
+      throw new NotFoundException('Profile photo not found');
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.stream) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks);
   }
 
   /** The article image library, newest first. */
