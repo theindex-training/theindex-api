@@ -305,6 +305,34 @@ describe('BenchmarkResultsService (integration)', () => {
       });
     });
 
+    it('keeps a result as logged when the time cap changes: a note-only edit still works, a new score follows the new rules', async () => {
+      const fx = fixtures();
+      const s = await setup(fx);
+      const capped = await svc(fx).create(s.john.as, {
+        benchmarkId: s.fran.id,
+        performedOn: '2026-06-10',
+        capped: true,
+        reps: 80,
+      });
+      await s.benchmarks.update(s.fran.id, { timeCapSeconds: null });
+
+      const renoted = await svc(fx).update(s.john.as, capped.id, {
+        note: 'Grip gave out',
+        performedOn: '2026-06-11',
+      });
+      const refused = await rejectionOf(
+        svc(fx).update(s.john.as, capped.id, { capped: true, reps: 90 }),
+      );
+
+      expect(renoted).toMatchObject({
+        capped: true,
+        reps: 80,
+        note: 'Grip gave out',
+        performedOn: '2026-06-11',
+      });
+      expect(refused.message).toBe('This benchmark has no time cap');
+    });
+
     it("refuses someone else's result to read, change or delete (403), but an admin deletes any", async () => {
       const fx = fixtures();
       const s = await setup(fx);
@@ -362,6 +390,72 @@ describe('BenchmarkResultsService (integration)', () => {
       await fx.ds.getRepository(TraineeProfileEntity).delete(s.mia.profile.id);
 
       expect(await fx.ds.getRepository(BenchmarkResultEntity).count()).toBe(0);
+    });
+  });
+
+  describe('concurrency', () => {
+    it('never lets a first result and a score-type change both go through', async () => {
+      const fx = fixtures();
+      const s = await setup(fx);
+      const results = fx.ds.getRepository(BenchmarkResultEntity);
+
+      for (let round = 0; round < 8; round++) {
+        const benchmark = await s.benchmarks.create({
+          kind: BenchmarkKind.BENCHMARK,
+          name: `Race ${round}`,
+          scoreType: BenchmarkScoreType.TIME,
+          description: 'For time',
+          exerciseIds: [s.fran.exercises[0].id],
+        });
+
+        const [logged, changed] = await Promise.allSettled([
+          svc(fx).create(s.john.as, {
+            benchmarkId: benchmark.id,
+            performedOn: '2026-06-20',
+            timeSeconds: 266,
+          }),
+          s.benchmarks.update(benchmark.id, {
+            scoreType: BenchmarkScoreType.REPS,
+          }),
+        ]);
+
+        // Exactly one wins, and what is stored fits the benchmark as it ends up.
+        expect(
+          [logged.status, changed.status].filter((x) => x === 'fulfilled'),
+        ).toHaveLength(1);
+        const final = await s.benchmarks.get(benchmark.id);
+        const stored = await results.find({
+          where: { benchmarkId: benchmark.id },
+        });
+        if (final.scoreType === BenchmarkScoreType.REPS) {
+          expect(stored).toHaveLength(0);
+        } else {
+          expect(stored.map((r) => r.timeSeconds)).toEqual([266]);
+        }
+      }
+    });
+
+    it('never deletes a benchmark that a result was logged on meanwhile', async () => {
+      const fx = fixtures();
+      const s = await setup(fx);
+
+      const [logged, deleted] = await Promise.allSettled([
+        svc(fx).create(s.john.as, {
+          benchmarkId: s.cindy.id,
+          performedOn: '2026-06-20',
+          rounds: 10,
+        }),
+        s.benchmarks.delete(s.cindy.id),
+      ]);
+
+      expect(
+        [logged.status, deleted.status].filter((x) => x === 'fulfilled'),
+      ).toHaveLength(1);
+      if (deleted.status === 'rejected') {
+        expect((deleted.reason as Error).message).toContain(
+          "has results and can't be deleted",
+        );
+      }
     });
   });
 

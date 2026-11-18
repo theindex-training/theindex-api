@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { AccountRole } from '../common/enums/account-role.enum';
+import { lockBenchmark } from './benchmark-lock';
 import { byName } from './benchmark-name';
 import { ownerKey, Requester, ResultOwner } from './benchmark-owner';
 import { bestPerPerson, leaderboard, RankedResult } from './benchmark-ranking';
@@ -46,29 +47,31 @@ export class BenchmarkResultsService {
 
   async create(requester: Requester, dto: CreateBenchmarkResultDto) {
     const owner = ownerOf(requester);
-    const benchmark = await this.benchmarks.findOne({
-      where: { id: dto.benchmarkId },
-    });
-    if (!benchmark) throw new BadRequestException('Unknown benchmark');
-    if (!benchmark.isActive) {
-      throw new BadRequestException(
-        `"${benchmark.name}" is inactive and takes no new results`,
+    // Under a shared lock on the benchmark, so its score type can't change meanwhile.
+    const id = await this.repo.manager.transaction(async (m) => {
+      const benchmark = await lockBenchmark(m, dto.benchmarkId, 'share');
+      if (!benchmark) throw new BadRequestException('Unknown benchmark');
+      if (!benchmark.isActive) {
+        throw new BadRequestException(
+          `"${benchmark.name}" is inactive and takes no new results`,
+        );
+      }
+      const values = resultValues(benchmark, {
+        performedOn: dto.performedOn,
+        scaled: dto.scaled ?? false,
+        score: dto,
+      });
+      const saved = await m.save(
+        m.create(BenchmarkResultEntity, {
+          benchmarkId: benchmark.id,
+          ...owner,
+          ...values,
+          note: noteOf(dto.note),
+        }),
       );
-    }
-    const values = resultValues(benchmark, {
-      performedOn: dto.performedOn,
-      scaled: dto.scaled ?? false,
-      score: dto,
+      return saved.id;
     });
-    const saved = await this.repo.save(
-      this.repo.create({
-        benchmarkId: benchmark.id,
-        ...owner,
-        ...values,
-        note: noteOf(dto.note),
-      }),
-    );
-    return this.get(requester, saved.id);
+    return this.get(requester, id);
   }
 
   /** One of the requester's own results. */
@@ -79,8 +82,9 @@ export class BenchmarkResultsService {
   }
 
   /**
-   * Changes the fields sent. The score fields, when any is sent, replace the whole score; the
-   * benchmark's rules apply to the result as it ends up.
+   * Changes the fields sent. The score fields, when any is sent, replace the whole score and must
+   * fit the benchmark as it is now. Otherwise the stored score is kept as logged, even if staff
+   * changed the time cap since (a note- or date-only edit never fails on it).
    */
   async update(
     requester: Requester,
@@ -88,21 +92,24 @@ export class BenchmarkResultsService {
     dto: UpdateBenchmarkResultDto,
   ) {
     const result = await this.own(requester, id);
-    const benchmark = result.benchmark!;
     const scoreSent = SCORE_FIELDS.some((field) => dto[field] !== undefined);
-    const values = resultValues(benchmark, {
-      performedOn: dto.performedOn ?? result.performedOn,
-      scaled: dto.scaled ?? result.scaled,
-      score: scoreSent ? dto : result,
+    await this.repo.manager.transaction(async (m) => {
+      const benchmark = await lockBenchmark(m, result.benchmarkId, 'share');
+      const values = resultValues(benchmark!, {
+        performedOn: dto.performedOn ?? result.performedOn,
+        scaled: dto.scaled ?? result.scaled,
+        score: scoreSent ? dto : null,
+      });
+      await m.update(
+        BenchmarkResultEntity,
+        { id },
+        {
+          ...values,
+          ...(dto.note !== undefined ? { note: noteOf(dto.note) } : {}),
+          updatedAt: new Date(),
+        },
+      );
     });
-    await this.repo.update(
-      { id },
-      {
-        ...values,
-        ...(dto.note !== undefined ? { note: noteOf(dto.note) } : {}),
-        updatedAt: new Date(),
-      },
-    );
     return this.get(requester, id);
   }
 
@@ -249,21 +256,25 @@ function ownerWhere(owner: ResultOwner) {
 
 /**
  * The stored fields of a result for a benchmark, or 400: a day that isn't in the future, never
- * scaled for a heavy lift, and a score that fits the benchmark (`benchmark-score.ts`).
+ * scaled for a heavy lift, and a score that fits the benchmark (`benchmark-score.ts`). Without a
+ * score (an edit that sends none), the stored one is left as it is.
  */
 function resultValues(
   benchmark: BenchmarkEntity,
   input: {
     performedOn: string;
     scaled: boolean;
-    score: Parameters<typeof scoreFor>[1];
+    score: Parameters<typeof scoreFor>[1] | null;
   },
-): Score & { performedOn: string; scaled: boolean } {
+): Partial<Score> & { performedOn: string; scaled: boolean } {
   if (input.performedOn > toGymLocalDate(new Date())) {
     throw new BadRequestException("performedOn can't be in the future");
   }
   if (input.scaled && benchmark.kind === BenchmarkKind.LIFT) {
     throw new BadRequestException('A heavy lift has no scaled version');
+  }
+  if (!input.score) {
+    return { performedOn: input.performedOn, scaled: input.scaled };
   }
   const scored = scoreFor(benchmark, input.score);
   if ('error' in scored) throw new BadRequestException(scored.error);

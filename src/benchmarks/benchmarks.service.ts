@@ -18,7 +18,9 @@ import {
   BENCHMARK_NAME_INDEX,
   BenchmarkEntity,
   BenchmarkExerciseEntity,
+  BenchmarkResultEntity,
 } from './benchmark.entity';
+import { lockBenchmark } from './benchmark-lock';
 import {
   CreateBenchmarkDto,
   ListBenchmarksQueryDto,
@@ -182,13 +184,20 @@ export class BenchmarksService implements OnModuleInit {
     };
     checkShape(shape);
     if (dto.exerciseIds) await this.checkExercises(dto.exerciseIds);
-    if (shape.scoreType !== current.scoreType && current.resultCount > 0) {
-      throw new ConflictException(
-        `"${current.name}" has results, so its score type can't change. Add a new one instead.`,
-      );
-    }
     const name = dto.name ?? current.name;
     await this.saveOrConflict(name, id, async (m) => {
+      // Checked under the row lock, so a first result logged meanwhile can't slip in under the
+      // old score type (benchmark-lock.ts).
+      const locked = await lockBenchmark(m, id, 'update');
+      if (!locked) throw new NotFoundException('Benchmark not found');
+      if (
+        shape.scoreType !== locked.scoreType &&
+        (await m.count(BenchmarkResultEntity, { where: { benchmarkId: id } }))
+      ) {
+        throw new ConflictException(
+          `"${locked.name}" has results, so its score type can't change. Add a new one instead.`,
+        );
+      }
       await m.update(
         BenchmarkEntity,
         { id },
@@ -211,13 +220,18 @@ export class BenchmarksService implements OnModuleInit {
 
   /** Deletes one nobody has logged a result on; one with results can only be made inactive. */
   async delete(id: string) {
-    const benchmark = await this.get(id);
-    if (benchmark.resultCount > 0) {
-      throw new ConflictException(
-        `"${benchmark.name}" has results and can't be deleted. Make it inactive instead.`,
-      );
-    }
-    await this.repo.delete({ id });
+    await this.repo.manager.transaction(async (m) => {
+      const benchmark = await lockBenchmark(m, id, 'update');
+      if (!benchmark) throw new NotFoundException('Benchmark not found');
+      if (
+        await m.count(BenchmarkResultEntity, { where: { benchmarkId: id } })
+      ) {
+        throw new ConflictException(
+          `"${benchmark.name}" has results and can't be deleted. Make it inactive instead.`,
+        );
+      }
+      await m.delete(BenchmarkEntity, { id });
+    });
     return { deleted: true };
   }
 
