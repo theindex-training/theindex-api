@@ -348,8 +348,8 @@ describe('AttendanceService read path (integration)', () => {
         }),
       ]);
       expect(res.entities.trainees).toEqual([
-        { id: ana.id, name: 'Ana', nickname: 'Ani' },
-        { id: bob.id, name: 'Bob', nickname: null },
+        { id: ana.id, name: 'Ana', nickname: 'Ani', photoUrl: null },
+        { id: bob.id, name: 'Bob', nickname: null, photoUrl: null },
       ]);
       expect(res.entities.trainers).toEqual([
         { id: coach.id, name: 'Coach', nickname: null },

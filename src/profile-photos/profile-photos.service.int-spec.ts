@@ -466,6 +466,48 @@ describe('ProfilePhotosService (integration)', () => {
       ).toEqual(photo);
     });
 
+    it("puts the thumbnail on the trainees list, a trainee's details and attendance sessions, null without a photo", async () => {
+      const fx = fixtures();
+      const { account, owner, profile } = await traineeWithAccount(fx);
+      const noPhoto = await fx.trainee('Mia');
+      const photo = await svc(fx).replace(
+        owner,
+        await halves(),
+        LEFT,
+        account.id,
+      );
+      const trainees = fx.moduleRef.get(TraineeProfilesService);
+
+      const list = await trainees.listWithPhotos({});
+      expect(list.map((t) => [t.name, t.photoUrl])).toEqual([
+        ['Ivan Petrov', photo.thumbnailUrl],
+        ['Mia', null],
+      ]);
+      expect(await trainees.getWithPhoto(profile.id)).toMatchObject({
+        id: profile.id,
+        name: 'Ivan Petrov',
+        photoUrl: photo.thumbnailUrl,
+      });
+      expect((await trainees.getWithPhoto(noPhoto.id)).photoUrl).toBeNull();
+
+      const coach = await fx.trainer('Coach');
+      const gym = await fx.location('Main');
+      await fx.attend(profile.id, coach.id, gym.id, '2026-11-10T16:00:00Z');
+      await fx.attend(noPhoto.id, coach.id, gym.id, '2026-11-10T16:00:00Z');
+      const sessions = await fx.attendance.sessions({
+        startDate: '2026-11-10',
+        endDate: '2026-11-10',
+      });
+      expect(
+        sessions.entities.trainees
+          .map((t) => [t.name, t.photoUrl])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      ).toEqual([
+        ['Ivan Petrov', photo.thumbnailUrl],
+        ['Mia', null],
+      ]);
+    });
+
     it('puts the thumbnail of trainees and trainers on the leaderboards, null without a photo', async () => {
       const fx = fixtures();
       const { account, owner, profile } = await traineeWithAccount(fx);

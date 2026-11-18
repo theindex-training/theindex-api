@@ -40,12 +40,15 @@ export class TraineeProfilesController {
   @Get()
   list(@Query('search') search?: string, @Query('active') active?: string) {
     const parsedActive = active === undefined ? undefined : active === 'true';
-    return this.traineesService.list({ search, active: parsedActive });
+    return this.traineesService.listWithPhotos({
+      search,
+      active: parsedActive,
+    });
   }
 
   @Get(':id')
   get(@Param('id') id: string) {
-    return this.traineesService.getById(id);
+    return this.traineesService.getWithPhoto(id);
   }
 
   @Post()

@@ -59,6 +59,29 @@ export class TraineeProfilesService {
     });
   }
 
+  /** The list as `GET /api/trainees` answers it: each trainee with `photoUrl` (or null). */
+  async listWithPhotos(params: { search?: string; active?: boolean }) {
+    return this.withPhotos(await this.list(params));
+  }
+
+  /** One trainee as `GET /api/trainees/:id` answers it, with `photoUrl` (or null). */
+  async getWithPhoto(id: string) {
+    const [trainee] = await this.withPhotos([await this.getById(id)]);
+    return trainee;
+  }
+
+  /** Adds each trainee's profile photo thumbnail (`photoUrl`, null without one). */
+  private async withPhotos(trainees: TraineeProfileEntity[]) {
+    const photos = await this.photos.thumbnails({
+      traineeProfileIds: trainees.map((t) => t.id),
+      trainerProfileIds: [],
+    });
+    return trainees.map((t) => ({
+      ...t,
+      photoUrl: photos.trainee.get(t.id) ?? null,
+    }));
+  }
+
   async getById(id: string) {
     const trainee = await this.traineeRepo.findOne({ where: { id } });
     if (!trainee) throw new NotFoundException('Trainee not found');

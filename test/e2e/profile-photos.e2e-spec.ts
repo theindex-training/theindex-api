@@ -84,6 +84,27 @@ describe('Profile photos (e2e)', () => {
       .set(auth(token))
       .expect(200);
     expect((me.body as { photo: PhotoBody }).photo).toEqual(photo);
+
+    // Staff see it on the trainees list and a trainee's details.
+    const admin = await c.loginAsAdmin();
+    const list = await c
+      .http()
+      .get('/api/trainees')
+      .set(auth(admin))
+      .expect(200);
+    const listed = (list.body as { id: string; photoUrl: string | null }[]).map(
+      (t) => t.photoUrl,
+    );
+    expect(listed).toEqual([photo.thumbnailUrl]);
+    const id = (list.body as { id: string }[])[0].id;
+    const one = await c
+      .http()
+      .get(`/api/trainees/${id}`)
+      .set(auth(admin))
+      .expect(200);
+    expect((one.body as { photoUrl: string }).photoUrl).toBe(
+      photo.thumbnailUrl,
+    );
   });
 
   it('re-crops with JSON, gives the kept picture back uncached, and removes the photo', async () => {

@@ -648,7 +648,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 - [x] **PP-01** [U] P0. Crop (`cropArea`): fractions of the turned picture (a quarter turn swaps width and height) to a square in pixels; the browser's rounding is accepted and the square kept inside; not square, outside or under 64 px is refused.
 - [x] **PP-02** [U+I] P0. Privacy: the kept picture is upright and has no metadata, in the private area only; only the 128/512 px WebP crops are public.
 - [x] **PP-03** [I] P0. Replace / re-crop / remove: a new crop gets new URLs and the previous files and rows go; a refused picture or crop keeps nothing and leaves the photo as it was; two pictures sent at once leave one photo and no stray files; deleting a profile for good removes its photo's files.
-- [x] **PP-04** [I+E] P1. Shown: `photo` in `GET`/`PATCH /my-profile`, `photoUrl` (thumbnail or null) on leaderboard rows and the records overview, for trainees and trainers. Over HTTP the crop comes as form fields (converted, checked: 400) or JSON; the kept picture is `private, no-store`.
+- [x] **PP-04** [I+E] P1. Shown: `photo` in `GET`/`PATCH /my-profile`, `photoUrl` (thumbnail or null) on leaderboard rows and the records overview, for trainees and trainers, and on `GET /trainees`, `GET /trainees/:id` and the trainees of `GET /attendance/sessions`. Over HTTP the crop comes as form fields (converted, checked: 400) or JSON; the kept picture is `private, no-store`.
 
 ---
 

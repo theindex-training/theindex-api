@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProfilePhotosService } from '../profile-photos/profile-photos.service';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
@@ -43,6 +44,7 @@ export class AttendanceService {
     @InjectRepository(TrainingTimeEntity)
     private readonly trainingTimeRepo: Repository<TrainingTimeEntity>,
     private readonly resolver: SubscriptionResolverService,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   async create(dto: CreateAttendanceDto) {
@@ -206,8 +208,28 @@ export class AttendanceService {
     };
   }
 
+  /** The sessions, with each trainee's profile photo thumbnail (`photoUrl`, null without one). */
   async sessions(query: AttendanceSessionsQueryDto) {
-    return this.listSessionView(query);
+    const view = await this.listSessionView(query);
+    const trainees = view.entities.trainees as {
+      id: string;
+      name: string;
+      nickname: string | null;
+    }[];
+    const photos = await this.photos.thumbnails({
+      traineeProfileIds: trainees.map((t) => t.id),
+      trainerProfileIds: [],
+    });
+    return {
+      ...view,
+      entities: {
+        ...view.entities,
+        trainees: trainees.map((t) => ({
+          ...t,
+          photoUrl: photos.trainee.get(t.id) ?? null,
+        })),
+      },
+    };
   }
 
   async listForTraineeByPaymentStatus(
