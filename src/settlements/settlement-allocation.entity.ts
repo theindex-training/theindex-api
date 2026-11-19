@@ -57,6 +57,10 @@ export class SettlementAllocationEntity {
   @Column({ type: 'enum', enum: AllocationReason })
   reason!: AllocationReason;
 
+  /** Dated before the report's period: carried over from an earlier period. */
+  @Column({ type: 'boolean', default: false })
+  fromEarlierPeriod!: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

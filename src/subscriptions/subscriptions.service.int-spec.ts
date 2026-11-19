@@ -408,15 +408,16 @@ describe('SubscriptionsService (integration)', () => {
       });
     });
 
-    it('SUB-23 settlement allocations of a deleted sub keep their value with subscriptionId null', async () => {
+    it('SUB-23 finalized settlement allocations of a deleted sub keep their value with subscriptionId null', async () => {
       const fx = fixtures();
       const { trainee, attend } = await world(fx);
-      const sub = await fx.buy(trainee.id, (await fx.punchPlan(3, 10000)).id);
+      const sub = await fx.boughtAt(
+        (await fx.buy(trainee.id, (await fx.punchPlan(3, 10000)).id)).id,
+        '2025-11-01T10:00:00Z',
+      );
       const row = await attend('2025-12-01T10:00:00Z');
-      const { settlement } = await fx.settlements.generate({
-        periodStart: '2025-12-01',
-        periodEnd: '2025-12-31',
-      });
+      const settlement = await fx.report('2025-12-01', '2025-12-15');
+      await fx.settlements.finalize(settlement.id);
 
       await fx.subscriptions.remove(sub.id);
 

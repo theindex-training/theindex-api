@@ -7,6 +7,7 @@ import { SettlementAllocationEntity } from './settlement-allocation.entity';
 import { SettlementLineEntity } from './settlement-line.entity';
 import { SettlementEntity } from './settlement.entity';
 import { SettlementsController } from './settlements.controller';
+import { SettlementsCronService } from './settlements-cron.service';
 import { SettlementsService } from './settlements.service';
 
 @Module({
@@ -21,7 +22,7 @@ import { SettlementsService } from './settlements.service';
     ]),
   ],
   controllers: [SettlementsController],
-  providers: [SettlementsService],
+  providers: [SettlementsService, SettlementsCronService],
   exports: [SettlementsService],
 })
 export class SettlementsModule {}

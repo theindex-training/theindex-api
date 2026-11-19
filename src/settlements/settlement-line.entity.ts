@@ -9,6 +9,14 @@ import {
 import { TrainerProfileEntity } from '../trainer-profiles/trainer-profile.entity';
 import { SettlementEntity } from './settlement.entity';
 
+export interface SettlementLineDetails {
+  punchCents: number;
+  timeCents: number;
+  /** Absent on lines finalized before carried-over trainings existed. */
+  earlierPeriodsCents?: number;
+  earlierPeriodsCount?: number;
+}
+
 @Entity('settlement_lines')
 @Index(['settlementId', 'trainerId'], { unique: true })
 export class SettlementLineEntity {
@@ -35,10 +43,10 @@ export class SettlementLineEntity {
   @Column({ type: 'int' })
   attendanceCount!: number;
 
+  /** The trainer's trainings of the period still waiting when it was finalized. */
   @Column({ type: 'int' })
   unpaidAttendanceCount!: number;
 
-  // optional breakdown for UI later
   @Column({ type: 'jsonb', nullable: true })
-  details!: any;
+  details!: SettlementLineDetails | null;
 }

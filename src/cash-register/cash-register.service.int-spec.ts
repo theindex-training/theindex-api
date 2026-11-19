@@ -156,12 +156,12 @@ describe('CashRegisterService (integration)', () => {
     const plan = await fx.punchPlan(2, 3000, { title: 'Two pack' });
 
     const manual = await fx.cashIn(10000);
-    const sub = await fx.buy(trainee.id, plan.id);
+    const sub = await fx.boughtAt(
+      (await fx.buy(trainee.id, plan.id)).id,
+      '2025-11-01T10:00:00Z',
+    );
     await fx.attend(trainee.id, trainer.id, loc.id, '2025-12-05T10:00:00Z');
-    const { settlement } = await fx.settlements.generate({
-      periodStart: '2025-12-01',
-      periodEnd: '2025-12-31',
-    });
+    const settlement = await fx.report('2025-12-01', '2025-12-15');
     await fx.settlements.finalize(settlement.id);
 
     const state = await fx.cashRegister.getCurrentState();
@@ -174,7 +174,7 @@ describe('CashRegisterService (integration)', () => {
     const [settleTx, subTx, manualTx] = state.transactions;
     expect(settleTx.sourceDetails).toEqual({
       periodStart: '2025-12-01',
-      periodEnd: '2025-12-31',
+      periodEnd: '2025-12-15',
     });
     expect(subTx.sourceDetails).toEqual({
       boughtBy: {

@@ -1,5 +1,9 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { freezeTime } from '../../test/int/clock';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
@@ -505,33 +509,28 @@ describe('AttendanceService write path (integration)', () => {
       expect((await fx.sub(sub.id)).remainingCredits).toBe(1);
     });
 
-    // CHARACTERIZATION: possibly unintended
-    it('ATT-24 deleting settled attendance drops its allocation but not the (FINAL) settlement line', async () => {
+    it('ATT-24 deleting attendance in a finalized settlement period is refused (409); the payout stays as stored', async () => {
       const fx = fixtures();
       const { trainee, trainer, attend } = await world(fx);
-      await fx.buy(trainee.id, (await fx.punchPlan(2, 1000)).id);
+      const sub = await fx.buy(trainee.id, (await fx.punchPlan(2, 1000)).id);
+      await fx.boughtAt(sub.id, '2025-11-01T10:00:00Z');
       const a = await attend('2025-12-01T10:00:00Z');
       await attend('2025-12-02T10:00:00Z');
-      const { settlement } = await fx.settlements.generate({
-        periodStart: '2025-12-01',
-        periodEnd: '2025-12-31',
-      });
+      const settlement = await fx.report('2025-12-01', '2025-12-15');
       await fx.settlements.finalize(settlement.id);
 
-      await fx.attendance.remove(a.attendance.id);
+      const err = await rejectionOf(fx.attendance.remove(a.attendance.id));
 
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(await fx.att(a.attendance.id)).toBeTruthy();
       const allocs = await fx.allocationsOf(settlement.id);
-      expect(allocs).toHaveLength(1);
-      expect(allocs.reduce((s, r) => s + r.valueCents, 0)).toBe(500);
+      expect(allocs.reduce((s, r) => s + r.valueCents, 0)).toBe(1000);
       const [line] = await fx.linesOf(settlement.id);
       expect(line).toMatchObject({
         trainerId: trainer.id,
         amountCents: 1000,
         attendanceCount: 2,
       });
-      expect(
-        (await fx.settlements.getById(settlement.id)).settlement.status,
-      ).toBe('FINAL');
     });
 
     it('ATT-25 unknown id -> 404 Attendance not found', async () => {

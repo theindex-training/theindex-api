@@ -1,4 +1,5 @@
 import { SettlementStatus } from '../../src/settlements/enums/settlement-status.enum';
+import { periodsDue } from '../../src/settlements/settlement-periods';
 import { messageOf, setupE2eSuite } from './e2e-app';
 
 type Line = { trainerId: string; amountCents: number };
@@ -8,17 +9,17 @@ type AllocationsBody = {
 };
 
 /**
- * Settlements over HTTP: period validation (SET-03), allocation query
- * validation (SET-35) and the TRAINER restrictions enforced in the
- * controller (SET-40..43). The settlement math itself is covered in
- * `settlements.service.int-spec.ts`.
+ * Settlements over HTTP: reports are created automatically (no route creates or deletes one),
+ * allocation query validation (SET-35), finalizing in order (SET-44), attendance locked in a
+ * finalized period (SET-53) and the TRAINER restrictions enforced in the controller
+ * (SET-40..43). The settlement math itself is covered in `settlements.service.int-spec.ts`.
  */
 describe('Settlements (e2e)', () => {
   const ctx = setupE2eSuite();
 
   /**
-   * Two trainers, each with PAID PUNCH attendance in December 2025, and a
-   * cash balance big enough to finalize. Everything goes through HTTP.
+   * Two trainers, each with PAID PUNCH trainings in the first half of December 2025, and the
+   * automatic report for that half. Everything but the report goes through HTTP.
    */
   async function seedDecember() {
     const c = ctx();
@@ -35,6 +36,8 @@ describe('Settlements (e2e)', () => {
       .set('Authorization', `Bearer ${admin}`)
       .send({ planId: plan.id })
       .expect(201);
+    // Bought before the trainings (createdAt is the database clock).
+    await c.allBoughtAt('2025-11-20T10:00:00.000Z');
 
     const attend = (trainerId: string, trainedAt: string) =>
       c
@@ -53,94 +56,100 @@ describe('Settlements (e2e)', () => {
     await attend(trainerA.id, '2025-12-03T10:00:00.000Z');
     await attend(trainerB.id, '2025-12-04T10:00:00.000Z');
 
-    const generated = await c
-      .http()
-      .post('/api/settlements')
-      .set('Authorization', `Bearer ${admin}`)
-      .send({ periodStart: '2025-12-01', periodEnd: '2025-12-31' })
-      .expect(201);
-    const settlementId = (generated.body as { settlement: { id: string } })
-      .settlement.id;
+    const settlementId = (await c.report('2025-12-01', '2025-12-15')).id;
 
-    return { admin, trainerA, trainerB, settlementId };
+    return { admin, trainerA, trainerB, trainee, location, settlementId };
   }
 
-  describe('SET-03 period validation', () => {
-    it('SET-03 periodStart after periodEnd -> 400 "from must be <= to", nothing persisted', async () => {
-      const c = ctx();
-      const admin = await c.loginAsAdmin();
+  it('SET-03 no route creates or deletes a report: POST /settlements and DELETE /settlements/:id -> 404', async () => {
+    const c = ctx();
+    const { admin, settlementId } = await seedDecember();
+    const auth = { Authorization: `Bearer ${admin}` };
 
-      const res = await c
-        .http()
-        .post('/api/settlements')
-        .set('Authorization', `Bearer ${admin}`)
-        .send({ periodStart: '2025-12-02', periodEnd: '2025-12-01' })
-        .expect(400);
+    await c
+      .http()
+      .post('/api/settlements')
+      .set(auth)
+      .send({ periodStart: '2025-12-01', periodEnd: '2025-12-31' })
+      .expect(404);
+    await c
+      .http()
+      .delete(`/api/settlements/${settlementId}`)
+      .set(auth)
+      .expect(404);
 
-      expect(messageOf(res.body)).toBe('from must be <= to');
-      expect(await c.settlementRows()).toHaveLength(0);
+    expect(await c.settlementRows()).toHaveLength(1);
+  });
+
+  it('SET-45 POST /create-due (ADMIN) creates what the job would, then 409; TRAINER -> 403', async () => {
+    const c = ctx();
+    const admin = await c.loginAsAdmin();
+    const trainer = await c.trainer('Alice');
+    const trainerToken = await c.provisionAndLogin('trainer', trainer.id);
+    // With no report yet, the job creates the half month that ended last.
+    const [expected] = periodsDue(null, new Date());
+
+    const forbidden = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${trainerToken}`)
+      .expect(403);
+    expect(messageOf(forbidden.body)).toBe('Forbidden resource');
+
+    const res = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(201);
+    expect(res.body).toMatchObject({
+      created: [{ ...expected, status: 'DRAFT', finalizedAt: null }],
     });
 
-    it('SET-03 periodStart == periodEnd is a valid one-day period -> 201 DRAFT', async () => {
-      const c = ctx();
-      const admin = await c.loginAsAdmin();
-
-      const res = await c
-        .http()
-        .post('/api/settlements')
-        .set('Authorization', `Bearer ${admin}`)
-        .send({ periodStart: '2025-12-01', periodEnd: '2025-12-01' })
-        .expect(201);
-
-      const body = res.body as {
-        settlement: { periodStart: string; periodEnd: string; status: string };
-      };
-      expect(body.settlement).toMatchObject({
-        periodStart: '2025-12-01',
-        periodEnd: '2025-12-01',
-        status: SettlementStatus.DRAFT,
-      });
-      expect(await c.settlementRows()).toHaveLength(1);
-    });
-
-    it.each([
-      ['2025-12-1', '2025-12-31'],
-      ['2025-12-01', '31.12.2025'],
-      ['2025-12-01T00:00:00Z', '2025-12-31'],
-    ])(
-      'SET-03 non-YYYY-MM-DD period (%s .. %s) -> 400 from the DTO',
-      async (periodStart, periodEnd) => {
-        const c = ctx();
-        const admin = await c.loginAsAdmin();
-
-        const res = await c
-          .http()
-          .post('/api/settlements')
-          .set('Authorization', `Bearer ${admin}`)
-          .send({ periodStart, periodEnd })
-          .expect(400);
-
-        expect(Array.isArray(messageOf(res.body))).toBe(true);
-        expect(await c.settlementRows()).toHaveLength(0);
-      },
+    const again = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(409);
+    expect(messageOf(again.body)).toMatch(
+      new RegExp(
+        `^The report for ${expected.periodStart} to ${expected.periodEnd} already exists; the next one`,
+      ),
     );
+    expect(await c.settlementRows()).toHaveLength(1);
+  });
 
-    // CHARACTERIZATION: possibly unintended
-    it('SET-03 impossible date 2025-02-30 passes validation but Postgres rejects it -> 500, nothing persisted', async () => {
-      // The plan expected a silent rollover to 2025-03-02. Observed instead:
-      // getLocalDateInterval rolls it over (new Date(2025, 1, 30) is valid),
-      // then the `date` column insert fails, so the client gets a 500.
-      const c = ctx();
-      const admin = await c.loginAsAdmin();
+  it('SET-36 GET /:id answers the report, its lines and the trainings of the period still waiting', async () => {
+    const c = ctx();
+    const { admin, trainerA, trainerB, settlementId } = await seedDecember();
 
-      await c
-        .http()
-        .post('/api/settlements')
-        .set('Authorization', `Bearer ${admin}`)
-        .send({ periodStart: '2025-02-01', periodEnd: '2025-02-30' })
-        .expect(500);
+    const res = await c
+      .http()
+      .get(`/api/settlements/${settlementId}`)
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(200);
 
-      expect(await c.settlementRows()).toHaveLength(0);
+    expect(res.body).toMatchObject({
+      settlement: {
+        id: settlementId,
+        periodStart: '2025-12-01',
+        periodEnd: '2025-12-15',
+        status: 'DRAFT',
+        finalizedAt: null,
+      },
+      lines: [
+        {
+          trainerId: trainerA.id,
+          amountCents: 4000,
+          attendanceCount: 2,
+          punchCents: 4000,
+          timeCents: 0,
+          earlierPeriodsCents: 0,
+          earlierPeriodsCount: 0,
+          waitingCount: 0,
+        },
+        { trainerId: trainerB.id, amountCents: 2000 },
+      ],
+      waiting: [],
     });
   });
 
@@ -201,25 +210,64 @@ describe('Settlements (e2e)', () => {
     });
   });
 
+  it('SET-44 finalizing a newer report while an older one is a draft -> 409 with the older period', async () => {
+    const c = ctx();
+    const { admin } = await seedDecember();
+    const newer = await c.report('2025-12-16', '2025-12-31');
+
+    const res = await c
+      .http()
+      .post(`/api/settlements/${newer.id}/finalize`)
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(409);
+
+    expect(messageOf(res.body)).toBe(
+      'Finalize the report for 2025-12-01 to 2025-12-15 first',
+    );
+    expect(
+      (await c.settlementRows()).every(
+        (s) => s.status === SettlementStatus.DRAFT,
+      ),
+    ).toBe(true);
+  });
+
+  it('SET-53 once finalized, attendance dated in its period can be neither recorded nor deleted (409)', async () => {
+    const c = ctx();
+    const { admin, trainerA, trainee, location, settlementId } =
+      await seedDecember();
+    const auth = { Authorization: `Bearer ${admin}` };
+    await c
+      .http()
+      .post(`/api/settlements/${settlementId}/finalize`)
+      .set(auth)
+      .expect(201);
+    const message =
+      "Attendance on or before 2025-12-15 is in a finalized settlement report and can't be changed";
+
+    const create = await c
+      .http()
+      .post('/api/attendance')
+      .set(auth)
+      .send({
+        traineeId: trainee.id,
+        trainerId: trainerA.id,
+        locationId: location.id,
+        trainedAt: '2025-12-10T10:00:00.000Z',
+      })
+      .expect(409);
+    expect(messageOf(create.body)).toBe(message);
+
+    const [existing] = await c.attendanceRows();
+    const remove = await c
+      .http()
+      .delete(`/api/attendance/${existing.id}`)
+      .set(auth)
+      .expect(409);
+    expect(messageOf(remove.body)).toBe(message);
+    expect(await c.attendanceRows()).toHaveLength(3);
+  });
+
   describe('SET-40..43 TRAINER access', () => {
-    it('SET-40 TRAINER cannot generate a settlement -> 403 with the handler message, nothing persisted', async () => {
-      const c = ctx();
-      const trainer = await c.trainer('Alice');
-      const token = await c.provisionAndLogin('trainer', trainer.id);
-
-      const res = await c
-        .http()
-        .post('/api/settlements')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ periodStart: '2025-12-01', periodEnd: '2025-12-31' })
-        .expect(403);
-
-      expect(messageOf(res.body)).toBe(
-        'TRAINER cannot generate settlement reports',
-      );
-      expect(await c.settlementRows()).toHaveLength(0);
-    });
-
     it('SET-40 TRAINER cannot finalize -> 403, settlement stays DRAFT and no cash moves', async () => {
       const c = ctx();
       const { trainerA, settlementId } = await seedDecember();
@@ -242,44 +290,19 @@ describe('Settlements (e2e)', () => {
       expect(await c.cashTxs()).toHaveLength(txsBefore);
     });
 
-    it('SET-40 TRAINER cannot delete -> 403, settlement, lines and allocations remain', async () => {
-      const c = ctx();
-      const { trainerA, settlementId } = await seedDecember();
-      const token = await c.provisionAndLogin('trainer', trainerA.id);
-
-      const res = await c
-        .http()
-        .delete(`/api/settlements/${settlementId}`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(403);
-
-      expect(messageOf(res.body)).toBe(
-        'TRAINER cannot delete settlement reports',
-      );
-      expect(await c.settlementRows()).toHaveLength(1);
-      expect(await c.linesOf(settlementId)).toHaveLength(2);
-      expect(await c.allocationsOf(settlementId)).toHaveLength(3);
-    });
-
-    it('SET-40 control: ADMIN can finalize (cash out) and delete', async () => {
+    it('SET-40 control: ADMIN can finalize (cash out)', async () => {
       const c = ctx();
       const { admin, settlementId } = await seedDecember();
 
-      await c
+      const res = await c
         .http()
         .post(`/api/settlements/${settlementId}/finalize`)
         .set('Authorization', `Bearer ${admin}`)
         .expect(201);
+
+      expect(res.body).toMatchObject({ id: settlementId, status: 'FINAL' });
       // 8000 in from the subscription, 3 × 2000 out.
       expect(await c.balance()).toBe(2000);
-
-      await c
-        .http()
-        .delete(`/api/settlements/${settlementId}`)
-        .set('Authorization', `Bearer ${admin}`)
-        .expect(200)
-        .expect({ deleted: true });
-      expect(await c.settlementRows()).toHaveLength(0);
     });
 
     it('SET-41 TRAINER GET /:id sees only their own line; ADMIN sees all lines', async () => {
@@ -362,16 +385,11 @@ describe('Settlements (e2e)', () => {
       );
     });
 
-    it('SET-43 TRAINER GET /settlements lists all settlement headers (not filtered)', async () => {
+    it('SET-43 TRAINER GET /settlements lists all settlement headers (not filtered), drafts included', async () => {
       const c = ctx();
-      const { admin, trainerB } = await seedDecember();
-      // A second settlement in which trainer B has no attendance at all.
-      await c
-        .http()
-        .post('/api/settlements')
-        .set('Authorization', `Bearer ${admin}`)
-        .send({ periodStart: '2026-01-01', periodEnd: '2026-01-31' })
-        .expect(201);
+      const { trainerB } = await seedDecember();
+      // A second report in which trainer B has no attendance at all.
+      await c.report('2025-12-16', '2025-12-31');
       const tokenB = await c.provisionAndLogin('trainer', trainerB.id);
 
       const res = await c
@@ -380,10 +398,15 @@ describe('Settlements (e2e)', () => {
         .set('Authorization', `Bearer ${tokenB}`)
         .expect(200);
 
-      const periods = (res.body as { periodStart: string }[])
-        .map((s) => s.periodStart)
-        .sort();
-      expect(periods).toEqual(['2025-12-01', '2026-01-01']);
+      expect(
+        (res.body as { periodStart: string; status: string }[]).map((s) => [
+          s.periodStart,
+          s.status,
+        ]),
+      ).toEqual([
+        ['2025-12-16', 'DRAFT'],
+        ['2025-12-01', 'DRAFT'],
+      ]);
     });
 
     it('SET-40..43 TRAINEE -> 403 "Forbidden resource" on every settlements route', async () => {
@@ -403,14 +426,8 @@ describe('Settlements (e2e)', () => {
           .set(auth),
         await c
           .http()
-          .post('/api/settlements')
-          .set(auth)
-          .send({ periodStart: '2025-11-01', periodEnd: '2025-11-30' }),
-        await c
-          .http()
           .post(`/api/settlements/${settlementId}/finalize`)
           .set(auth),
-        await c.http().delete(`/api/settlements/${settlementId}`).set(auth),
       ];
 
       for (const res of responses) {
@@ -419,7 +436,6 @@ describe('Settlements (e2e)', () => {
       }
       const [settlement] = await c.settlementRows();
       expect(settlement.status).toBe(SettlementStatus.DRAFT);
-      expect(await c.settlementRows()).toHaveLength(1);
     });
   });
 });

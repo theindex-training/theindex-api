@@ -1,7 +1,5 @@
 import {
-  Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
   Param,
@@ -10,13 +8,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
-import { GenerateSettlementDto } from './dto/generate-settlement.dto';
 import { ListAllocationsQueryDto } from './dto/list-allocations.query.dto';
 import { SettlementsService } from './settlements.service';
 
@@ -29,6 +26,11 @@ type AuthenticatedRequest = Request & {
   user: SettlementJwtUser;
 };
 
+/**
+ * Settlement reports are created automatically, one per half month (`SettlementsCronService`):
+ * staff review them and an admin finalizes them, oldest first. Nobody chooses a period or deletes
+ * a report; `create-due` only runs the job's own rule on demand.
+ */
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
 @Roles(AccountRole.ADMIN, AccountRole.TRAINER)
@@ -47,20 +49,6 @@ export class SettlementsController {
     return trainerProfileId;
   }
 
-  @Post()
-  generate(
-    @Body() dto: GenerateSettlementDto,
-    @Req() req: AuthenticatedRequest,
-  ) {
-    if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException(
-        'TRAINER cannot generate settlement reports',
-      );
-    }
-
-    return this.settlementsService.generate(dto);
-  }
-
   @Get()
   list() {
     return this.settlementsService.list();
@@ -76,13 +64,14 @@ export class SettlementsController {
     return this.settlementsService.getById(id);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
-    if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException('TRAINER cannot delete settlement reports');
-    }
-
-    return this.settlementsService.remove(id);
+  @ApiOperation({
+    summary:
+      'ADMIN: create the settlement reports that are due now, as the daily 04:00 (Europe/Sofia) job does: every half month after the latest report whose period is over, oldest first. 409 when none is due. For checks and retries; the front never calls it.',
+  })
+  @Roles(AccountRole.ADMIN)
+  @Post('create-due')
+  createDue() {
+    return this.settlementsService.createDueReportsNow();
   }
 
   @Post(':id/finalize')

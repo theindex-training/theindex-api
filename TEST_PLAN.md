@@ -68,93 +68,66 @@ Risk = how much damage a regression does × how likely a change is to break it.
 ---
 
 ## 1. Settlements: P0
-- [x] **Module done** (service layer: `settlements.service.int-spec.ts`; HTTP: `test/e2e/settlements.e2e-spec.ts`, SET-03, SET-35, SET-40–43)
+- [x] **Module done** (pure: `settlement-periods.spec.ts`, `settlement-calculation.spec.ts`; service layer: `settlements.service.int-spec.ts`; HTTP: `test/e2e/settlements.e2e-spec.ts`, SET-03, SET-35, SET-36, SET-40–44, SET-53)
 - [x] **Service layer done** (`settlements.service.int-spec.ts`).
 
-Code: `settlements/settlements.service.ts`, `settlements.controller.ts`, `settlement-allocation.util.ts`.
+Code: `settlements/settlements.service.ts`, `settlements-cron.service.ts`, `settlement-periods.ts`, `settlement-calculation.ts`, `settlement-lock.ts`, `settlements.controller.ts`, `settlement-allocation.util.ts`.
 
-Settlements take attendance in a period and create one **allocation** per attendance (value in cents + reason) and one **line** per trainer (sum). Finalizing takes the total out of the cash register.
+**Since Nov 2026 reports are automatic** (the owner's decision; this replaced manual "generate" and delete, and fixed SET-02, SET-03, SET-09, SET-10, SET-25, SET-31 and ATT-24 below):
+- One report per half month (1st–15th, 16th–end, Europe/Sofia dates), created as a DRAFT at 04:00 Sofia the day after the period (`SettlementsCronService`: on start, catching up, then daily). The first one follows the latest existing report.
+- A draft is worked out whenever it is read; finalizing works it out once more, stores its allocations and lines, takes the total out of the cash register and makes it FINAL. Only after its period, and oldest first.
+- Each training is paid once, to its trainer, by the first report whose period end has passed once its value is known: PUNCH from the later of the training and the purchase (`createdAt`), TIME when the pass ends, unpaid never (it waits). A report also pays earlier periods' trainings that became payable since (`fromEarlierPeriod`), except those an earlier draft pays. Its own period's trainings that wait are listed (`waiting`: `UNPAID`, `TIME_PASS_NOT_ENDED`, `NEXT_REPORT`).
+- Attendance dated on or before the end of the latest FINAL report can't be recorded or deleted (409).
 
-### Generate
-- [x] **SET-01** [I] P0. Period with no attendance:
-  - Assert a DRAFT settlement is persisted with `periodStart/End` as given.
-  - Assert the response is `{ settlement, lines: [], info: { message: 'No attendance in period' } }` (different `info` shape from the non-empty case) and there are 0 allocation/line rows.
-- [x] **SET-02** [I] P0. Period boundaries are computed by `getLocalDateInterval` in **server-local TZ** (UTC under INF-03): `[periodStart 00:00, periodEnd+1 00:00)`.
-  - Assert attendance at `periodStart T00:00:00.000Z` is included.
-  - Assert `periodEnd T23:59:59.999Z` is included.
-  - Assert `periodEnd+1 T00:00:00.000Z` is excluded.
-  - ⚠ Suspect: gym-local time is Europe/Sofia everywhere else. An attendance at 2025-12-01 01:00 Sofia (= 2025-11-30 23:00Z) falls in the *November* settlement, not December.
-- [x] **SET-03** [E] P1. Period validation:
-  - Assert `periodStart > periodEnd` → 400 `from must be <= to`.
-  - Assert `periodStart == periodEnd` → 201 (one-day period).
-  - Assert a non-`YYYY-MM-DD` value → 400 (DTO).
-  - ⚠ Suspect: `2025-02-30` passes the DTO and `getLocalDateInterval` rolls it over, but the raw string then fails the Postgres `date` insert. **Observed: 500** (not the silent rollover this line first predicted), nothing persisted. See TEST_NOTES.
-- [x] **SET-04** [I] P0. UNPAID attendance:
-  - Assert the allocation has `valueCents 0`, `reason UNPAID`, `subscriptionId null`, `subscriptionType null`.
-  - Assert it counts in `info.unpaidAttendance` and `line.unpaidAttendanceCount`.
-  - Same for a PAID row whose `subscriptionId` is null (only reachable via direct insert; P2).
-- [x] **SET-05** [I] P0. PUNCH value = `splitCents(paidCents, initialCredits)`. It's divided by the credits *bought*, not the credits used.
-  - Example: 10000 cents, 3 credits, 2 used. Assert values 3334 and 3333, assert the 1st attendance by `(trainedAt, id)` gets the extra cent, and assert the total allocated is 6667 (the unused credit's 3333 is never allocated).
-- [x] **SET-06** [I] P0. PUNCH index is **global per subscription**, ordered by `trainedAt ASC, id ASC` over all its PAID attendances, including those outside the period.
-  - Example: sub 10000/3, attendances on Nov 10 and Dec 5. Assert the December settlement allocates 3333 (index 1), not 3334.
-- [x] **SET-07** [I] P0. TIME subscription not yet ended (`endsAt > generatedAt`):
-  - Assert each in-period allocation has `valueCents 0`, `reason TIME_PRORATA`, and `subscriptionId`/`subscriptionType` set.
-  - Assert `info.notReportableTimeAttendance` counts them.
-  - Assert `info.pendingTimeSubscriptions` has `{ subscriptionId, endsAt: ISO, attendanceInPeriodCount }`.
-- [x] **SET-08** [I] P0. TIME subscription ended (`endsAt <= generatedAt`; equality counts as ended, so freeze time to exactly `endsAt`):
-  - Value = `splitCents(paidCents, count of ALL its PAID attendances)`, including those outside the period. Only in-period ones are allocated.
-  - Example: 9000 over 4 attendances, 3 in period. Assert 2250 each and 6750 allocated.
-- [x] **SET-09** [I] P0. ⚠ Suspect: pending TIME value is never paid automatically.
-  - Steps: generate December while the TIME sub is pending (value 0), let it end, generate January.
-  - Assert December's attendances are not re-allocated in January.
-  - Assert only regenerating December pays them.
-- [x] **SET-10** [I] P0. ⚠ Suspect: overlapping/duplicate settlements are allowed.
-  - Assert generating the same period twice gives two DRAFT settlements, each with full allocations for the same attendances (the unique index is per settlement only).
-  - Assert finalizing both takes the money out twice.
-- [x] **SET-11** [I] P0. Lines:
-  - Assert one line per trainer with `amountCents = Σ allocation.valueCents` and `attendanceCount` = all of that trainer's rows (incl. unpaid/pending).
-  - Assert `unpaidAttendanceCount` and `details: { punchCents, timeCents }`.
-  - Assert the response `lines` are ordered by `amountCents DESC`.
-  - Assert a trainer with only unpaid attendance still gets a line with 0.
-- [x] **SET-12** [I] P0. Assert all `info` counters for a mixed period: `totalAttendance`, `unpaidAttendance`, `reportablePunchPaidAttendance`, `reportableTimePaidAttendance`, `notReportableTimeAttendance`.
-- [x] **SET-13** [I] P0. Attribution: assert `allocation.trainerId` is the attendance's trainer. Two trainers sharing one trainee's PUNCH sub each get their own attendance's split value.
-- [x] **SET-14** [I] P1. Rounding invariant: assert that for a fully used PUNCH sub, or an ended TIME sub with all attendance in period, Σ allocations == `paidCents` exactly.
+### Periods and creating reports
+- [x] **SET-60** [U] P0. `settlement-periods.spec.ts`: half months (Feb, leap years), the period after one (incl. after a mid-half manual period), Sofia bounds across DST, creation at 04:00 Sofia, `periodsDue` (catch-up, first report with none yet), `nextSettlementRun`.
+- [x] **AUTO-05..06** [I] P0. `create-due` (the job on demand): after the manual Jan 1 – Nov 15, 2026 report it creates every due half month in order and nothing before it, then 409 naming the latest report and when the next one comes; nothing before 04:00 Sofia. HTTP: e2e SET-45 (ADMIN 201 then 409, TRAINER 403) and the role matrix.
+- [x] **AUTO-01..04** [I] P0. Creates the last ended half month when there is none; Nov 16–30 only from 04:00 Sofia on Dec 1 after the manual report to Nov 15; catches up in order and twice at once without duplicates; the job runs on start.
+
+### What a report pays
+- [x] **SET-02** [I] P0. Periods are `[periodStart 00:00 Sofia, periodEnd+1 00:00 Sofia)`, whatever the server TZ (DT-06 repeats it under Sofia).
+- [x] **SET-04** [I] P0. Unpaid trainings pay nothing and wait in their own report only.
+- [x] **SET-05** [I] P0. PUNCH value = `splitCents(paidCents, initialCredits)` by `(trainedAt, id)`; the unused credits are never paid.
+- [x] **SET-06** [I] P0. A PUNCH training keeps its place in the pass across periods.
+- [x] **SET-07/SET-09** [I] P0. A TIME pass waits until it ends (`TIME_PASS_NOT_ENDED`), then the report of the period it ends in pays all its trainings, the earlier ones carried over.
+- [x] **SET-19** [I] P0. The owner's example: a $100, 30-day TIME pass bought Jan 12 (ends Feb 11) with 10 trainings (Jan 13, six Jan 15–31, three Feb 1–11). The Jan 1–15 and Jan 16–31 reports pay none (they list them as waiting for Feb 11); the Feb 1–15 report pays all ten at $10, January's carried over, to whoever led each; finalizing in order pays $0, $0, $100. The pure spec adds the 20-training variant ($5 each).
+- [x] **SET-10** [I] P0. A training is paid once: a second (old, duplicate) report for the same period pays nothing for it.
+- [x] **SET-15** [I] P0. Unpaid trainings covered by a pass bought later are paid by the report of the purchase.
+- [x] **SET-16** [I] P1. A pass bought after the period end waits for the next report (`NEXT_REPORT`).
+- [x] **SET-17** [I] P1. A draft is live: trainings recorded or deleted after it was created count.
+- [x] **SET-18** [I] P1. While an older report is a draft, the next one leaves its trainings to it.
+- [x] **calculation** [U] P0. `settlement-calculation.spec.ts`: the same rules as pure functions (boundaries to the ms, finalized reports, `trainerTotals`).
 
 ### Finalize
-- [x] **SET-20** [I] P0. DRAFT → FINAL:
-  - Assert exactly one cash-register tx: `SETTLEMENT_OUT`, `sourceType SETTLEMENT`, `sourceId = settlement.id`, `amountCents = −Σ lines.amountCents`.
-  - Assert the balance dropped by that amount and `balanceAfterCents` matches.
-- [x] **SET-21** [I] P0. Balance too low:
-  - Assert 400 `Cash register balance cannot be negative`.
-  - Assert the settlement stays DRAFT, there is no tx row, and the balance is unchanged (rollback).
-- [x] **SET-22** [I] P0. Total 0 (only unpaid/pending rows): assert status FINAL and no cash tx.
-- [x] **SET-23** [I] P0. Finalizing an already FINAL settlement: assert it returns the settlement, with no second tx and no balance change.
+- [x] **SET-20** [I] P0. Stores allocations and lines (with `details` and the waiting count), one `SETTLEMENT_OUT` of −Σ, status FINAL with `finalizedAt`.
+- [x] **SET-21** [I] P0. Balance too low: 400, stays DRAFT, nothing stored, balance unchanged.
+- [x] **SET-22** [I] P0. A report paying nothing becomes FINAL with no cash movement.
+- [x] **SET-23** [I] P0. Finalizing a FINAL report is a no-op.
 - [x] **SET-24** [I] P1. Unknown id → 404 `Settlement not found`.
-- [x] **SET-25** [I] P1. ⚠ Suspect: finalize uses the line amounts **stored at generation**.
-  - Steps: delete an attendance after generating (its allocation cascades away), then finalize.
-  - Assert the cash-out equals the original line total, not Σ remaining allocations.
+- [x] **SET-25** [I] P1. Pays what the draft pays at finalize time.
+- [x] **SET-26** [I] P1. A FINAL report shows what it paid; its period's trainings still waiting are worked out live.
+- [x] **SET-27** [I] P1. Replaces the rows an old manual draft stored when it was generated.
+- [x] **SET-28** [I] P0. 409 while an older report is a draft. (HTTP: SET-44.)
+- [x] **SET-29** [I] P1. 409 before the period is over (Sofia midnight).
 
-### Remove / read
-- [x] **SET-30** [I] P1. Delete: assert `{ deleted: true }`, and that lines + allocations are gone (cascade). Unknown id → 404.
-- [x] **SET-31** [I] P0. ⚠ Suspect: a FINAL settlement can be deleted.
-  - Assert its `SETTLEMENT_OUT` tx stays and the balance is not restored.
-  - Assert `GET /cash-register` then shows `sourceDetails: null` for it.
-- [x] **SET-32** [I] P2. `list()` is ordered by `generatedAt DESC`.
-- [x] **SET-33** [I] P1. `getById`:
-  - Assert it returns `{ settlement, lines }`.
-  - Assert the `trainerId` argument limits the lines to that trainer.
-  - Assert unknown id → 404.
-- [x] **SET-34** [I] P1. `allocations`:
-  - Assert defaults `limit 50`, `offset 0`, ordering by attendance `trainedAt ASC, id ASC`, and that `total` counts all matches regardless of paging.
-  - Assert the `trainerId` filter and that each row includes the `attendance` relation.
-  - Assert an unknown settlement id → `{ total: 0, rows: [] }` (no 404).
+### Attendance in a finalized period
+- [x] **SET-50** [I] P0. Recording a training dated in it is refused (409), single, batch and preview. (HTTP: SET-53.)
+- [x] **SET-51** [I] P0. Deleting one is refused (409); after the period both work. (ATT-24.)
+- [x] **SET-52** [I] P1. A pass bought later still pays the unpaid trainings of a finalized period (in a later report).
+
+### Read
+- [x] **SET-03** [E] P1. No route creates or deletes a report: `POST /settlements` and `DELETE /settlements/:id` → 404.
+- [x] **SET-32** [I] P2. `list()` is ordered by period, latest first.
+- [x] **SET-33** [I] P1. `getById` → `{ settlement, lines, waiting }`; `trainerId` limits lines and waiting; unknown → 404.
+- [x] **SET-34** [I] P1. `allocations`: defaults `limit 50`, `offset 0`, order `trainedAt, id`, `total` before paging, the `trainerId` filter; unknown → 404.
 - [x] **SET-35** [E] P2. Allocation query validation: `limit` 0 or 501 → 400, `offset` −1 → 400, non-UUID `trainerId` → 400, and numeric strings are coerced.
+- [x] **SET-36** [E] P1. `GET /:id` body shape: lines with `punchCents`, `timeCents`, `earlierPeriodsCents`, `earlierPeriodsCount`, `waitingCount`.
 
 ### Access (see also Appendix A)
-- [x] **SET-40** [E] P0. TRAINER on `POST /settlements`, `DELETE /:id` and `POST /:id/finalize` → 403 with the handler-specific messages (`TRAINER cannot generate|delete|finalize settlement reports`).
-- [x] **SET-41** [E] P0. TRAINER `GET /:id`: assert only their own lines. TRAINER token without `trainerProfileId` → 403 `Trainer profile is required for this action`.
-- [x] **SET-42** [E] P0. TRAINER `GET /:id/allocations?trainerId=<other>`: assert the query value is overridden with their own id and only their rows come back.
-- [x] **SET-43** [E] P1. TRAINER `GET /settlements` lists **all** settlement headers (not filtered). Characterize as-is.
+- [x] **SET-40** [E] P0. TRAINER `POST /:id/finalize` → 403 `TRAINER cannot finalize settlement reports`.
+- [x] **SET-41** [E] P0. TRAINER `GET /:id`: only their own lines. TRAINER token without `trainerProfileId` → 403 `Trainer profile is required for this action`.
+- [x] **SET-42** [E] P0. TRAINER `GET /:id/allocations?trainerId=<other>`: overridden with their own id.
+- [x] **SET-43** [E] P1. TRAINER `GET /settlements` lists **all** report headers, drafts included (the owner's decision).
 
 ---
 
@@ -333,7 +306,7 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
   - Disallowed role → 403 (`Forbidden resource` for guard denials, the handler message for in-handler denials).
   - Allowed role → anything but 401/403.
   - This is the single highest-value test against permission regressions. Keep it data-driven so adding a route forces adding a row.
-  - Done: one row per route in `MATRIX`; a first test compares the rows with the routes Express actually registered, so a new route without a row fails. Allowed calls use a random UUID and minimal bodies, so they don't mutate data; rows whose handler check runs after the pipes (`POST /settlements`, `change-password`) send a valid body.
+  - Done: one row per route in `MATRIX`; a first test compares the rows with the routes Express actually registered, so a new route without a row fails. Allowed calls use a random UUID and minimal bodies, so they don't mutate data; rows whose handler check runs after the pipes (`change-password`) send a valid body.
 
 ---
 
@@ -668,7 +641,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 - **Q2. Test DB.** The plan uses real Postgres. The code relies on `AT TIME ZONE`, `to_char`, `EXTRACT(ISODOW)`, `FOR UPDATE` locks and enum columns, which mocked repositories or `pg-mem` can't faithfully run. Mocked repos would also mean asserting on query-builder chains, which breaks the "fail if the rule breaks" rule. OK to require Docker locally and a Postgres service in CI?
 - **Q3. CI gate (INF-10).** ✅ Approved and done (Nov 2026), including the lint gate (baseline errors fixed with type/format-only changes; no behavior change).
 - **Q4. e2e setup duplication.** INF-06 copies the `main.ts` app setup into the tests. The alternative is a tiny refactor that exports a `configureApp(app)` from `main.ts` and uses it in both places. That's a production change, so it isn't done without approval.
-- **Q5. Business rules flagged ⚠ that affect money or security:** ACC-15 (TRAINER can take over ADMIN), SET-09/SET-10/SET-31 (lost, double or unreversed payouts), SUB-13 (TIME pays for out-of-window attendance), SUB-21 (deleting a sub keeps the cash). These get characterized as-is, but they deserve an owner decision soon.
+- **Q5. Business rules flagged ⚠ that affect money or security:** ACC-15 (TRAINER can take over ADMIN), SET-09/SET-10/SET-31 (lost, double or unreversed payouts; fixed by automatic reports, Nov 2026), SUB-13 (TIME pays for out-of-window attendance), SUB-21 (deleting a sub keeps the cash). These get characterized as-is, but they deserve an owner decision soon.
 
 ## Self-review log
 
@@ -752,10 +725,8 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | DELETE | `/attendance/:id` | ✅ | ✅ | 🔒 |
 | GET | `/cash-register` | ✅ | 🔒 | 🔒 |
 | POST | `/cash-register/transactions/manual` | ✅ | 🔒 | 🔒 |
-| POST | `/settlements` | ✅ | ✋ | 🔒 |
 | GET | `/settlements` | ✅ | ✅ (all headers) | 🔒 |
 | GET | `/settlements/:id` | ✅ | ✅ own lines (needs `trainerProfileId`, else ✋) | 🔒 |
-| DELETE | `/settlements/:id` | ✅ | ✋ | 🔒 |
 | POST | `/settlements/:id/finalize` | ✅ | ✋ | 🔒 |
 | GET | `/settlements/:id/allocations` | ✅ | ✅ own rows (needs `trainerProfileId`, else ✋) | 🔒 |
 | GET / POST | `/gym-locations` | ✅ | ✅ | 🔒 |

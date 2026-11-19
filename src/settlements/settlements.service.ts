@@ -1,438 +1,221 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { CashRegisterService } from '../cash-register/cash-register.service';
-import { getLocalDateInterval } from '../attendance/attendance-range.util';
+import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AttendanceEntity } from '../attendance/attendance.entity';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
-import { GenerateSettlementDto } from './dto/generate-settlement.dto';
 import { AllocationReason } from './enums/allocation-reason.enum';
 import { SettlementStatus } from './enums/settlement-status.enum';
 import { SettlementAllocationEntity } from './settlement-allocation.entity';
-import { splitCents } from './settlement-allocation.util';
+import {
+  calculateSettlement,
+  CandidateAttendance,
+  PaidItemSummary,
+  PayingSubscription,
+  SettlementItem,
+  trainerTotals,
+  TrainerTotals,
+  WaitingItem,
+  WaitingReason,
+} from './settlement-calculation';
+import { lockSettlements } from './settlement-lock';
+import {
+  periodAfter,
+  periodBounds,
+  periodEndsAt,
+  periodsDue,
+  reportCreatedAt,
+  SETTLEMENT_CREATION_HOUR,
+  SettlementPeriod,
+} from './settlement-periods';
+import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { SettlementLineEntity } from './settlement-line.entity';
 import { SettlementEntity } from './settlement.entity';
 
+/** A training a report pays, as `GET /settlements/:id/allocations` lists it. */
+export interface AllocationView {
+  /** The stored allocation's id; a draft's rows use the training's id. */
+  id: string;
+  settlementId: string;
+  attendanceId: string;
+  trainerId: string;
+  subscriptionId: string | null;
+  subscriptionType: PlanType | null;
+  valueCents: number;
+  reason: AllocationReason;
+  fromEarlierPeriod: boolean;
+  attendance: AttendanceView;
+}
+
+export interface AttendanceView {
+  id: string;
+  trainedAt: Date;
+  traineeId: string;
+  trainerId: string;
+  locationId: string | null;
+  paymentStatus: AttendancePaymentStatus;
+  subscriptionId: string | null;
+}
+
+/** A training of the period that a later report will pay. */
+export interface WaitingView {
+  attendanceId: string;
+  trainerId: string;
+  traineeId: string;
+  locationId: string | null;
+  trainedAt: Date;
+  reason: WaitingReason;
+  subscriptionType: PlanType | null;
+  availableFrom: Date | null;
+}
+
+interface Report {
+  allocations: AllocationView[];
+  lines: TrainerTotals[];
+  waiting: WaitingView[];
+}
+
 @Injectable()
 export class SettlementsService {
+  private readonly logger = new Logger(SettlementsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(SettlementEntity)
     private readonly settlementRepo: Repository<SettlementEntity>,
-    @InjectRepository(SettlementLineEntity)
-    private readonly lineRepo: Repository<SettlementLineEntity>,
-    @InjectRepository(SettlementAllocationEntity)
-    private readonly allocRepo: Repository<SettlementAllocationEntity>,
-    @InjectRepository(AttendanceEntity)
-    private readonly attRepo: Repository<AttendanceEntity>,
-    @InjectRepository(SubscriptionEntity)
-    private readonly subRepo: Repository<SubscriptionEntity>,
     private readonly cashRegisterService: CashRegisterService,
   ) {}
 
-  async generate(dto: GenerateSettlementDto) {
-    const { from, to } = getLocalDateInterval(dto.periodStart, dto.periodEnd);
-    const generatedAt = new Date();
+  /**
+   * Creates the reports whose period is over (see `periodsDue`): one DRAFT per period, oldest
+   * first. Safe to run any number of times. Answers the reports it created.
+   */
+  async createDueReports(): Promise<SettlementEntity[]> {
+    const now = new Date();
+    const created = await this.dataSource.transaction(async (manager) => {
+      await lockSettlements(manager);
+      const repo = manager.getRepository(SettlementEntity);
+      const latest = await repo
+        .createQueryBuilder('s')
+        .select(`to_char(MAX(s.periodEnd), 'YYYY-MM-DD')`, 'end')
+        .getRawOne<{ end: string | null }>();
 
-    return this.dataSource.transaction(async (manager) => {
-      // 1) create settlement header
-      const settlement = manager.getRepository(SettlementEntity).create({
-        periodStart: dto.periodStart,
-        periodEnd: dto.periodEnd,
-        generatedAt,
-        status: SettlementStatus.DRAFT,
-        notes: null,
-      });
-      const savedSettlement = await manager
-        .getRepository(SettlementEntity)
-        .save(settlement);
-
-      // 2) load attendance rows in period
-      // We only need: id, trainerId, traineeId, trainedAt, paymentStatus, subscriptionId
-      const attendances = await manager
-        .getRepository(AttendanceEntity)
-        .createQueryBuilder('a')
-        .select([
-          'a.id',
-          'a.trainerId',
-          'a.traineeId',
-          'a.trainedAt',
-          'a.paymentStatus',
-          'a.subscriptionId',
-        ])
-        .where('a.trainedAt >= :from AND a.trainedAt < :to', { from, to })
-        .orderBy('a.trainedAt', 'ASC')
-        .addOrderBy('a.id', 'ASC')
-        .getMany();
-
-      if (attendances.length === 0) {
-        // still return an empty settlement
-        return {
-          settlement: savedSettlement,
-          lines: [],
-          info: { message: 'No attendance in period' },
-        };
-      }
-
-      // 3) gather subscriptionIds we need
-      const subscriptionIds = Array.from(
-        new Set(
-          attendances
-            .map((a) => a.subscriptionId)
-            .filter((x): x is string => !!x),
-        ),
-      );
-
-      const subs = subscriptionIds.length
-        ? await manager
-            .getRepository(SubscriptionEntity)
-            .findByIds(subscriptionIds)
-        : [];
-
-      const subsById = new Map<string, SubscriptionEntity>();
-      subs.forEach((s) => subsById.set(s.id, s));
-
-      // 4) build allocations in memory, then bulk insert
-      // We need deterministic splitting per subscription:
-      // - PUNCH: split paidCents across initialCredits, order by attendance trainedAt asc
-      // - TIME : if endsAt <= generatedAt, split paidCents across ALL attendance linked to that subscription (not just in period),
-      //          then include only the ones in this settlement period.
-      //
-      // For PUNCH we only need attendances in this settlement, because value is stable across all credits,
-      // but we must allocate based on the order within that subscription globally to match “first remainder gets +1”.
-      // So we should consider ALL attendances linked to subscription, not only in this period, to keep deterministic global order.
-      // Same for TIME. We'll do "global order per subscription" for correctness.
-
-      // 4.1) collect affected subscriptionIds by type
-      const punchSubIds = new Set<string>();
-      const timeSubIds = new Set<string>();
-
-      for (const a of attendances) {
-        if (a.paymentStatus !== AttendancePaymentStatus.PAID) continue;
-        if (!a.subscriptionId) continue;
-        const sub = subsById.get(a.subscriptionId);
-        if (!sub) continue;
-        if (sub.type === PlanType.PUNCH) punchSubIds.add(sub.id);
-        if (sub.type === PlanType.TIME) timeSubIds.add(sub.id);
-      }
-
-      // 4.2) load “global attendance per subscription” for deterministic ordering
-      // PUNCH: all PAID attendance linked to that subscription
-      const punchAttendancesBySub = new Map<string, AttendanceEntity[]>();
-      if (punchSubIds.size > 0) {
-        const rows = await manager
-          .getRepository(AttendanceEntity)
-          .createQueryBuilder('a')
-          .select(['a.id', 'a.subscriptionId', 'a.trainedAt'])
-          .where('a.subscriptionId IN (:...ids)', {
-            ids: Array.from(punchSubIds),
-          })
-          .andWhere('a.paymentStatus = :paid', {
-            paid: AttendancePaymentStatus.PAID,
-          })
-          .orderBy('a.trainedAt', 'ASC')
-          .addOrderBy('a.id', 'ASC')
-          .getMany();
-
-        for (const r of rows) {
-          const sid = r.subscriptionId!;
-          const arr = punchAttendancesBySub.get(sid) ?? [];
-          arr.push(r);
-          punchAttendancesBySub.set(sid, arr);
-        }
-      }
-
-      // TIME: only consider subs that are complete at generatedAt
-      const eligibleTimeSubs = Array.from(timeSubIds).filter((id) => {
-        const s = subsById.get(id);
-        return !!s?.endsAt && s.endsAt.getTime() <= generatedAt.getTime();
-      });
-
-      const timeAttendancesBySub = new Map<string, AttendanceEntity[]>();
-      if (eligibleTimeSubs.length > 0) {
-        const rows = await manager
-          .getRepository(AttendanceEntity)
-          .createQueryBuilder('a')
-          .select(['a.id', 'a.subscriptionId', 'a.trainedAt'])
-          .where('a.subscriptionId IN (:...ids)', { ids: eligibleTimeSubs })
-          .andWhere('a.paymentStatus = :paid', {
-            paid: AttendancePaymentStatus.PAID,
-          })
-          .orderBy('a.trainedAt', 'ASC')
-          .addOrderBy('a.id', 'ASC')
-          .getMany();
-
-        for (const r of rows) {
-          const sid = r.subscriptionId!;
-          const arr = timeAttendancesBySub.get(sid) ?? [];
-          arr.push(r);
-          timeAttendancesBySub.set(sid, arr);
-        }
-      }
-
-      // 4.3) build per-subscription value map: attendanceId -> cents
-      const valueByAttendanceId = new Map<
-        string,
-        {
-          value: number;
-          reason: AllocationReason;
-          type: PlanType | null;
-          subId: string | null;
-        }
-      >();
-
-      // PUNCH map
-      for (const sid of punchSubIds) {
-        const sub = subsById.get(sid);
-        if (!sub) continue;
-        const all = punchAttendancesBySub.get(sid) ?? [];
-        const credits = sub.initialCredits ?? 0;
-
-        if (credits <= 0) continue;
-
-        const split = splitCents(sub.paidCents, credits);
-
-        // We assign split[0..credits-1] to the first "credits" attendances in order.
-        // If there are more attendances than credits (shouldn't happen if consumption logic is correct),
-        // we cap at credits for safety.
-        const limit = Math.min(all.length, split.length);
-
-        for (let i = 0; i < limit; i++) {
-          const attId = all[i].id;
-          valueByAttendanceId.set(attId, {
-            value: split[i],
-            reason: AllocationReason.PUNCH_CREDIT,
-            type: PlanType.PUNCH,
-            subId: sid,
-          });
-        }
-      }
-
-      // TIME map
-      for (const sid of eligibleTimeSubs) {
-        const sub = subsById.get(sid);
-        if (!sub) continue;
-        const all = timeAttendancesBySub.get(sid) ?? [];
-        const count = all.length;
-
-        if (count <= 0) {
-          // simplest/clear: allocate nothing
-          continue;
-        }
-
-        const split = splitCents(sub.paidCents, count);
-        for (let i = 0; i < all.length; i++) {
-          const attId = all[i].id;
-          valueByAttendanceId.set(attId, {
-            value: split[i],
-            reason: AllocationReason.TIME_PRORATA,
-            type: PlanType.TIME,
-            subId: sid,
-          });
-        }
-      }
-
-      const totalAttendance = attendances.length;
-      let unpaidAttendance = 0;
-
-      let reportablePunchPaidAttendance = 0;
-      let reportableTimePaidAttendance = 0;
-
-      let notReportableTimeAttendance = 0;
-
-      // optional: which time subs are pending and how many rows in this period they have
-      const pendingTimeSubs = new Map<
-        string,
-        { endsAt: Date | null; count: number }
-      >();
-
-      // 4.4) create allocations for attendances in the settlement period
-      const allocationRows: Partial<SettlementAllocationEntity>[] = [];
-      for (const a of attendances) {
-        const sub = a.subscriptionId
-          ? subsById.get(a.subscriptionId)
-          : undefined;
-
-        // UNPAID or missing subscription -> value 0
-        if (
-          a.paymentStatus === AttendancePaymentStatus.UNPAID ||
-          !a.subscriptionId ||
-          !sub
-        ) {
-          unpaidAttendance += 1;
-
-          allocationRows.push({
-            settlementId: savedSettlement.id,
-            attendanceId: a.id,
-            trainerId: a.trainerId,
-            subscriptionId: null,
-            subscriptionType: null,
-            valueCents: 0,
-            reason: AllocationReason.UNPAID,
-          });
-          continue;
-        }
-
-        // PAID with subscription
-        const mapped = valueByAttendanceId.get(a.id);
-
-        if (!mapped) {
-          // Not allocatable yet OR inconsistent
-          // Specifically: TIME not ended => "not reportable yet"
-          if (sub.type === PlanType.TIME) {
-            notReportableTimeAttendance += 1;
-
-            const entry = pendingTimeSubs.get(sub.id) ?? {
-              endsAt: sub.endsAt ?? null,
-              count: 0,
-            };
-            entry.count += 1;
-            pendingTimeSubs.set(sub.id, entry);
-          }
-
-          allocationRows.push({
-            settlementId: savedSettlement.id,
-            attendanceId: a.id,
-            trainerId: a.trainerId,
-            subscriptionId: a.subscriptionId,
-            subscriptionType: sub.type,
-            valueCents: 0,
-            // keep reason informative
-            reason:
-              sub.type === PlanType.TIME
-                ? AllocationReason.TIME_PRORATA
-                : AllocationReason.PUNCH_CREDIT,
-          });
-          continue;
-        }
-
-        // Reportable allocation
-        if (mapped.reason === AllocationReason.PUNCH_CREDIT)
-          reportablePunchPaidAttendance += 1;
-        if (mapped.reason === AllocationReason.TIME_PRORATA)
-          reportableTimePaidAttendance += 1;
-
-        allocationRows.push({
-          settlementId: savedSettlement.id,
-          attendanceId: a.id,
-          trainerId: a.trainerId,
-          subscriptionId: mapped.subId,
-          subscriptionType: mapped.type,
-          valueCents: mapped.value,
-          reason: mapped.reason,
-        });
-      }
-
-      await manager
-        .getRepository(SettlementAllocationEntity)
-        .save(allocationRows);
-
-      // 5) aggregate lines per trainer
-      const totals = new Map<
-        string,
-        {
-          amountCents: number;
-          count: number;
-          unpaid: number;
-          punch: number;
-          time: number;
-        }
-      >();
-
-      for (const r of allocationRows) {
-        const trainerId = r.trainerId!;
-        const current = totals.get(trainerId) ?? {
-          amountCents: 0,
-          count: 0,
-          unpaid: 0,
-          punch: 0,
-          time: 0,
-        };
-        current.count += 1;
-        current.amountCents += r.valueCents ?? 0;
-
-        if ((r.valueCents ?? 0) === 0 && r.reason === AllocationReason.UNPAID)
-          current.unpaid += 1;
-        if (r.reason === AllocationReason.PUNCH_CREDIT)
-          current.punch += r.valueCents ?? 0;
-        if (r.reason === AllocationReason.TIME_PRORATA)
-          current.time += r.valueCents ?? 0;
-
-        totals.set(trainerId, current);
-      }
-
-      const lineRows: Partial<SettlementLineEntity>[] = Array.from(
-        totals.entries(),
-      ).map(([trainerId, t]) => ({
-        settlementId: savedSettlement.id,
-        trainerId,
-        amountCents: t.amountCents,
-        attendanceCount: t.count,
-        unpaidAttendanceCount: t.unpaid,
-        details: {
-          punchCents: t.punch,
-          timeCents: t.time,
-        },
-      }));
-
-      await manager.getRepository(SettlementLineEntity).save(lineRows);
-
-      const lines = await manager.getRepository(SettlementLineEntity).find({
-        where: { settlementId: savedSettlement.id },
-        order: { amountCents: 'DESC' },
-      });
-
-      return {
-        settlement: savedSettlement,
-        lines,
-        info: {
-          totalAttendance,
-          unpaidAttendance,
-          reportablePunchPaidAttendance,
-          reportableTimePaidAttendance,
-          notReportableTimeAttendance,
-          pendingTimeSubscriptions: Array.from(pendingTimeSubs.entries()).map(
-            ([subscriptionId, v]) => ({
-              subscriptionId,
-              endsAt: v.endsAt ? v.endsAt.toISOString() : null,
-              attendanceInPeriodCount: v.count,
+      const saved: SettlementEntity[] = [];
+      for (const period of periodsDue(latest?.end ?? null, now)) {
+        saved.push(
+          await repo.save(
+            repo.create({
+              periodStart: period.periodStart,
+              periodEnd: period.periodEnd,
+              generatedAt: now,
+              status: SettlementStatus.DRAFT,
+              finalizedAt: null,
+              notes: null,
             }),
           ),
-        },
-      };
+        );
+      }
+      return saved;
+    });
+
+    for (const s of created) {
+      this.logger.log(
+        `Created the settlement report for ${s.periodStart} to ${s.periodEnd}.`,
+      );
+    }
+    return created;
+  }
+
+  /**
+   * The job's work on demand (`POST /api/settlements/create-due`, ADMIN): creates every report that
+   * is due now, oldest first, exactly as the 04:00 run would, and answers them. 409 when none is
+   * due, saying which report is the latest and when the next one comes.
+   */
+  async createDueReportsNow(): Promise<{ created: SettlementEntity[] }> {
+    const created = await this.createDueReports();
+    if (created.length) return { created };
+
+    const latest = await this.settlementRepo
+      .createQueryBuilder('s')
+      .orderBy('s.periodEnd', 'DESC')
+      .addOrderBy('s.periodStart', 'DESC')
+      .getOne();
+    if (!latest) {
+      // With no report at all one is always due, so this only happens in a race.
+      throw new ConflictException('No settlement report is due yet');
+    }
+    const next = periodAfter(latest.periodEnd);
+    throw new ConflictException(
+      `The report for ${latest.periodStart} to ${latest.periodEnd} already exists; the next one (${next.periodStart} to ${next.periodEnd}) is created on ${toGymLocalDate(reportCreatedAt(next))} at ${String(SETTLEMENT_CREATION_HOUR).padStart(2, '0')}:00 Europe/Sofia time`,
+    );
+  }
+
+  /** Every report, the latest period first. */
+  async list() {
+    return this.settlementRepo.find({
+      order: { periodStart: 'DESC', periodEnd: 'DESC', createdAt: 'DESC' },
     });
   }
 
-  async list() {
-    return this.settlementRepo.find({ order: { generatedAt: 'DESC' } });
-  }
-
+  /**
+   * A report with one line per trainer and its period's trainings that wait for a later report,
+   * limited to one trainer's when `trainerId` is given. A draft is worked out now; a finalized
+   * report shows what it paid (its waiting trainings are still worked out now).
+   */
   async getById(id: string, trainerId?: string) {
-    const settlement = await this.settlementRepo.findOne({ where: { id } });
-    if (!settlement) throw new NotFoundException('Settlement not found');
+    const settlement = await this.findOrThrow(id);
+    const report = await this.report(this.dataSource.manager, settlement);
+    const mine = <T extends { trainerId: string }>(rows: T[]) =>
+      trainerId ? rows.filter((r) => r.trainerId === trainerId) : rows;
 
-    const where = trainerId
-      ? { settlementId: id, trainerId }
-      : { settlementId: id };
-
-    const lines = await this.lineRepo.find({ where });
-    return { settlement, lines };
+    return {
+      settlement,
+      lines: mine(report.lines),
+      waiting: mine(report.waiting),
+    };
   }
 
-  async remove(id: string) {
-    const settlement = await this.settlementRepo.findOne({ where: { id } });
-    if (!settlement) throw new NotFoundException('Settlement not found');
+  /** The trainings a report pays, by training time, paged. */
+  async allocations(
+    settlementId: string,
+    query: { trainerId?: string; offset?: number; limit?: number },
+  ) {
+    const limit = query.limit ?? 50;
+    const offset = query.offset ?? 0;
+    const settlement = await this.findOrThrow(settlementId);
+    const { allocations } = await this.report(
+      this.dataSource.manager,
+      settlement,
+    );
+    const rows = query.trainerId
+      ? allocations.filter((a) => a.trainerId === query.trainerId)
+      : allocations;
 
-    await this.settlementRepo.remove(settlement);
-    return { deleted: true };
+    return {
+      total: rows.length,
+      limit,
+      offset,
+      rows: rows.slice(offset, offset + limit),
+    };
   }
 
+  /**
+   * Pays a draft out: works it out once more, stores what it pays, takes the total out of the
+   * cash register and makes it FINAL. Only once its period is over and every older report is
+   * finalized. Finalizing a FINAL report changes nothing.
+   */
   async finalize(id: string) {
     return this.dataSource.transaction(async (manager) => {
-      const settlement = await manager
-        .getRepository(SettlementEntity)
+      await lockSettlements(manager);
+      const repo = manager.getRepository(SettlementEntity);
+      const settlement = await repo
         .createQueryBuilder('s')
         .setLock('pessimistic_write')
         .where('s.id = :id', { id })
@@ -441,47 +224,362 @@ export class SettlementsService {
       if (!settlement) throw new NotFoundException('Settlement not found');
       if (settlement.status === SettlementStatus.FINAL) return settlement;
 
-      const lines = await manager.getRepository(SettlementLineEntity).find({
-        where: { settlementId: settlement.id },
-      });
+      const now = new Date();
+      if (now.getTime() < periodEndsAt(settlement).getTime()) {
+        throw new ConflictException(
+          `The period ends on ${settlement.periodEnd}; the report can be finalized after that`,
+        );
+      }
 
-      const totalAmountCents = lines.reduce(
-        (acc, line) => acc + line.amountCents,
-        0,
+      const older = await repo
+        .createQueryBuilder('s')
+        .where('s.status = :draft', { draft: SettlementStatus.DRAFT })
+        .andWhere('s.id <> :id', { id: settlement.id })
+        .andWhere(
+          new Brackets((qb) =>
+            qb
+              .where('s.periodStart < :start', {
+                start: settlement.periodStart,
+              })
+              .orWhere('(s.periodStart = :start AND s.periodEnd < :end)', {
+                start: settlement.periodStart,
+                end: settlement.periodEnd,
+              }),
+          ),
+        )
+        .orderBy('s.periodStart', 'ASC')
+        .getOne();
+      if (older) {
+        throw new ConflictException(
+          `Finalize the report for ${older.periodStart} to ${older.periodEnd} first`,
+        );
+      }
+
+      const { items, waiting } = await this.calculate(
+        manager,
+        settlement,
+        true,
       );
+
+      // A draft created before reports were worked out live may have stored rows: replace them.
+      await manager
+        .getRepository(SettlementAllocationEntity)
+        .delete({ settlementId: settlement.id });
+      await manager
+        .getRepository(SettlementLineEntity)
+        .delete({ settlementId: settlement.id });
+
+      if (items.length) {
+        await manager.getRepository(SettlementAllocationEntity).save(
+          items.map((item) => ({
+            settlementId: settlement.id,
+            attendanceId: item.attendance.id,
+            trainerId: item.attendance.trainerId,
+            subscriptionId: item.subscriptionId,
+            subscriptionType: item.subscriptionType,
+            valueCents: item.valueCents,
+            reason: item.reason,
+            fromEarlierPeriod: item.fromEarlierPeriod,
+          })),
+        );
+      }
+
+      const totals = trainerTotals(
+        items.map(paidSummaryOfItem),
+        waiting.map((w) => ({ trainerId: w.attendance.trainerId })),
+      );
+      if (totals.length) {
+        await manager.getRepository(SettlementLineEntity).save(
+          totals.map((t) => ({
+            settlementId: settlement.id,
+            trainerId: t.trainerId,
+            amountCents: t.amountCents,
+            attendanceCount: t.attendanceCount,
+            unpaidAttendanceCount: t.waitingCount,
+            details: {
+              punchCents: t.punchCents,
+              timeCents: t.timeCents,
+              earlierPeriodsCents: t.earlierPeriodsCents,
+              earlierPeriodsCount: t.earlierPeriodsCount,
+            },
+          })),
+        );
+      }
 
       await this.cashRegisterService.registerSettlementFinalization(
         manager,
         settlement.id,
-        totalAmountCents,
+        totals.reduce((sum, t) => sum + t.amountCents, 0),
       );
 
       settlement.status = SettlementStatus.FINAL;
-      return manager.getRepository(SettlementEntity).save(settlement);
+      settlement.finalizedAt = now;
+      return repo.save(settlement);
     });
   }
 
-  async allocations(
-    settlementId: string,
-    query: { trainerId?: string; offset?: number; limit?: number },
-  ) {
-    const limit = query.limit ?? 50;
-    const offset = query.offset ?? 0;
-
-    const qb = this.allocRepo
-      .createQueryBuilder('sa')
-      .leftJoinAndSelect('sa.attendance', 'a')
-      .where('sa.settlementId = :settlementId', { settlementId });
-
-    if (query.trainerId)
-      qb.andWhere('sa.trainerId = :trainerId', { trainerId: query.trainerId });
-
-    qb.orderBy('a.trainedAt', 'ASC')
-      .addOrderBy('a.id', 'ASC')
-      .offset(offset)
-      .limit(limit);
-
-    const [rows, total] = await qb.getManyAndCount();
-    return { total, limit, offset, rows };
+  private async findOrThrow(id: string): Promise<SettlementEntity> {
+    const settlement = await this.settlementRepo.findOne({ where: { id } });
+    if (!settlement) throw new NotFoundException('Settlement not found');
+    return settlement;
   }
+
+  /** What a report pays and what of its period waits, as the read routes show it. */
+  private async report(
+    manager: EntityManager,
+    settlement: SettlementEntity,
+  ): Promise<Report> {
+    if (settlement.status === SettlementStatus.DRAFT) {
+      const { items, waiting } = await this.calculate(
+        manager,
+        settlement,
+        true,
+      );
+      return {
+        allocations: items.map((item) => draftAllocation(settlement, item)),
+        lines: trainerTotals(
+          items.map(paidSummaryOfItem),
+          waiting.map((w) => ({ trainerId: w.attendance.trainerId })),
+        ),
+        waiting: waiting.map(waitingView),
+      };
+    }
+
+    const [stored, storedLines, { waiting }] = await Promise.all([
+      manager
+        .getRepository(SettlementAllocationEntity)
+        .createQueryBuilder('sa')
+        .leftJoinAndSelect('sa.attendance', 'a')
+        .where('sa.settlementId = :id', { id: settlement.id })
+        .orderBy('a.trainedAt', 'ASC')
+        .addOrderBy('a.id', 'ASC')
+        .getMany(),
+      manager
+        .getRepository(SettlementLineEntity)
+        .find({ where: { settlementId: settlement.id } }),
+      this.calculate(manager, settlement, false),
+    ]);
+
+    // The stored lines are what was paid; trainings deleted since don't change them.
+    const waitingByTrainer = new Map<string, number>();
+    for (const w of waiting) {
+      const id = w.attendance.trainerId;
+      waitingByTrainer.set(id, (waitingByTrainer.get(id) ?? 0) + 1);
+    }
+    const lines: TrainerTotals[] = storedLines
+      .filter((l) => l.attendanceCount > 0 || l.amountCents !== 0)
+      .map((l) => ({
+        trainerId: l.trainerId,
+        amountCents: l.amountCents,
+        attendanceCount: l.attendanceCount,
+        punchCents: l.details?.punchCents ?? 0,
+        timeCents: l.details?.timeCents ?? 0,
+        earlierPeriodsCents: l.details?.earlierPeriodsCents ?? 0,
+        earlierPeriodsCount: l.details?.earlierPeriodsCount ?? 0,
+        waitingCount: waitingByTrainer.get(l.trainerId) ?? 0,
+      }));
+    for (const [trainerId, count] of waitingByTrainer) {
+      if (!lines.some((l) => l.trainerId === trainerId)) {
+        lines.push({
+          trainerId,
+          amountCents: 0,
+          attendanceCount: 0,
+          punchCents: 0,
+          timeCents: 0,
+          earlierPeriodsCents: 0,
+          earlierPeriodsCount: 0,
+          waitingCount: count,
+        });
+      }
+    }
+    lines.sort(
+      (a, b) =>
+        b.amountCents - a.amountCents ||
+        (a.trainerId < b.trainerId ? -1 : a.trainerId > b.trainerId ? 1 : 0),
+    );
+
+    return {
+      allocations: stored
+        .filter((row) => row.reason !== AllocationReason.UNPAID)
+        .map((row) => ({
+          id: row.id,
+          settlementId: row.settlementId,
+          attendanceId: row.attendanceId,
+          trainerId: row.trainerId,
+          subscriptionId: row.subscriptionId,
+          subscriptionType: row.subscriptionType,
+          valueCents: row.valueCents,
+          reason: row.reason,
+          fromEarlierPeriod: row.fromEarlierPeriod,
+          attendance: attendanceView(row.attendance),
+        })),
+      lines,
+      waiting: waiting.map(waitingView),
+    };
+  }
+
+  /**
+   * Loads the trainings not paid by a finalized report (only the period's when `includePayable`
+   * is false) and works the report out (`calculateSettlement`).
+   */
+  private async calculate(
+    manager: EntityManager,
+    period: SettlementPeriod,
+    includePayable: boolean,
+  ) {
+    const bounds = periodBounds(period);
+    const earlierDraft = includePayable
+      ? await manager
+          .getRepository(SettlementEntity)
+          .createQueryBuilder('s')
+          .where('s.status = :draft', { draft: SettlementStatus.DRAFT })
+          .andWhere('s.periodEnd < :start', { start: period.periodStart })
+          .orderBy('s.periodEnd', 'DESC')
+          .getOne()
+      : null;
+
+    const qb = manager
+      .getRepository(AttendanceEntity)
+      .createQueryBuilder('a')
+      .select([
+        'a.id',
+        'a.trainerId',
+        'a.traineeId',
+        'a.locationId',
+        'a.trainedAt',
+        'a.paymentStatus',
+        'a.subscriptionId',
+      ])
+      .where('a.trainedAt < :to', { to: bounds.to })
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM "settlement_allocations" sa
+          JOIN "settlements" s ON s."id" = sa."settlementId"
+          WHERE sa."attendanceId" = a."id"
+            AND s."status" = :final
+            AND sa."reason" <> :unpaid
+        )`,
+        {
+          final: SettlementStatus.FINAL,
+          unpaid: AllocationReason.UNPAID,
+        },
+      );
+    if (!includePayable) {
+      qb.andWhere('a.trainedAt >= :from', { from: bounds.from });
+    }
+    const attendances: CandidateAttendance[] = (await qb.getMany()).map(
+      (a) => ({
+        id: a.id,
+        trainerId: a.trainerId,
+        traineeId: a.traineeId,
+        locationId: a.locationId,
+        trainedAt: a.trainedAt,
+        paymentStatus: a.paymentStatus,
+        subscriptionId: a.subscriptionId,
+      }),
+    );
+
+    const subscriptionIds = [
+      ...new Set(
+        attendances
+          .map((a) => a.subscriptionId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const subscriptions = new Map<string, PayingSubscription>();
+    const paidOrder = new Map<string, string[]>();
+    if (subscriptionIds.length) {
+      const subs = await manager
+        .getRepository(SubscriptionEntity)
+        .findBy({ id: In(subscriptionIds) });
+      for (const s of subs) {
+        subscriptions.set(s.id, {
+          id: s.id,
+          type: s.type,
+          paidCents: s.paidCents,
+          initialCredits: s.initialCredits,
+          endsAt: s.endsAt,
+          createdAt: s.createdAt,
+        });
+      }
+
+      const paid = await manager
+        .getRepository(AttendanceEntity)
+        .createQueryBuilder('a')
+        .select(['a.id', 'a.subscriptionId'])
+        .where('a.subscriptionId IN (:...ids)', { ids: subscriptionIds })
+        .andWhere('a.paymentStatus = :paid', {
+          paid: AttendancePaymentStatus.PAID,
+        })
+        .orderBy('a.trainedAt', 'ASC')
+        .addOrderBy('a.id', 'ASC')
+        .getMany();
+      for (const row of paid) {
+        const list = paidOrder.get(row.subscriptionId!) ?? [];
+        list.push(row.id);
+        paidOrder.set(row.subscriptionId!, list);
+      }
+    }
+
+    return calculateSettlement({
+      bounds,
+      attendances,
+      subscriptions,
+      paidOrder,
+      includePayable,
+      earlierDraftTo: earlierDraft ? periodBounds(earlierDraft).to : null,
+    });
+  }
+}
+
+function paidSummaryOfItem(item: SettlementItem): PaidItemSummary {
+  return {
+    trainerId: item.attendance.trainerId,
+    valueCents: item.valueCents,
+    subscriptionType: item.subscriptionType,
+    fromEarlierPeriod: item.fromEarlierPeriod,
+  };
+}
+
+function attendanceView(a: CandidateAttendance | AttendanceEntity) {
+  return {
+    id: a.id,
+    trainedAt: a.trainedAt,
+    traineeId: a.traineeId,
+    trainerId: a.trainerId,
+    locationId: a.locationId,
+    paymentStatus: a.paymentStatus,
+    subscriptionId: a.subscriptionId,
+  };
+}
+
+function draftAllocation(
+  settlement: SettlementEntity,
+  item: SettlementItem,
+): AllocationView {
+  return {
+    id: item.attendance.id,
+    settlementId: settlement.id,
+    attendanceId: item.attendance.id,
+    trainerId: item.attendance.trainerId,
+    subscriptionId: item.subscriptionId,
+    subscriptionType: item.subscriptionType,
+    valueCents: item.valueCents,
+    reason: item.reason,
+    fromEarlierPeriod: item.fromEarlierPeriod,
+    attendance: attendanceView(item.attendance),
+  };
+}
+
+function waitingView(w: WaitingItem): WaitingView {
+  return {
+    attendanceId: w.attendance.id,
+    trainerId: w.attendance.trainerId,
+    traineeId: w.attendance.traineeId,
+    locationId: w.attendance.locationId,
+    trainedAt: w.attendance.trainedAt,
+    reason: w.reason,
+    subscriptionType: w.subscriptionType,
+    availableFrom: w.availableFrom,
+  };
 }

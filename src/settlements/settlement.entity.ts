@@ -18,6 +18,7 @@ export class SettlementEntity {
   @Column({ type: 'date' })
   periodEnd!: string;
 
+  /** When the report was created (automatically, once its period was over). */
   @Column({ type: 'timestamptz' })
   generatedAt!: Date;
 
@@ -27,6 +28,10 @@ export class SettlementEntity {
     default: SettlementStatus.DRAFT,
   })
   status!: SettlementStatus;
+
+  /** When it was finalized (and paid out); null while a draft. */
+  @Column({ type: 'timestamptz', nullable: true })
+  finalizedAt!: Date | null;
 
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
