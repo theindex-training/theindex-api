@@ -25,6 +25,29 @@ export class TrainerProfilesService {
     return this.trainerRepo.find({ where, order: { name: 'ASC' } });
   }
 
+  /** The list as `GET /api/trainers` answers it: each trainer with `photoUrl` (or null). */
+  async listWithPhotos(active?: boolean) {
+    return this.withPhotos(await this.list(active));
+  }
+
+  /** One trainer as `GET /api/trainers/:id` answers it, with `photoUrl` (or null). */
+  async getWithPhoto(id: string) {
+    const [trainer] = await this.withPhotos([await this.getById(id)]);
+    return trainer;
+  }
+
+  /** Adds each trainer's profile photo thumbnail (`photoUrl`, null without one). */
+  private async withPhotos(trainers: TrainerProfileEntity[]) {
+    const photos = await this.photos.thumbnails({
+      traineeProfileIds: [],
+      trainerProfileIds: trainers.map((t) => t.id),
+    });
+    return trainers.map((t) => ({
+      ...t,
+      photoUrl: photos.trainer.get(t.id) ?? null,
+    }));
+  }
+
   async getById(id: string) {
     const trainer = await this.trainerRepo.findOne({ where: { id } });
     if (!trainer) throw new NotFoundException('Trainer not found');

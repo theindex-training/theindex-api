@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProfilePhotosService } from '../profile-photos/profile-photos.service';
 import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { AttendanceEntity } from '../attendance/attendance.entity';
@@ -69,6 +70,7 @@ export class SchedulesService {
     private readonly weekRepo: Repository<ScheduleWeekEntity>,
     @InjectRepository(ScheduleSlotEntity)
     private readonly slotRepo: Repository<ScheduleSlotEntity>,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   // ---- template ----
@@ -339,7 +341,7 @@ export class SchedulesService {
 
   /**
    * One training of a week for staff: when and where, the trainer, its whole workout (as trainees
-   * see it, plus its id), and the trainees who booked it with what is left of their subscriptions (`training-bookings.ts`: projected
+   * see it, plus its id), and the trainees who booked it (with their profile photo's `photoUrl`) and what is left of their subscriptions (`training-bookings.ts`: projected
    * until attendance is saved for the training, i.e. for the same trainee, gym and start time).
    */
   async training(id: string) {
@@ -380,6 +382,10 @@ export class SchedulesService {
           }),
         ])
       : [[], []];
+    const photos = await this.photos.thumbnails({
+      traineeProfileIds: traineeIds,
+      trainerProfileIds: [],
+    });
 
     return {
       ...presentSlot(slot, bookings.length),
@@ -418,7 +424,11 @@ export class SchedulesService {
         })),
         startsAt,
         new Date(),
-      ),
+      ).map((row) => ({
+        ...row,
+        // The trainee's profile photo thumbnail, null without one.
+        photoUrl: photos.trainee.get(row.traineeId) ?? null,
+      })),
     };
   }
 

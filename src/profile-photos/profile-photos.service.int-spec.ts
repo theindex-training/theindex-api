@@ -19,6 +19,20 @@ import { MediaKind } from '../media/media-kind';
 import { UploadedMediaFile } from '../media/media.service';
 import { PhotoCrop } from '../media/profile-photo-processing';
 import { MyProfileModule } from '../my-profile/my-profile.module';
+import { AccountAdminService } from '../accounts/account-admin.service';
+import { AccountsModule } from '../accounts/accounts.module';
+import { GymLocationEntity } from '../gym-locations/gym-location.entity';
+import {
+  ScheduleBookingEntity,
+  ScheduleSlotEntity,
+  ScheduleWeekEntity,
+} from '../schedules/schedule.entity';
+import { SchedulesModule } from '../schedules/schedules.module';
+import { SchedulesService } from '../schedules/schedules.service';
+import { SubscriptionRenewalsService } from '../subscriptions/subscription-renewals.service';
+import { TrainingTimeEntity } from '../training-times/training-time.entity';
+import { TrainingTimesModule } from '../training-times/training-times.module';
+import { WorkoutsModule } from '../workouts/workouts.module';
 import { MyProfileService } from '../my-profile/my-profile.service';
 import { TraineeProfilesModule } from '../trainee-profiles/trainee-profiles.module';
 import { TraineeProfilesService } from '../trainee-profiles/trainee-profiles.service';
@@ -91,6 +105,10 @@ describe('ProfilePhotosService (integration)', () => {
       BenchmarksModule,
       TraineeProfilesModule,
       TrainerProfilesModule,
+      SchedulesModule,
+      TrainingTimesModule,
+      WorkoutsModule,
+      AccountsModule,
     ],
   });
 
@@ -464,6 +482,151 @@ describe('ProfilePhotosService (integration)', () => {
       expect(
         (await myProfile.update(account.id, { instagram: 'ivan' })).photo,
       ).toEqual(photo);
+    });
+
+    it("puts the thumbnail on the trainees list, a trainee's details and attendance sessions, null without a photo", async () => {
+      const fx = fixtures();
+      const { account, owner, profile } = await traineeWithAccount(fx);
+      const noPhoto = await fx.trainee('Mia');
+      const photo = await svc(fx).replace(
+        owner,
+        await halves(),
+        LEFT,
+        account.id,
+      );
+      const trainees = fx.moduleRef.get(TraineeProfilesService);
+
+      const list = await trainees.listWithPhotos({});
+      expect(list.map((t) => [t.name, t.photoUrl])).toEqual([
+        ['Ivan Petrov', photo.thumbnailUrl],
+        ['Mia', null],
+      ]);
+      expect(await trainees.getWithPhoto(profile.id)).toMatchObject({
+        id: profile.id,
+        name: 'Ivan Petrov',
+        photoUrl: photo.thumbnailUrl,
+      });
+      expect((await trainees.getWithPhoto(noPhoto.id)).photoUrl).toBeNull();
+
+      const coach = await fx.trainer('Coach');
+      const gym = await fx.location('Main');
+      await fx.attend(profile.id, coach.id, gym.id, '2026-11-10T16:00:00Z');
+      await fx.attend(noPhoto.id, coach.id, gym.id, '2026-11-10T16:00:00Z');
+      const sessions = await fx.attendance.sessions({
+        startDate: '2026-11-10',
+        endDate: '2026-11-10',
+      });
+      expect(
+        sessions.entities.trainees
+          .map((t) => [t.name, t.photoUrl])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      ).toEqual([
+        ['Ivan Petrov', photo.thumbnailUrl],
+        ['Mia', null],
+      ]);
+    });
+
+    it("puts the thumbnail on the trainers list, a trainer, renewals, a training's bookings and accounts, null without a photo", async () => {
+      const fx = fixtures();
+      const { account, owner, profile } = await traineeWithAccount(fx);
+      const mia = await fx.trainee('Mia');
+      const coach = await fx.trainer('Coach Ivo');
+      const otherCoach = await fx.trainer('Zed');
+      const mine = await svc(fx).replace(
+        owner,
+        await halves(),
+        LEFT,
+        account.id,
+      );
+      const coachs = await svc(fx).replace(
+        { trainerProfileId: coach.id },
+        await halves(),
+        RIGHT,
+        account.id,
+      );
+
+      // Trainers: the list and one trainer.
+      const trainers = fx.moduleRef.get(TrainerProfilesService);
+      expect(
+        (await trainers.listWithPhotos()).map((t) => [t.name, t.photoUrl]),
+      ).toEqual([
+        ['Coach Ivo', coachs.thumbnailUrl],
+        ['Zed', null],
+      ]);
+      expect((await trainers.getWithPhoto(coach.id)).photoUrl).toBe(
+        coachs.thumbnailUrl,
+      );
+      expect((await trainers.getWithPhoto(otherCoach.id)).photoUrl).toBeNull();
+
+      // Renewals: every row, by trainee.
+      const plan = await fx.punchPlan(10, 5000);
+      await fx.buy(profile.id, plan.id);
+      await fx.buy(mia.id, plan.id);
+      const renewals = await fx.moduleRef
+        .get(SubscriptionRenewalsService)
+        .overview();
+      const rows = [...renewals.punch.exhausted, ...renewals.punch.active].map(
+        (r) => [r.name, r.photoUrl],
+      );
+      expect(rows.sort()).toEqual([
+        ['Ivan Petrov', mine.thumbnailUrl],
+        ['Mia', null],
+      ]);
+
+      // A training's page: the trainees who booked it.
+      const gym = await fx.ds
+        .getRepository(GymLocationEntity)
+        .save({ name: 'Main', isActive: true });
+      const time = await fx.ds
+        .getRepository(TrainingTimeEntity)
+        .save({ startTime: '18:00', endTime: '19:00' });
+      const week = await fx.ds
+        .getRepository(ScheduleWeekEntity)
+        .save({ gymId: gym.id, weekStart: '2026-11-16' });
+      const slot = await fx.ds.getRepository(ScheduleSlotEntity).save({
+        weekId: week.id,
+        date: '2026-11-18',
+        trainingTimeId: time.id,
+        trainerId: coach.id,
+      });
+      await fx.ds.getRepository(ScheduleBookingEntity).save([
+        { slotId: slot.id, traineeId: profile.id },
+        { slotId: slot.id, traineeId: mia.id },
+      ]);
+      const training = await fx.moduleRef
+        .get(SchedulesService)
+        .training(slot.id);
+      expect(training.trainees.map((t) => [t.name, t.photoUrl]).sort()).toEqual(
+        [
+          ['Ivan Petrov', mine.thumbnailUrl],
+          ['Mia', null],
+        ],
+      );
+
+      // Accounts: the connected profile's photo (trainee or trainer), none unconnected.
+      const coachAccount = await fx.ds.getRepository(AccountEntity).save({
+        email: 'coach@example.com',
+        passwordHash: null,
+        role: AccountRole.TRAINER,
+        status: AccountStatus.ACTIVE,
+        trainerProfileId: coach.id,
+      });
+      const loose = await fx.ds.getRepository(AccountEntity).save({
+        email: 'new@example.com',
+        passwordHash: null,
+        role: AccountRole.TRAINEE,
+        status: AccountStatus.ACTIVE,
+      });
+      const accounts = fx.moduleRef.get(AccountAdminService);
+      const all = await accounts.list({ link: 'all' });
+      const photoOf = (id: string) =>
+        all.find((a) => a.id === id)?.profile?.photoUrl;
+      expect(photoOf(account.id)).toBe(mine.thumbnailUrl);
+      expect(photoOf(coachAccount.id)).toBe(coachs.thumbnailUrl);
+      expect(all.find((a) => a.id === loose.id)?.profile).toBeNull();
+      expect((await accounts.details(account.id)).profile?.photoUrl).toBe(
+        mine.thumbnailUrl,
+      );
     });
 
     it('puts the thumbnail of trainees and trainers on the leaderboards, null without a photo', async () => {

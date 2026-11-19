@@ -316,6 +316,7 @@ describe('Subscriptions (e2e)', () => {
             traineeId: trainee.id,
             name: 'Ana',
             nickname: null,
+            photoUrl: null,
             planTitle: plan.title,
             activeSubscriptions: 0,
             remainingCredits: null,

@@ -90,7 +90,7 @@ describe('account-view', () => {
         row({ traineeProfileId: 't-1', traineeProfile: trainee }),
         lookups,
       ).profile,
-    ).toEqual({ type: 'trainee', ...trainee });
+    ).toEqual({ type: 'trainee', ...trainee, photoUrl: null });
 
     const trainer = {
       id: 'tr-1',
@@ -107,7 +107,44 @@ describe('account-view', () => {
         }),
         lookups,
       ).profile,
-    ).toEqual({ type: 'trainer', ...trainer });
+    ).toEqual({ type: 'trainer', ...trainer, photoUrl: null });
+  });
+
+  it("gives the connected profile's photo thumbnail from the lookups", () => {
+    const photos = {
+      trainee: new Map([['t-1', 'https://media.test/t-1/s128.webp']]),
+      trainer: new Map([['tr-1', 'https://media.test/tr-1/s128.webp']]),
+    };
+    const profile = { name: 'X', nickname: null, isActive: true };
+    expect(
+      accountView(
+        row({
+          traineeProfileId: 't-1',
+          traineeProfile: { id: 't-1', ...profile },
+        }),
+        { ...lookups, photos },
+      ).profile?.photoUrl,
+    ).toBe('https://media.test/t-1/s128.webp');
+    expect(
+      accountView(
+        row({
+          role: AccountRole.TRAINER,
+          trainerProfileId: 'tr-1',
+          trainerProfile: { id: 'tr-1', ...profile },
+        }),
+        { ...lookups, photos },
+      ).profile?.photoUrl,
+    ).toBe('https://media.test/tr-1/s128.webp');
+    // A profile id of the other kind is never mixed up.
+    expect(
+      accountView(
+        row({
+          traineeProfileId: 'tr-1',
+          traineeProfile: { id: 'tr-1', ...profile },
+        }),
+        { ...lookups, photos },
+      ).profile?.photoUrl,
+    ).toBeNull();
   });
 
   it('isLinked: either profile id connects the account', () => {

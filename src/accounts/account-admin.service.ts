@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ProfilePhotosService } from '../profile-photos/profile-photos.service';
 import { EntityManager, In, Repository } from 'typeorm';
 import { AccountRole } from '../common/enums/account-role.enum';
 import {
@@ -42,6 +43,7 @@ export class AccountAdminService {
   constructor(
     @InjectRepository(AccountEntity)
     private readonly repo: Repository<AccountEntity>,
+    private readonly photos: ProfilePhotosService,
   ) {}
 
   async list(query: ListAccountsQueryDto): Promise<AccountView[]> {
@@ -185,6 +187,14 @@ export class AccountAdminService {
     const lookups = {
       gymSubscriptions: byId(gymSubscriptions),
       gyms: byId(gyms),
+      photos: await this.photos.thumbnails({
+        traineeProfileIds: accounts
+          .map((a) => a.traineeProfileId)
+          .filter((id): id is string => !!id),
+        trainerProfileIds: accounts
+          .map((a) => a.trainerProfileId)
+          .filter((id): id is string => !!id),
+      }),
     };
     return accounts.map((acc) => accountView(acc, lookups));
   }
