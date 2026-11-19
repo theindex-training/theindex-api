@@ -396,6 +396,129 @@ describe('SettlementsService (integration)', () => {
     });
   });
 
+  describe("SET-19 a TIME pass is paid by the report of the period it ends in (the owner's example)", () => {
+    /**
+     * $100 for 30 days, bought Jan 12 (ends Feb 11). Ten trainings within the pass: one on Jan 13,
+     * six from Jan 15 to Jan 31, three from Feb 1 to Feb 11. Neither January report pays any of
+     * them (the price per training isn't known yet); the Feb 1-15 report pays all ten, $10 each,
+     * January's carried over, to whoever led each one.
+     */
+    async function timePassExample(fx: Fixtures) {
+      const { attend, buy, coachA, coachB } = await world(fx);
+      const sub = await buy((await fx.timePlan(30, 10000)).id, {
+        startsAt: '2026-01-12T08:00:00.000Z', // 10:00 Sofia
+      });
+      expect(sub.endsAt).toEqual(new Date('2026-02-11T08:00:00.000Z'));
+      const led = (day: string, coach: { id: string }) =>
+        attend(`${day}T16:00:00.000Z`, { trainerId: coach.id }); // 18:00 Sofia
+      const firstHalf = [
+        await led('2026-01-13', coachA),
+        await led('2026-01-15', coachA),
+      ];
+      const secondHalf = [
+        await led('2026-01-17', coachB),
+        await led('2026-01-20', coachA),
+        await led('2026-01-23', coachA),
+        await led('2026-01-27', coachB),
+        await led('2026-01-31', coachA),
+      ];
+      const february = [
+        await led('2026-02-02', coachA),
+        await led('2026-02-06', coachB),
+        await led('2026-02-10', coachA),
+      ];
+      const reports = {
+        jan1: await fx.report('2026-01-01', '2026-01-15'),
+        jan2: await fx.report('2026-01-16', '2026-01-31'),
+        feb1: await fx.report('2026-02-01', '2026-02-15'),
+      };
+      return { sub, coachA, coachB, firstHalf, secondHalf, february, reports };
+    }
+
+    it('neither January report pays them: each lists its own as waiting for the pass to end on Feb 11', async () => {
+      const fx = fixtures();
+      const { sub, firstHalf, secondHalf, reports } = await timePassExample(fx);
+
+      for (const [report, own] of [
+        [reports.jan1, firstHalf],
+        [reports.jan2, secondHalf],
+      ] as const) {
+        const { lines, waiting } = await fx.settlements.getById(report.id);
+        expect(await paidIds(fx, report.id)).toEqual([]);
+        expect(lines.every((l) => l.amountCents === 0)).toBe(true);
+        expect(waiting.map((w) => [w.attendanceId, w.reason])).toEqual(
+          own.map((a) => [a.id, 'TIME_PASS_NOT_ENDED']),
+        );
+        expect(
+          waiting.every(
+            (w) => w.availableFrom?.getTime() === sub.endsAt!.getTime(),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it('the Feb 1-15 report pays all ten at $10 each, January carried over, even while January is still a draft', async () => {
+      const fx = fixtures();
+      const { coachA, coachB, firstHalf, secondHalf, february, reports } =
+        await timePassExample(fx);
+      const january = [...firstHalf, ...secondHalf];
+
+      const { rows } = await fx.settlements.allocations(reports.feb1.id, {});
+      expect(
+        rows.map((r) => [r.attendanceId, r.valueCents, r.fromEarlierPeriod]),
+      ).toEqual([
+        ...january.map((a) => [a.id, 1000, true]),
+        ...february.map((a) => [a.id, 1000, false]),
+      ]);
+      expect((await fx.settlements.getById(reports.feb1.id)).lines).toEqual([
+        expect.objectContaining({
+          trainerId: coachA.id,
+          amountCents: 7000,
+          attendanceCount: 7,
+          timeCents: 7000,
+          earlierPeriodsCents: 5000,
+          earlierPeriodsCount: 5,
+        }),
+        expect.objectContaining({
+          trainerId: coachB.id,
+          amountCents: 3000,
+          attendanceCount: 3,
+          earlierPeriodsCents: 2000,
+          earlierPeriodsCount: 2,
+        }),
+      ]);
+    });
+
+    it('finalizing in order pays $0, $0, then $100, and each training is settled once', async () => {
+      const fx = fixtures();
+      const { firstHalf, secondHalf, february, reports } =
+        await timePassExample(fx);
+
+      await fx.settlements.finalize(reports.jan1.id);
+      await fx.settlements.finalize(reports.jan2.id);
+      await fx.settlements.finalize(reports.feb1.id);
+
+      expect(
+        (await settlementOutTxs(fx)).map((t) => [t.sourceId, t.amountCents]),
+      ).toEqual([[reports.feb1.id, -10000]]);
+      const paidInFeb = (await fx.allocationsOf(reports.feb1.id))
+        .map((a) => a.attendanceId)
+        .sort();
+      expect(paidInFeb).toEqual(
+        [...firstHalf, ...secondHalf, ...february].map((a) => a.id).sort(),
+      );
+      expect(await fx.allocationsOf(reports.jan1.id)).toEqual([]);
+      expect(await fx.allocationsOf(reports.jan2.id)).toEqual([]);
+      // Nothing of January waits any more: the February report paid it.
+      expect((await fx.settlements.getById(reports.jan1.id)).waiting).toEqual(
+        [],
+      );
+      expect((await fx.settlements.getById(reports.jan2.id)).waiting).toEqual(
+        [],
+      );
+    });
+  });
+
   describe('finalize', () => {
     async function twoPunchTrainings(fx: Fixtures) {
       const w = await world(fx);

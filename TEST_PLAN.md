@@ -89,6 +89,7 @@ Code: `settlements/settlements.service.ts`, `settlements-cron.service.ts`, `sett
 - [x] **SET-05** [I] P0. PUNCH value = `splitCents(paidCents, initialCredits)` by `(trainedAt, id)`; the unused credits are never paid.
 - [x] **SET-06** [I] P0. A PUNCH training keeps its place in the pass across periods.
 - [x] **SET-07/SET-09** [I] P0. A TIME pass waits until it ends (`TIME_PASS_NOT_ENDED`), then the report of the period it ends in pays all its trainings, the earlier ones carried over.
+- [x] **SET-19** [I] P0. The owner's example: a $100, 30-day TIME pass bought Jan 12 (ends Feb 11) with 10 trainings (Jan 13, six Jan 15–31, three Feb 1–11). The Jan 1–15 and Jan 16–31 reports pay none (they list them as waiting for Feb 11); the Feb 1–15 report pays all ten at $10, January's carried over, to whoever led each; finalizing in order pays $0, $0, $100. The pure spec adds the 20-training variant ($5 each).
 - [x] **SET-10** [I] P0. A training is paid once: a second (old, duplicate) report for the same period pays nothing for it.
 - [x] **SET-15** [I] P0. Unpaid trainings covered by a pass bought later are paid by the report of the purchase.
 - [x] **SET-16** [I] P1. A pass bought after the period end waits for the next report (`NEXT_REPORT`).

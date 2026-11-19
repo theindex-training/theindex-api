@@ -188,6 +188,31 @@ describe('calculateSettlement', () => {
     ]);
   });
 
+  it('the price per training of a TIME pass depends on how many trainings it had: 10 -> $10, 20 -> $5', () => {
+    const FEB_1 = periodBounds({
+      periodStart: '2026-02-01',
+      periodEnd: '2026-02-15',
+    });
+    const sub = time('t', '2026-02-11T08:00:00Z', 10000); // $100, bought Jan 12, ends Feb 11
+    const trainings = (count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        training(
+          `a${String(i).padStart(2, '0')}`,
+          new Date(Date.UTC(2026, 0, 13, 16) + i * 36e5 * 24).toISOString(),
+          't',
+        ),
+      );
+
+    for (const [count, each] of [
+      [10, 1000],
+      [20, 500],
+    ]) {
+      const { items } = run(FEB_1, trainings(count), [sub]);
+      expect(items).toHaveLength(count);
+      expect(new Set(items.map((i) => i.valueCents))).toEqual(new Set([each]));
+    }
+  });
+
   it('a TIME pass ending exactly at the period end is paid by it; 1 ms later it waits', () => {
     const attendances = [training('a', '2026-11-05T10:00:00Z', 't')];
 
