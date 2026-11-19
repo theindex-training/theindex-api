@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AttendanceEntity } from '../attendance/attendance.entity';
 import { CashRegisterModule } from '../cash-register/cash-register.module';
 import { PlanEntity } from '../plans/plan.entity';
+import { ProfilePhotosModule } from '../profile-photos/profile-photos.module';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { SubscriptionRenewalsController } from './subscription-renewals.controller';
 import { SubscriptionRenewalsService } from './subscription-renewals.service';
@@ -15,6 +16,7 @@ import { SubscriptionsService } from './subscriptions.service';
 @Module({
   imports: [
     CashRegisterModule,
+    ProfilePhotosModule,
     TypeOrmModule.forFeature([
       SubscriptionEntity,
       PlanEntity,

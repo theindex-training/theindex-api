@@ -27,12 +27,12 @@ export class TrainerProfilesController {
   @Get()
   list(@Query('active') active?: string) {
     const parsed = active === undefined ? undefined : active === 'true';
-    return this.trainersService.list(parsed);
+    return this.trainersService.listWithPhotos(parsed);
   }
 
   @Get(':id')
   get(@Param('id') id: string) {
-    return this.trainersService.getById(id);
+    return this.trainersService.getWithPhoto(id);
   }
 
   @Post()

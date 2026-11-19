@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ProfilePhotosModule } from '../profile-photos/profile-photos.module';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import {
@@ -23,6 +24,7 @@ import { TrainingCalendarController } from './training-calendar.controller';
       ScheduleSlotEntity,
       ScheduleBookingEntity,
     ]),
+    ProfilePhotosModule,
   ],
   controllers: [
     ScheduleTemplatesController,

@@ -50,8 +50,11 @@ export type AccountView = {
     facebook: string | null;
     tiktok: string | null;
   } | null;
-  /** The profile the account is connected to (what login uses), or null. */
-  profile: (ProfileRow & { type: ProfileType }) | null;
+  /**
+   * The profile the account is connected to (what login uses), with its profile photo's thumbnail
+   * (`photoUrl`, null without one), or null.
+   */
+  profile: (ProfileRow & { type: ProfileType; photoUrl: string | null }) | null;
 };
 
 /** Whether the account is connected to a trainee or trainer profile. */
@@ -67,7 +70,12 @@ export function isLinked(
  */
 export function accountView(
   acc: AccountRow,
-  lookups: { gymSubscriptions: Map<string, Named>; gyms: Map<string, Named> },
+  lookups: {
+    gymSubscriptions: Map<string, Named>;
+    gyms: Map<string, Named>;
+    /** Profile photo thumbnails by profile id; none when left out. */
+    photos?: { trainee: Map<string, string>; trainer: Map<string, string> };
+  },
 ): AccountView {
   const reg = acc.registration;
   const profileOf = (
@@ -81,6 +89,7 @@ export function accountView(
           name: row.name,
           nickname: row.nickname,
           isActive: row.isActive,
+          photoUrl: lookups.photos?.[type].get(row.id) ?? null,
         }
       : null;
 

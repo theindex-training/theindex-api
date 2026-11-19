@@ -157,6 +157,44 @@ describe('Profile photos (e2e)', () => {
     expect(messageOf(gone.body)).toBe('You have no profile photo');
   });
 
+  it("gives staff a trainer's photo on the trainers list and the trainer's details", async () => {
+    const c = ctx();
+    const coach = await c.trainer('Coach Ivo');
+    const token = await c.provisionAndLogin('trainer', coach.id);
+    const res = await c
+      .http()
+      .put('/api/my-profile/photo')
+      .set(auth(token))
+      .field('x', '0')
+      .field('y', '0')
+      .field('width', '0.6666')
+      .field('height', '1')
+      .field('rotation', '0')
+      .attach('file', picture, 'coach.jpg')
+      .expect(200);
+    const photo = res.body as PhotoBody;
+
+    const admin = await c.loginAsAdmin();
+    const list = await c
+      .http()
+      .get('/api/trainers')
+      .set(auth(admin))
+      .expect(200);
+    expect(
+      (list.body as { id: string; photoUrl: string | null }[]).find(
+        (t) => t.id === coach.id,
+      )?.photoUrl,
+    ).toBe(photo.thumbnailUrl);
+    const one = await c
+      .http()
+      .get(`/api/trainers/${coach.id}`)
+      .set(auth(admin))
+      .expect(200);
+    expect((one.body as { photoUrl: string }).photoUrl).toBe(
+      photo.thumbnailUrl,
+    );
+  });
+
   it('checks the crop fields (400)', async () => {
     const c = ctx();
     const token = await trainee();
