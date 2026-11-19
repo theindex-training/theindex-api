@@ -574,7 +574,8 @@ describe('AttendanceService read path (integration)', () => {
       const { ana, bob, attend } = await world(fx);
       const punch = await fx.punchPlan(3, 10000);
       const time = await fx.timePlan(10, 9001);
-      await fx.buy(ana.id, punch.id);
+      const anaSub = await fx.buy(ana.id, punch.id);
+      await fx.boughtAt(anaSub.id, '2025-11-01T00:00:00.000Z');
       await fx.buy(bob.id, time.id, { startsAt: '2025-12-01T00:00:00.000Z' });
 
       const ids: string[] = [];
@@ -585,11 +586,13 @@ describe('AttendanceService read path (integration)', () => {
       // Bob's TIME pass has ended (Dec 11), so its value is final.
       freezeTime('2025-12-20T00:00:00.000Z');
 
-      const { settlement } = await fx.settlements.generate({
-        periodStart: '2025-12-01',
-        periodEnd: '2025-12-31',
-      });
-      const allocations = await fx.allocationValues(settlement.id);
+      const settlement = await fx.report('2025-12-01', '2025-12-15');
+      const allocations = new Map(
+        (await fx.settlements.allocations(settlement.id, {})).rows.map((r) => [
+          r.attendanceId,
+          r.valueCents,
+        ]),
+      );
       const p = await prices(fx, {
         startDate: '2025-12-01',
         endDate: '2025-12-31',

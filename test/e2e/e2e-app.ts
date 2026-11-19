@@ -19,6 +19,7 @@ import { GymLocationEntity } from '../../src/gym-locations/gym-location.entity';
 import { PlanEntity } from '../../src/plans/plan.entity';
 import { SettlementAllocationEntity } from '../../src/settlements/settlement-allocation.entity';
 import { SettlementLineEntity } from '../../src/settlements/settlement-line.entity';
+import { SettlementStatus } from '../../src/settlements/enums/settlement-status.enum';
 import { SettlementEntity } from '../../src/settlements/settlement.entity';
 import { SubscriptionEntity } from '../../src/subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../../src/trainee-profiles/trainee-profile.entity';
@@ -250,6 +251,30 @@ export class E2eContext {
       durationDays: null,
       isActive: true,
     });
+  }
+
+  /** A DRAFT settlement report for a period, as the automatic job creates one. */
+  report(periodStart: string, periodEnd: string) {
+    return this.ds.getRepository(SettlementEntity).save({
+      periodStart,
+      periodEnd,
+      generatedAt: new Date(),
+      status: SettlementStatus.DRAFT,
+      finalizedAt: null,
+      notes: null,
+    });
+  }
+
+  /**
+   * Sets when every subscription was bought. `createdAt` comes from the database clock, and a
+   * settlement pays a PUNCH-paid training only from the purchase on.
+   */
+  async allBoughtAt(at: string) {
+    await this.ds
+      .createQueryBuilder()
+      .update(SubscriptionEntity)
+      .set({ createdAt: new Date(at) })
+      .execute();
   }
 
   // ---- reads ----

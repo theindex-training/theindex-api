@@ -1,7 +1,5 @@
 import {
-  Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
   Param,
@@ -16,7 +14,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
-import { GenerateSettlementDto } from './dto/generate-settlement.dto';
 import { ListAllocationsQueryDto } from './dto/list-allocations.query.dto';
 import { SettlementsService } from './settlements.service';
 
@@ -29,6 +26,10 @@ type AuthenticatedRequest = Request & {
   user: SettlementJwtUser;
 };
 
+/**
+ * Settlement reports are created automatically, one per half month (`SettlementsCronService`):
+ * staff review them and an admin finalizes them, oldest first. Nobody creates or deletes one.
+ */
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
 @Roles(AccountRole.ADMIN, AccountRole.TRAINER)
@@ -47,20 +48,6 @@ export class SettlementsController {
     return trainerProfileId;
   }
 
-  @Post()
-  generate(
-    @Body() dto: GenerateSettlementDto,
-    @Req() req: AuthenticatedRequest,
-  ) {
-    if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException(
-        'TRAINER cannot generate settlement reports',
-      );
-    }
-
-    return this.settlementsService.generate(dto);
-  }
-
   @Get()
   list() {
     return this.settlementsService.list();
@@ -74,15 +61,6 @@ export class SettlementsController {
     }
 
     return this.settlementsService.getById(id);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
-    if (req.user.role === AccountRole.TRAINER) {
-      throw new ForbiddenException('TRAINER cannot delete settlement reports');
-    }
-
-    return this.settlementsService.remove(id);
   }
 
   @Post(':id/finalize')

@@ -11,6 +11,7 @@ import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { splitCents } from '../settlements/settlement-allocation.util';
+import { assertAttendanceOpen } from '../settlements/settlement-lock';
 import { SubscriptionResolverService } from '../subscriptions/subscription-resolver.service';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
@@ -51,6 +52,7 @@ export class AttendanceService {
     const trainedAt = resolveTrainedAt(dto);
 
     return this.dataSource.transaction(async (manager) => {
+      await assertAttendanceOpen(manager, trainedAt);
       return this.createOneInTransaction(
         manager,
         dto.traineeId,
@@ -68,6 +70,7 @@ export class AttendanceService {
     await this.validateBatchOrThrow(dto, traineeIds);
 
     return this.dataSource.transaction(async (manager) => {
+      await assertAttendanceOpen(manager, trainedAt);
       const results: any[] = [];
 
       for (const traineeId of traineeIds) {
@@ -100,6 +103,10 @@ export class AttendanceService {
     const trainedAt = resolveTrainedAt(dto);
 
     const trainees = await this.validateBatchOrThrow(dto, traineeIds);
+    // Refused like the save would be, so the summary never offers what can't be saved.
+    await this.dataSource.transaction((manager) =>
+      assertAttendanceOpen(manager, trainedAt),
+    );
 
     const subscriptions = await this.subRepo.find({
       where: { traineeId: In(traineeIds), status: SubscriptionStatus.ACTIVE },
@@ -770,6 +777,7 @@ export class AttendanceService {
 
       const attendance = await attendanceRepo.findOne({ where: { id } });
       if (!attendance) throw new NotFoundException('Attendance not found');
+      await assertAttendanceOpen(manager, attendance.trainedAt);
 
       if (
         attendance.paymentStatus === AttendancePaymentStatus.PAID &&

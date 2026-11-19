@@ -22,36 +22,6 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the code has an explicit race branch ("Edge case (race): revert this attendance to UNPAID"), so the author expected the loser to be stored as UNPAID, not to fail. Not listed in `TEST_PLAN.md`; found while writing ATT-09. The same pattern (insert with FK, then lock the parent) probably applies to batch creates for trainees who share nothing, but that isn't tested.
 - Impact / who would notice: staff recording attendance from two devices at once (or a double-click / retry) for the same trainee get an error toast for one of them; the attendance is silently missing until re-entered. Low frequency, and no money is lost.
 
-## settlements: the same period can be generated and finalized more than once
-- Test: `src/settlements/settlements.service.int-spec.ts` > `SET-10 the same period can be generated twice and both can be finalized (money out twice)`
-- Current behavior: `generate` always creates a new DRAFT settlement with full allocations for every attendance in the period. Nothing checks for an existing settlement for the same or an overlapping period (the unique index is per settlement). Finalizing both takes the payout out of the cash register twice.
-- Why it looks unintended: a payout for the same trainer work should happen once. Nothing in the UI flow needs duplicate settlements.
-- Impact / who would notice: the owner. A second "generate + finalize" for a month that was already paid doubles the trainer payout and drains the register.
-
-## settlements: TIME subscriptions that are still running are never paid by a later settlement
-- Test: `src/settlements/settlements.service.int-spec.ts` > `SET-09 pending TIME value is never paid by a later period; only regenerating the old period pays`
-- Current behavior: when a TIME sub hasn't ended at `generatedAt`, its in-period attendance is allocated 0 and listed in `info.pendingTimeSubscriptions`. Later settlements only look at their own period, so after the sub ends that value is never picked up. The only way to pay it is to generate the old period again, which creates a second settlement for it (see the previous entry).
-- Why it looks unintended: the `pendingTimeSubscriptions` info implies the value is deferred, not dropped. In practice it's dropped unless someone remembers to regenerate.
-- Impact / who would notice: trainers. Any month that is settled before the trainee's TIME pass ends underpays them for that pass.
-
-## settlements: finalize pays the line totals stored at generation time
-- Test: `src/settlements/settlements.service.int-spec.ts` > `SET-25 finalize pays the line amounts stored at generation, not the remaining allocations`
-- Current behavior: deleting an attendance after generation cascades its allocation row away, but `settlement_lines.amountCents` is not recalculated. `finalize` sums the stale lines, so it pays out for attendance that no longer exists.
-- Why it looks unintended: the allocations (the per-attendance detail) and the lines (the total paid) disagree, and the money follows the stale side.
-- Impact / who would notice: the owner. Correcting a wrong attendance entry between "generate" and "finalize" still pays for it.
-
-## attendance: deleting settled attendance leaves settlement lines stale (even FINAL ones)
-- Test: `src/attendance/attendance.service.int-spec.ts` > `ATT-24 deleting settled attendance drops its allocation but not the (FINAL) settlement line`
-- Current behavior: attendance delete cascades the `settlement_allocations` row (FK `ON DELETE CASCADE`) but leaves `settlement_lines` unchanged, including in FINAL settlements whose money has already gone out.
-- Why it looks unintended: a FINAL settlement is a financial record; its detail rows silently disappear and stop adding up to the line totals.
-- Impact / who would notice: anyone auditing a past payout. `GET /settlements/:id/allocations` no longer explains `amountCents`.
-
-## settlements: a FINAL settlement can be deleted and the cash-out stays
-- Test: `src/settlements/settlements.service.int-spec.ts` > `SET-31 a FINAL settlement can be deleted; its cash-out stays and loses sourceDetails`
-- Current behavior: `remove` deletes any settlement regardless of status. For a FINAL one the `SETTLEMENT_OUT` transaction and the reduced balance remain; the cash register shows the tx with `sourceDetails: null`.
-- Why it looks unintended: it destroys the only record explaining a cash movement, and nothing reverses the money.
-- Impact / who would notice: the owner reconciling the cash register; a payout appears with no settlement behind it.
-
 ## subscriptions: deleting a subscription does not reverse its payment
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-21 deleting does not reverse the cash register; sourceDetails becomes null`
 - Current behavior: `remove` frees the attendance and deletes the subscription, but the `SUBSCRIPTION_IN` transaction and balance stay. The tx then has `sourceDetails: null`.
@@ -106,12 +76,6 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the two sides of the link disagree, and the message sends staff looking at the email instead of the real cause.
 - Impact / who would notice: staff trying to give a profile a new account; there is no API path that clears the account side except deleting (disabling) the old account.
 
-## settlements: period boundaries use server-local time, not Europe/Sofia
-- Test: `src/settlements/settlements.service.int-spec.ts` > `SET-02 attendance at 2025-12-01 01:00 Sofia (23:00Z Nov 30) lands in November, not December`
-- Current behavior: `getLocalDateInterval` builds `[periodStart 00:00, periodEnd+1 00:00)` in the **server** timezone. Under UTC (the Docker default, see `TEST_PLAN.md` Q1), attendance between 00:00 and 02:00/03:00 Sofia time on the first day of a month falls into the previous month's settlement.
-- Why it looks unintended: everything else (attendance entry, `/attendance/dates`) treats gym time as Europe/Sofia.
-- Impact / who would notice: trainers with late-night or very early sessions around month boundaries; amounts move between months. Not an issue if production sets `TZ=Europe/Sofia` (open question Q1). The Sofia behavior is pinned by `src/settlements/settlements.service.sofia-int-spec.ts` (DT-06, `npm run test:tz-sofia`).
-
 ## subscriptions: date-only `startsAt` is UTC midnight
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-03 date-only startsAt is UTC midnight, not Europe/Sofia midnight`
 - Current behavior: `startsAt: '2025-12-10'` is stored as `2025-12-10T00:00:00.000Z`, which is 02:00 Sofia time. A TIME pass therefore starts and ends 2 h (3 h in summer) late in gym time.
@@ -129,12 +93,6 @@ Ordered by impact (money and data integrity first).
 - Current behavior: `resolveTrainedAt({ trainedDate: '2025-02-30' })` → 2025-03-02 12:00 Sofia; `trainedAt: '2025-01-15T25:00'` → 2025-01-16 01:00 Sofia. `getLocalDateInterval('2025-13-01', …)` starts on 2026-01-01 and `'2025-01-32'` on 2025-02-01. Only zero/non-numeric parts and out-of-range `trainedTime` are rejected.
 - Why it looks unintended: `trainedTime` is range-checked (24:00 → 400), so the same mistake in the date or in `trainedAt` was clearly meant to be an error too.
 - Impact / who would notice: a typo records attendance on another day, or a report/settlement silently covers a different period than the one typed.
-
-## settlements: an impossible period date (e.g. `2025-02-30`) returns 500 instead of 400
-- Test: `test/e2e/settlements.e2e-spec.ts` > `SET-03 impossible date 2025-02-30 passes validation but Postgres rejects it -> 500, nothing persisted`
-- Current behavior: `GenerateSettlementDto` only checks the `YYYY-MM-DD` shape, and `getLocalDateInterval` rolls `2025-02-30` over to 2025-03-02 without complaint (see the previous entry). `generate` then stores the **raw** string in the `date` columns `periodStart`/`periodEnd`, and Postgres rejects it (`22008 date/time field value out of range`). The client gets a generic 500; the transaction rolls back, so nothing is persisted. `TEST_PLAN.md` SET-03 expected a silent rollover; the observed result is a 500.
-- Why it looks unintended: a bad date in the request is a client error (400 with a message the frontend can show), and other invalid periods (`from > to`, wrong shape) do return 400.
-- Impact / who would notice: the admin generating a settlement who mistypes a date gets an unexplained server error. No data or money is affected.
 
 ## subscriptions cron: ended TIME passes become EXHAUSTED, never EXPIRED
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `CRON-01 exhausts ACTIVE TIME subs with endsAt < now only and returns the count`
@@ -279,6 +237,17 @@ Ordered by impact (money and data integrity first).
 # Fixed
 
 Entries move here once the behavior is fixed. The tests named here now assert the corrected behavior.
+
+## settlements: overlapping periods, unpaid TIME value, stale totals, deletable payouts (fixed by automatic settlement reports, Nov 2026)
+Seven entries fixed together when settlement reports became automatic (the owner's design: one report per half month, created by the API, reviewed and finalized by an admin, oldest first; see `TEST_PLAN.md` § 1).
+- **The same period could be generated and finalized more than once (SET-10).** Old: `generate` created a new DRAFT for any range, overlapping ones included, and finalizing each paid its trainings again. Fix: nobody chooses a period (no `POST /settlements`), the API creates one report per half month, and a training is paid by one FINAL report only (a report pays only trainings without a paid allocation in a FINAL report). Test: `settlements.service.int-spec.ts` > `SET-10 a training is paid once: a second report for the same period pays nothing for it`.
+- **Running TIME passes were never paid by a later settlement (SET-09).** Old: trainings on a TIME pass that hadn't ended got 0 and no later settlement looked at them. Fix: they wait (`TIME_PASS_NOT_ENDED`) and the report of the period the pass ends in pays all of them, carried over (`fromEarlierPeriod`). The same carry-over pays unpaid trainings that a pass bought later covers. Tests: `SET-07/SET-09 …`, `SET-15 …`.
+- **Finalize paid the line totals stored at generation (SET-25).** Old: deleting a training after generating still paid it. Fix: a draft stores nothing and is worked out when read and again when finalized. Test: `SET-25 pays what the draft pays at finalize time, not what it paid when created`.
+- **Deleting settled attendance left FINAL lines stale (ATT-24).** Old: the allocation cascaded away, the paid line stayed. Fix: attendance dated on or before the end of the latest FINAL report can be neither recorded nor deleted (409). Tests: `attendance.service.int-spec.ts` > `ATT-24 …`, `SET-50`, `SET-51`, e2e `SET-53`.
+- **A FINAL settlement could be deleted and its cash-out stayed (SET-31).** Fix: no route deletes a report (`DELETE /settlements/:id` is gone). Test: e2e `SET-03 no route creates or deletes a report …`.
+- **Period boundaries used the server's time zone (SET-02).** Fix: periods are `[start 00:00, end+1 00:00)` in Europe/Sofia whatever the server's zone. Tests: `SET-02 periods are gym-local (Europe/Sofia) half months`, DT-06 in `settlements.service.sofia-int-spec.ts`.
+- **An impossible period date returned 500 (SET-03).** Fix: there is no period input any more.
+- Remaining impact: reports finalized before the change (none in production: only manual drafts existed) are read as stored. The manual draft for Jan 1 – Nov 15, 2026 is worked out like any draft when it is finalized.
 
 ## subscriptions cron: one failed run crashed the API process and the daily job was never rescheduled (fixed in #49)
 - Test: `src/subscriptions/subscriptions-cron.service.int-spec.ts` > `CRON-03 a failed run is handled and the next run is still scheduled for 02:00 UTC the following day`; `CRON-03 a failure after a successful run does not stop the schedule either`

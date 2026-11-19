@@ -57,7 +57,6 @@ const NO_RESULTS = {
 };
 const RANDOM_RESULT_ID = '7d1d0b8e-3c5a-4f7e-9a8b-0c1d2e3f4a5b';
 
-const PERIOD = { periodStart: '2025-12-01', periodEnd: '2025-12-31' };
 // Valid ChangePasswordDto, so a TRAINEE on someone else's id reaches the
 // handler check (pipes run before the handler) instead of failing with 400.
 const CHANGE_PASSWORD = {
@@ -156,21 +155,8 @@ const MATRIX: Row[] = [
   r('GET /cash-register', ALLOW, GUARD, GUARD),
   r('POST /cash-register/transactions/manual', ALLOW, GUARD, GUARD),
 
-  r(
-    'POST /settlements',
-    ALLOW,
-    { handler: 'TRAINER cannot generate settlement reports' },
-    GUARD,
-    PERIOD,
-  ),
   r('GET /settlements', ALLOW, ALLOW, GUARD),
   r('GET /settlements/:id', ALLOW, ALLOW, GUARD),
-  r(
-    'DELETE /settlements/:id',
-    ALLOW,
-    { handler: 'TRAINER cannot delete settlement reports' },
-    GUARD,
-  ),
   r(
     'POST /settlements/:id/finalize',
     ALLOW,

@@ -185,31 +185,39 @@ describe('Cross-cutting (e2e)', () => {
     ).toBe(true);
     expect(await c.balance()).toBe(50000 + 10000 + 9000);
 
-    // 4. Settle December.
-    const generated = await c
-      .http()
-      .post('/api/settlements')
-      .set(admin)
-      .send({ periodStart: '2025-12-01', periodEnd: '2025-12-31' })
-      .expect(201);
-    const { settlement, lines } = generated.body as {
-      settlement: { id: string };
-      lines: Line[];
-    };
-    // Alice: PUNCH 1000 + TIME 9000/3 * 2 = 7000. Bob: 1000 + 3000 = 4000.
-    expect(
-      lines.map((l) => ({
+    // 4. Settle December: two automatic half-month reports. Both purchases date from Dec 1
+    // (createdAt is the database clock, so it is set here). The TIME pass ends on Dec 31,
+    // so the second half pays its trainings, the first half's carried over.
+    await c.allBoughtAt('2025-12-01T00:00:00.000Z');
+    const first = await c.report('2025-12-01', '2025-12-15');
+    const second = await c.report('2025-12-16', '2025-12-31');
+    const linesOf = async (id: string) =>
+      (
+        (await c.http().get(`/api/settlements/${id}`).set(admin).expect(200))
+          .body as { lines: Line[] }
+      ).lines.map((l) => ({
         trainerId: l.trainerId,
         amountCents: l.amountCents,
-      })),
-    ).toEqual([
-      { trainerId: alice.id, amountCents: 7000 },
-      { trainerId: bob.id, amountCents: 4000 },
-    ]);
-
+      }));
+    // PUNCH 1000 each; then TIME 9000/3: Alice 2 x 3000, Bob 3000.
+    expect(await linesOf(first.id)).toEqual(
+      [
+        { trainerId: alice.id, amountCents: 1000 },
+        { trainerId: bob.id, amountCents: 1000 },
+      ].sort((a, b) => (a.trainerId < b.trainerId ? -1 : 1)),
+    );
     await c
       .http()
-      .post(`/api/settlements/${settlement.id}/finalize`)
+      .post(`/api/settlements/${first.id}/finalize`)
+      .set(admin)
+      .expect(201);
+    expect(await linesOf(second.id)).toEqual([
+      { trainerId: alice.id, amountCents: 6000 },
+      { trainerId: bob.id, amountCents: 3000 },
+    ]);
+    await c
+      .http()
+      .post(`/api/settlements/${second.id}/finalize`)
       .set(admin)
       .expect(201);
 
@@ -231,7 +239,8 @@ describe('Cross-cutting (e2e)', () => {
         ['MANUAL_IN', 50000],
         ['SUBSCRIPTION_IN', 10000],
         ['SUBSCRIPTION_IN', 9000],
-        ['SETTLEMENT_OUT', -11000],
+        ['SETTLEMENT_OUT', -2000],
+        ['SETTLEMENT_OUT', -9000],
       ].sort(),
     );
   });

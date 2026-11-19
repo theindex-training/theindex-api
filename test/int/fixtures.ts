@@ -13,6 +13,7 @@ import { GymSubscriptionEntity } from '../../src/gym-subscriptions/gym-subscript
 import { PlanEntity } from '../../src/plans/plan.entity';
 import { SettlementAllocationEntity } from '../../src/settlements/settlement-allocation.entity';
 import { SettlementLineEntity } from '../../src/settlements/settlement-line.entity';
+import { SettlementStatus } from '../../src/settlements/enums/settlement-status.enum';
 import { SettlementEntity } from '../../src/settlements/settlement.entity';
 import { SettlementsService } from '../../src/settlements/settlements.service';
 import { SubscriptionResolverService } from '../../src/subscriptions/subscription-resolver.service';
@@ -153,6 +154,32 @@ export class Fixtures {
       remainingCredits: null,
       ...row,
     });
+  }
+
+  /**
+   * A DRAFT settlement report for a period, as `createDueReports` creates one (or an old manual
+   * report, whose period need not be a half month).
+   */
+  report(periodStart: string, periodEnd: string) {
+    return this.ds.getRepository(SettlementEntity).save({
+      periodStart,
+      periodEnd,
+      generatedAt: new Date(),
+      status: SettlementStatus.DRAFT,
+      finalizedAt: null,
+      notes: null,
+    });
+  }
+
+  /**
+   * Sets when a subscription was bought. `createdAt` comes from the database clock (real time),
+   * and settlements pay a PUNCH-paid training from the purchase on.
+   */
+  async boughtAt(subscriptionId: string, at: string) {
+    await this.ds
+      .getRepository(SubscriptionEntity)
+      .update({ id: subscriptionId }, { createdAt: new Date(at) });
+    return this.sub(subscriptionId);
   }
 
   insertAttendance(row: DeepPartial<AttendanceEntity>) {
