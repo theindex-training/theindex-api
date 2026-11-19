@@ -156,6 +156,7 @@ const MATRIX: Row[] = [
   r('POST /cash-register/transactions/manual', ALLOW, GUARD, GUARD),
 
   r('GET /settlements', ALLOW, ALLOW, GUARD),
+  r('POST /settlements/create-due', ALLOW, GUARD, GUARD),
   r('GET /settlements/:id', ALLOW, ALLOW, GUARD),
   r(
     'POST /settlements/:id/finalize',

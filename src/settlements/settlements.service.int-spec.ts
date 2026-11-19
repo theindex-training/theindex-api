@@ -136,6 +136,53 @@ describe('SettlementsService (integration)', () => {
     });
   });
 
+  describe('create-due (the job on demand)', () => {
+    it('AUTO-05 creates every due report after the latest one, oldest first, never before it, then 409 says when the next comes', async () => {
+      const fx = fixtures();
+      // Production: the manual report from Jan 1 to Nov 15, 2026.
+      await fx.report('2026-01-01', '2026-11-15');
+      freezeTime('2027-01-02T10:00:00.000Z');
+
+      const { created } = await fx.settlements.createDueReportsNow();
+
+      expect(
+        created.map((s) => [s.periodStart, s.periodEnd, s.status]),
+      ).toEqual([
+        ['2026-11-16', '2026-11-30', 'DRAFT'],
+        ['2026-12-01', '2026-12-15', 'DRAFT'],
+        ['2026-12-16', '2026-12-31', 'DRAFT'],
+      ]);
+      expect(
+        (await fx.settlementRows()).map((s) => s.periodStart).sort(),
+      ).toEqual(['2026-01-01', '2026-11-16', '2026-12-01', '2026-12-16']);
+
+      const err = await rejectionOf(fx.settlements.createDueReportsNow());
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.message).toBe(
+        'The report for 2026-12-16 to 2026-12-31 already exists; the next one (2027-01-01 to 2027-01-15) is created on 2027-01-16 at 04:00 Europe/Sofia time',
+      );
+      expect(await fx.settlementRows()).toHaveLength(4);
+    });
+
+    it('AUTO-06 creates nothing before 04:00 Sofia on the day after the period', async () => {
+      const fx = fixtures();
+      await fx.report('2026-01-01', '2026-11-15');
+      freezeTime('2026-12-01T01:59:00.000Z'); // 03:59 Sofia
+
+      const err = await rejectionOf(fx.settlements.createDueReportsNow());
+      expect(err.message).toBe(
+        'The report for 2026-01-01 to 2026-11-15 already exists; the next one (2026-11-16 to 2026-11-30) is created on 2026-12-01 at 04:00 Europe/Sofia time',
+      );
+
+      freezeTime('2026-12-01T02:00:00.000Z');
+      expect(
+        (await fx.settlements.createDueReportsNow()).created.map(
+          (s) => s.periodStart,
+        ),
+      ).toEqual(['2026-11-16']);
+    });
+  });
+
   describe('what a draft pays', () => {
     it('SET-02 periods are gym-local (Europe/Sofia) half months', async () => {
       const fx = fixtures();

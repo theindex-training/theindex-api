@@ -8,7 +8,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -28,7 +28,8 @@ type AuthenticatedRequest = Request & {
 
 /**
  * Settlement reports are created automatically, one per half month (`SettlementsCronService`):
- * staff review them and an admin finalizes them, oldest first. Nobody creates or deletes one.
+ * staff review them and an admin finalizes them, oldest first. Nobody chooses a period or deletes
+ * a report; `create-due` only runs the job's own rule on demand.
  */
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('jwt')
@@ -61,6 +62,16 @@ export class SettlementsController {
     }
 
     return this.settlementsService.getById(id);
+  }
+
+  @ApiOperation({
+    summary:
+      'ADMIN: create the settlement reports that are due now, as the daily 04:00 (Europe/Sofia) job does: every half month after the latest report whose period is over, oldest first. 409 when none is due. For checks and retries; the front never calls it.',
+  })
+  @Roles(AccountRole.ADMIN)
+  @Post('create-due')
+  createDue() {
+    return this.settlementsService.createDueReportsNow();
   }
 
   @Post(':id/finalize')

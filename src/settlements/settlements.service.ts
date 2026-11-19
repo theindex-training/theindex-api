@@ -27,11 +27,15 @@ import {
 } from './settlement-calculation';
 import { lockSettlements } from './settlement-lock';
 import {
+  periodAfter,
   periodBounds,
   periodEndsAt,
   periodsDue,
+  reportCreatedAt,
+  SETTLEMENT_CREATION_HOUR,
   SettlementPeriod,
 } from './settlement-periods';
+import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { SettlementLineEntity } from './settlement-line.entity';
 import { SettlementEntity } from './settlement.entity';
 
@@ -127,6 +131,30 @@ export class SettlementsService {
       );
     }
     return created;
+  }
+
+  /**
+   * The job's work on demand (`POST /api/settlements/create-due`, ADMIN): creates every report that
+   * is due now, oldest first, exactly as the 04:00 run would, and answers them. 409 when none is
+   * due, saying which report is the latest and when the next one comes.
+   */
+  async createDueReportsNow(): Promise<{ created: SettlementEntity[] }> {
+    const created = await this.createDueReports();
+    if (created.length) return { created };
+
+    const latest = await this.settlementRepo
+      .createQueryBuilder('s')
+      .orderBy('s.periodEnd', 'DESC')
+      .addOrderBy('s.periodStart', 'DESC')
+      .getOne();
+    if (!latest) {
+      // With no report at all one is always due, so this only happens in a race.
+      throw new ConflictException('No settlement report is due yet');
+    }
+    const next = periodAfter(latest.periodEnd);
+    throw new ConflictException(
+      `The report for ${latest.periodStart} to ${latest.periodEnd} already exists; the next one (${next.periodStart} to ${next.periodEnd}) is created on ${toGymLocalDate(reportCreatedAt(next))} at ${String(SETTLEMENT_CREATION_HOUR).padStart(2, '0')}:00 Europe/Sofia time`,
+    );
   }
 
   /** Every report, the latest period first. */

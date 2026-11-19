@@ -1,4 +1,5 @@
 import { SettlementStatus } from '../../src/settlements/enums/settlement-status.enum';
+import { periodsDue } from '../../src/settlements/settlement-periods';
 import { messageOf, setupE2eSuite } from './e2e-app';
 
 type Line = { trainerId: string; amountCents: number };
@@ -77,6 +78,43 @@ describe('Settlements (e2e)', () => {
       .set(auth)
       .expect(404);
 
+    expect(await c.settlementRows()).toHaveLength(1);
+  });
+
+  it('SET-45 POST /create-due (ADMIN) creates what the job would, then 409; TRAINER -> 403', async () => {
+    const c = ctx();
+    const admin = await c.loginAsAdmin();
+    const trainer = await c.trainer('Alice');
+    const trainerToken = await c.provisionAndLogin('trainer', trainer.id);
+    // With no report yet, the job creates the half month that ended last.
+    const [expected] = periodsDue(null, new Date());
+
+    const forbidden = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${trainerToken}`)
+      .expect(403);
+    expect(messageOf(forbidden.body)).toBe('Forbidden resource');
+
+    const res = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(201);
+    expect(res.body).toMatchObject({
+      created: [{ ...expected, status: 'DRAFT', finalizedAt: null }],
+    });
+
+    const again = await c
+      .http()
+      .post('/api/settlements/create-due')
+      .set('Authorization', `Bearer ${admin}`)
+      .expect(409);
+    expect(messageOf(again.body)).toMatch(
+      new RegExp(
+        `^The report for ${expected.periodStart} to ${expected.periodEnd} already exists; the next one`,
+      ),
+    );
     expect(await c.settlementRows()).toHaveLength(1);
   });
 

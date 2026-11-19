@@ -81,6 +81,7 @@ Code: `settlements/settlements.service.ts`, `settlements-cron.service.ts`, `sett
 
 ### Periods and creating reports
 - [x] **SET-60** [U] P0. `settlement-periods.spec.ts`: half months (Feb, leap years), the period after one (incl. after a mid-half manual period), Sofia bounds across DST, creation at 04:00 Sofia, `periodsDue` (catch-up, first report with none yet), `nextSettlementRun`.
+- [x] **AUTO-05..06** [I] P0. `create-due` (the job on demand): after the manual Jan 1 – Nov 15, 2026 report it creates every due half month in order and nothing before it, then 409 naming the latest report and when the next one comes; nothing before 04:00 Sofia. HTTP: e2e SET-45 (ADMIN 201 then 409, TRAINER 403) and the role matrix.
 - [x] **AUTO-01..04** [I] P0. Creates the last ended half month when there is none; Nov 16–30 only from 04:00 Sofia on Dec 1 after the manual report to Nov 15; catches up in order and twice at once without duplicates; the job runs on start.
 
 ### What a report pays
