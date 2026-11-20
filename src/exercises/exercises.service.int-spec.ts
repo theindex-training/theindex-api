@@ -167,6 +167,46 @@ describe('ExercisesService (integration)', () => {
       // Wildcards are text, not patterns.
       expect(await names({ q: '%' })).toEqual([]);
     });
+
+    it('gives only the active ones for trainees, whatever the status filter asks for', async () => {
+      const fx = fixtures();
+      await svc(fx).create({ name: 'Run' });
+      await svc(fx).create({ name: 'Air squat', isActive: false });
+      const names = async (q: object) =>
+        (await svc(fx).list(q, true)).map((e) => e.name);
+
+      expect(await names({})).toEqual(['Run']);
+      expect(await names({ active: 'false' })).toEqual(['Run']);
+      expect(await names({ q: 'squat' })).toEqual([]);
+    });
+  });
+
+  describe('get', () => {
+    it('gives an exercise with its description and video; for trainees, an active one only (404)', async () => {
+      const fx = fixtures();
+      const run = await svc(fx).create({
+        name: 'Run',
+        aliases: ['Jog'],
+        description: 'Easy pace.',
+        videoUrl: 'https://youtu.be/rMvwVtlqjTE',
+      });
+      const squat = await svc(fx).create({
+        name: 'Air squat',
+        isActive: false,
+      });
+
+      expect(await svc(fx).get(run.id, true)).toMatchObject({
+        name: 'Run',
+        aliases: ['Jog'],
+        description: 'Easy pace.',
+        videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+        isActive: true,
+      });
+      expect(await svc(fx).get(squat.id)).toMatchObject({ name: 'Air squat' });
+      const error = await rejectionOf(svc(fx).get(squat.id, true));
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect(error.message).toBe('Exercise not found');
+    });
   });
 
   describe('update', () => {

@@ -199,9 +199,9 @@ const MATRIX: Row[] = [
   r('DELETE /articles/:id', ALLOW, GUARD, GUARD),
 
   // Exercises and workouts: staff only; trainees don't see workouts yet.
-  r('GET /exercises', ALLOW, ALLOW, GUARD),
+  r('GET /exercises', ALLOW, ALLOW, ALLOW),
   r('POST /exercises', ALLOW, ALLOW, GUARD),
-  r('GET /exercises/:id', ALLOW, ALLOW, GUARD),
+  r('GET /exercises/:id', ALLOW, ALLOW, ALLOW),
   r('PATCH /exercises/:id', ALLOW, ALLOW, GUARD),
   r('DELETE /exercises/:id', ALLOW, ALLOW, GUARD),
   r('POST /exercises/:id/aliases', ALLOW, ALLOW, GUARD),

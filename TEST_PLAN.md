@@ -745,8 +745,10 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/articles/:id/publish`, `/articles/:id/unpublish`, `/articles/:id/discard-draft`, `/articles/:id/preview-token` | ✅ | 🔒 | 🔒 |
 | DELETE | `/articles/:id` | ✅ | 🔒 | 🔒 |
 | GET | `/public/articles`, `/public/articles/:slug`, `/public/article-categories`, `/public/article-categories/:slug`, `/public/sitemap`, `/public/preview` | — | — | — |
-| GET / POST | `/exercises` | ✅ | ✅ | 🔒 |
-| GET / PATCH / DELETE | `/exercises/:id` | ✅ | ✅ | 🔒 |
+| GET | `/exercises` | ✅ | ✅ | ✅ (active only) |
+| POST | `/exercises` | ✅ | ✅ | 🔒 |
+| GET | `/exercises/:id` | ✅ | ✅ | ✅ (active only, else 404) |
+| PATCH / DELETE | `/exercises/:id` | ✅ | ✅ | 🔒 |
 | POST | `/exercises/:id/aliases` | ✅ | ✅ | 🔒 |
 | GET / POST | `/workouts` | ✅ | ✅ | 🔒 |
 | POST | `/workouts/import-pdf` | ✅ | ✅ | 🔒 |
