@@ -170,7 +170,7 @@ Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.t
   - Assert UNPAID rows and other subs' rows are untouched.
   - Assert `{ deleted: true }`. Unknown id → 404 `Subscription not found`.
 - [x] **SUB-21** [I] P0. ⚠ Suspect: deleting does not reverse the cash register. Assert the `SUBSCRIPTION_IN` tx and balance remain and `sourceDetails` becomes null.
-- [x] **SUB-22** [I] P1. ⚠ Suspect: attendance freed by the delete is **not** re-reconciled against the trainee's other active subscriptions.
+- [x] **SUB-22** [I] P1. Attendance freed by the delete is paid by the trainee's other active subscriptions, oldest first, by the resolver's rule (fixed; was ⚠ not re-reconciled, see `TEST_NOTES.md` § Fixed).
 - [x] **SUB-23** [I] P1. Deleting a sub referenced by settlement allocations: assert the allocations remain with `subscriptionId null` (FK SET NULL) and unchanged `valueCents`.
 
 ### List
@@ -235,7 +235,7 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
 - [x] **ATT-20** [I] P0. PAID + PUNCH: assert `remainingCredits + 1`, capped at `initialCredits`, and EXHAUSTED → ACTIVE.
 - [x] **ATT-21** [I] P1. Status is set to ACTIVE whenever restored credits > 0, even from EXPIRED/CANCELLED (direct insert). Low impact today because nothing sets those statuses.
 - [x] **ATT-22** [I] P0. Deleting TIME-linked or UNPAID attendance leaves subscriptions untouched.
-- [x] **ATT-23** [I] P1. ⚠ Suspect: the restored credit isn't applied to the trainee's other UNPAID attendance.
+- [x] **ATT-23** [I] P1. The restored credit pays the trainee's oldest UNPAID attendance (fixed; was ⚠ not applied, see `TEST_NOTES.md` § Fixed).
 - [x] **ATT-24** [I] P0. ⚠ Suspect: deleting attendance that's in a settlement cascades its allocation row, but the settlement **lines are not updated**, even for FINAL settlements. Lines and allocations then disagree.
 - [x] **ATT-25** [I] P1. Unknown id → 404 `Attendance not found`.
 

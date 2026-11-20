@@ -34,18 +34,6 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the two code paths disagree on what a TIME pass covers. A one-month pass can retroactively cover a whole year of unpaid visits.
 - Impact / who would notice: the owner (lost revenue on old unpaid visits) and trainers (that pass's pro-rata value is spread over many more attendances, so each one pays less in settlements).
 
-## subscriptions: deleting a subscription doesn't re-reconcile the freed attendance
-- Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-22 freed attendance is not re-reconciled against other active subscriptions`
-- Current behavior: attendance that was paid by the deleted sub becomes UNPAID even if the trainee has another ACTIVE subscription with credits or a matching window.
-- Why it looks unintended: buying a sub reconciles unpaid attendance, so the system clearly wants unpaid rows paid when a sub is available. Deletion skips that.
-- Impact / who would notice: staff see UNPAID attendance for a trainee who has a valid pass; it gets paid only when the trainee buys yet another sub.
-
-## attendance: a restored credit is not applied to other unpaid attendance
-- Test: `src/attendance/attendance.service.int-spec.ts` > `ATT-23 the restored credit is not applied to the trainee's other UNPAID attendance`
-- Current behavior: deleting a PAID PUNCH attendance gives the credit back to the sub, but the trainee's UNPAID attendance (which exists precisely because credits ran out) stays UNPAID.
-- Why it looks unintended: same reasoning as SUB-22; the free credit and the unpaid visit coexist.
-- Impact / who would notice: staff; the trainee looks like they owe a visit while having a credit left.
-
 ## attendance: future-dated and exact duplicate attendance are accepted
 - Test: `src/attendance/attendance.service.int-spec.ts` > `ATT-08 future-dated and exact duplicate attendance are accepted; each consumes a credit`
 - Current behavior: `create` accepts any `trainedAt`, including far in the future, and the same trainee + same `trainedAt` can be recorded any number of times. Each duplicate consumes a PUNCH credit.
@@ -237,6 +225,12 @@ Ordered by impact (money and data integrity first).
 # Fixed
 
 Entries move here once the behavior is fixed. The tests named here now assert the corrected behavior.
+
+## subscriptions / attendance: freed trainings and returned credits were not paid by the trainee's other subscriptions (fixed Nov 2026)
+- Tests: `src/subscriptions/subscriptions.service.int-spec.ts` > the four `SUB-22 …` tests (incl. `SUB-22 a card bought before the old one is deleted takes over its trainings (production case)`); `src/attendance/attendance.service.int-spec.ts` > `ATT-23 the restored credit pays the trainee's oldest UNPAID attendance`
+- Old behavior: deleting a subscription set the trainings it paid back to UNPAID even when the trainee had another ACTIVE subscription that could pay them (SUB-22); deleting a PAID PUNCH training gave the credit back while the trainee's other trainings stayed UNPAID (ATT-23). Only buying yet another subscription paid them. Seen in production (Nov 2026): a trainee bought an 8-training card while an older subscription still paid 4 February trainings; that subscription was then deleted, so the 4 trainings showed as unpaid next to a card at 0 / 8.
+- Fix: `SubscriptionResolverService.payUnpaidAttendance` pays the trainee's UNPAID trainings, oldest first, each by the rule that records attendance (`resolveForAttendance`: a PUNCH card with credits pays any training, a TIME pass only those inside its period; the earliest-starting subscription first). `SubscriptionsService.remove` calls it, in the same transaction, after freeing trainings; `AttendanceService.remove` calls it after giving a PUNCH credit back. Purchase reconciliation (SUB-10…15) is unchanged.
+- Remaining impact: trainings already left UNPAID this way in production stay so until something triggers the payment (a delete as above, or buying a subscription); the affected trainee needs a one-off data fix. A freed training already paid out in a FINAL settlement (SUB-23) is now paid by the other subscription too, as buying one already did; the settlement does not pay it twice.
 
 ## settlements: overlapping periods, unpaid TIME value, stale totals, deletable payouts (fixed by automatic settlement reports, Nov 2026)
 Seven entries fixed together when settlement reports became automatic (the owner's design: one report per half month, created by the API, reviewed and finalized by an admin, oldest first; see `TEST_PLAN.md` § 1).

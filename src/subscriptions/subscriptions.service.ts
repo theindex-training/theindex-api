@@ -13,6 +13,7 @@ import { CashRegisterService } from '../cash-register/cash-register.service';
 import { PlanEntity } from '../plans/plan.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { SubscriptionResolverService } from './subscription-resolver.service';
 import { SubscriptionEntity } from './subscription.entity';
 
 @Injectable()
@@ -28,6 +29,7 @@ export class SubscriptionsService {
     @InjectRepository(AttendanceEntity)
     private readonly attRepo: Repository<AttendanceEntity>,
     private readonly cashRegisterService: CashRegisterService,
+    private readonly resolver: SubscriptionResolverService,
   ) {}
 
   async createForTrainee(traineeId: string, dto: CreateSubscriptionDto) {
@@ -126,7 +128,7 @@ export class SubscriptionsService {
       const subscription = await subscriptionRepo.findOne({ where: { id } });
       if (!subscription) throw new NotFoundException('Subscription not found');
 
-      await attendanceRepo
+      const freed = await attendanceRepo
         .createQueryBuilder()
         .update(AttendanceEntity)
         .set({
@@ -140,6 +142,16 @@ export class SubscriptionsService {
         .execute();
 
       await subscriptionRepo.remove(subscription);
+
+      // The freed trainings go to the trainee's other subscriptions, as they
+      // would have when recorded (e.g. a card bought before this one was
+      // deleted).
+      if (freed.affected) {
+        await this.resolver.payUnpaidAttendance(
+          subscription.traineeId,
+          manager,
+        );
+      }
       return { deleted: true };
     });
   }
