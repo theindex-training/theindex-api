@@ -779,6 +779,8 @@ export class AttendanceService {
       if (!attendance) throw new NotFoundException('Attendance not found');
       await assertAttendanceOpen(manager, attendance.trainedAt);
 
+      let creditRestored = false;
+
       if (
         attendance.paymentStatus === AttendancePaymentStatus.PAID &&
         attendance.subscriptionId
@@ -804,10 +806,16 @@ export class AttendanceService {
           }
 
           await subscriptionRepo.save(lockedSubscription);
+          creditRestored = true;
         }
       }
 
       await attendanceRepo.remove(attendance);
+
+      // The credit given back pays the trainee's oldest unpaid training.
+      if (creditRestored) {
+        await this.resolver.payUnpaidAttendance(attendance.traineeId, manager);
+      }
       return { deleted: true };
     });
   }
