@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -22,7 +23,14 @@ import { ListExercisesQueryDto } from './dto/list-exercises.query.dto';
 import { UpdateExerciseDto } from './dto/update-exercise.dto';
 import { ExercisesService } from './exercises.service';
 
-/** The movement catalogue workouts list: ADMIN and TRAINER. */
+type AuthenticatedRequest = { user: { role: AccountRole } };
+
+const EVERYONE = [AccountRole.ADMIN, AccountRole.TRAINER, AccountRole.TRAINEE];
+
+/**
+ * The movement catalogue workouts list: ADMIN and TRAINER change it. Trainees read it as their
+ * exercise library: the active exercises only.
+ */
 @ApiTags('exercises')
 @ApiBearerAuth('jwt')
 @Controller('exercises')
@@ -32,8 +40,12 @@ export class ExercisesController {
   constructor(private readonly service: ExercisesService) {}
 
   @Get()
-  list(@Query() query: ListExercisesQueryDto) {
-    return this.service.list(query);
+  @Roles(...EVERYONE)
+  list(
+    @Query() query: ListExercisesQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.service.list(query, req.user.role === AccountRole.TRAINEE);
   }
 
   @Post()
@@ -42,8 +54,12 @@ export class ExercisesController {
   }
 
   @Get(':id')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.get(id);
+  @Roles(...EVERYONE)
+  get(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.service.get(id, req.user.role === AccountRole.TRAINEE);
   }
 
   @Patch(':id')

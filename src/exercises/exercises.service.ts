@@ -19,9 +19,9 @@ import { ExerciseEntity, EXERCISE_NAME_INDEX } from './exercise.entity';
 import { youtubeVideoId, youtubeWatchUrl } from './youtube-url';
 
 /**
- * The movement catalogue (ADMIN and TRAINER). A movement is found by any of its spellings: names
- * and aliases share one namespace of keys (`exerciseKey`), so no two movements can answer to the
- * same text in a workout PDF.
+ * The movement catalogue (ADMIN and TRAINER change it; trainees read the active ones). A movement
+ * is found by any of its spellings: names and aliases share one namespace of keys (`exerciseKey`),
+ * so no two movements can answer to the same text in a workout PDF.
  */
 @Injectable()
 export class ExercisesService implements OnModuleInit {
@@ -56,9 +56,12 @@ export class ExercisesService implements OnModuleInit {
     return rows.length;
   }
 
-  list(query: ListExercisesQueryDto = {}) {
+  /** By name. `onlyActive` for trainees: the inactive ones whatever `active` asks for. */
+  list(query: ListExercisesQueryDto = {}, onlyActive = false) {
     const qb = this.repo.createQueryBuilder('e').orderBy('e.name', 'ASC');
-    if (query.active !== undefined) {
+    if (onlyActive) {
+      qb.andWhere('e.isActive = true');
+    } else if (query.active !== undefined) {
       qb.andWhere('e.isActive = :active', { active: query.active === 'true' });
     }
     const term = query.q?.trim();
@@ -75,8 +78,11 @@ export class ExercisesService implements OnModuleInit {
     return qb.getMany();
   }
 
-  async get(id: string) {
-    const exercise = await this.repo.findOne({ where: { id } });
+  /** `onlyActive` for trainees: an inactive exercise is not found (404). */
+  async get(id: string, onlyActive = false) {
+    const exercise = await this.repo.findOne({
+      where: onlyActive ? { id, isActive: true } : { id },
+    });
     if (!exercise) throw new NotFoundException('Exercise not found');
     return exercise;
   }

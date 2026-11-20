@@ -195,6 +195,58 @@ describe('Exercises and workouts (e2e)', () => {
     await post(`exercises/${UNKNOWN_ID}/aliases`, { alias: 'X' }).expect(404);
   });
 
+  it('exercises: trainees read the active ones only, and change none', async () => {
+    const c = ctx();
+    const { post } = await staff();
+    const run = (
+      await post('exercises', {
+        name: 'Run',
+        aliases: ['Jog'],
+        description: 'Easy pace.',
+        videoUrl: 'https://youtu.be/rMvwVtlqjTE',
+      }).expect(201)
+    ).body as Named;
+    const squat = (
+      await post('exercises', { name: 'Air squat', isActive: false }).expect(
+        201,
+      )
+    ).body as Named;
+    const trainee = {
+      Authorization: `Bearer ${await c.provisionAndLogin('trainee', (await c.trainee()).id)}`,
+    };
+    const http = c.http();
+
+    const names = async (path: string) =>
+      ((await http.get(path).set(trainee).expect(200)).body as Named[]).map(
+        (e) => e.name,
+      );
+    expect(await names('/api/exercises')).toContain('Run');
+    expect(await names('/api/exercises')).not.toContain('Air squat');
+    expect(await names('/api/exercises?active=false')).not.toContain(
+      'Air squat',
+    );
+    expect(
+      (await http.get(`/api/exercises/${run.id}`).set(trainee).expect(200))
+        .body,
+    ).toMatchObject({
+      name: 'Run',
+      aliases: ['Jog'],
+      description: 'Easy pace.',
+      videoUrl: 'https://www.youtube.com/watch?v=rMvwVtlqjTE',
+    });
+    expect(
+      messageOf(
+        (await http.get(`/api/exercises/${squat.id}`).set(trainee).expect(404))
+          .body,
+      ),
+    ).toBe('Exercise not found');
+    await http
+      .patch(`/api/exercises/${run.id}`)
+      .set(trainee)
+      .send({ name: 'Sprint' })
+      .expect(403);
+  });
+
   it('workouts: a trainer creates, reads, updates and deletes one', async () => {
     const c = ctx();
     const { exercise } = await staff();
