@@ -381,8 +381,7 @@ describe('SubscriptionsService (integration)', () => {
       });
     });
 
-    // CHARACTERIZATION: possibly unintended
-    it('SUB-22 freed attendance is not re-reconciled against other active subscriptions', async () => {
+    it("SUB-22 freed attendance is paid by the trainee's other active PUNCH subscription", async () => {
       const fx = fixtures();
       const { trainee, attend } = await world(fx);
       const first = await fx.buy(trainee.id, (await fx.punchPlan(1, 1000)).id, {
@@ -399,12 +398,106 @@ describe('SubscriptionsService (integration)', () => {
       await fx.subscriptions.remove(first.id);
 
       expect(await fx.att(row.id)).toMatchObject({
+        paymentStatus: PAID,
+        subscriptionId: second.id,
+      });
+      expect(await fx.sub(second.id)).toMatchObject({
+        remainingCredits: 4,
+        status: SubscriptionStatus.ACTIVE,
+      });
+    });
+
+    it('SUB-22 a card bought before the old one is deleted takes over its trainings (production case)', async () => {
+      const fx = fixtures();
+      const { trainee, attend } = await world(fx);
+      const old = await fx.buy(trainee.id, (await fx.punchPlan(4, 4000)).id, {
+        startsAt: '2026-02-01T00:00:00Z',
+      });
+      const rows = [
+        await attend('2026-02-11T10:00:00Z'),
+        await attend('2026-02-17T08:00:00Z'),
+        await attend('2026-02-18T10:00:00Z'),
+        await attend('2026-02-19T08:00:00Z'),
+      ];
+      // Nothing is unpaid when the new card is bought, so it keeps all 8.
+      const card = await fx.buy(trainee.id, (await fx.punchPlan(8, 4600)).id, {
+        startsAt: '2026-11-18T00:00:00Z',
+      });
+      expect(card.remainingCredits).toBe(8);
+
+      await fx.subscriptions.remove(old.id);
+
+      for (const row of rows) {
+        expect(await fx.att(row.id)).toMatchObject({
+          paymentStatus: PAID,
+          subscriptionId: card.id,
+        });
+      }
+      expect(await fx.sub(card.id)).toMatchObject({
+        remainingCredits: 4,
+        status: SubscriptionStatus.ACTIVE,
+      });
+    });
+
+    it('SUB-22 freed attendance is paid oldest first until the other card is EXHAUSTED; other trainees are untouched', async () => {
+      const fx = fixtures();
+      const { trainee, attend } = await world(fx);
+      const other = await fx.trainee('Other');
+      const old = await fx.buy(trainee.id, (await fx.punchPlan(3, 3000)).id, {
+        startsAt: '2025-11-01T00:00:00Z',
+      });
+      const dec3 = await attend('2025-12-03T10:00:00Z');
+      const dec1 = await attend('2025-12-01T10:00:00Z');
+      const dec2 = await attend('2025-12-02T10:00:00Z');
+      // Older than all of them, so it would go first if the trainee were ignored.
+      const otherUnpaid = await attend('2025-11-25T10:00:00Z', other.id);
+      const card = await fx.buy(trainee.id, (await fx.punchPlan(2, 2000)).id, {
+        startsAt: '2025-11-20T00:00:00Z',
+      });
+
+      await fx.subscriptions.remove(old.id);
+
+      for (const row of [dec1, dec2]) {
+        expect(await fx.att(row.id)).toMatchObject({
+          paymentStatus: PAID,
+          subscriptionId: card.id,
+        });
+      }
+      expect(await fx.att(dec3.id)).toMatchObject({
         paymentStatus: UNPAID,
         subscriptionId: null,
       });
-      expect(await fx.sub(second.id)).toMatchObject({
-        remainingCredits: 5,
-        status: SubscriptionStatus.ACTIVE,
+      expect(await fx.sub(card.id)).toMatchObject({
+        remainingCredits: 0,
+        status: SubscriptionStatus.EXHAUSTED,
+      });
+      expect(await fx.att(otherUnpaid.id)).toMatchObject({
+        paymentStatus: UNPAID,
+        subscriptionId: null,
+      });
+    });
+
+    it('SUB-22 a remaining TIME pass pays only the freed trainings inside its period', async () => {
+      const fx = fixtures();
+      const { trainee, attend } = await world(fx);
+      const old = await fx.buy(trainee.id, (await fx.punchPlan(2, 2000)).id, {
+        startsAt: '2025-11-01T00:00:00Z',
+      });
+      const before = await attend('2025-11-20T10:00:00Z');
+      const inside = await attend('2025-12-10T10:00:00Z');
+      const pass = await fx.buy(trainee.id, (await fx.timePlan(30, 6000)).id, {
+        startsAt: '2025-12-01T00:00:00Z',
+      });
+
+      await fx.subscriptions.remove(old.id);
+
+      expect(await fx.att(inside.id)).toMatchObject({
+        paymentStatus: PAID,
+        subscriptionId: pass.id,
+      });
+      expect(await fx.att(before.id)).toMatchObject({
+        paymentStatus: UNPAID,
+        subscriptionId: null,
       });
     });
 

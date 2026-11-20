@@ -493,20 +493,28 @@ describe('AttendanceService write path (integration)', () => {
     });
 
     // CHARACTERIZATION: possibly unintended
-    it("ATT-23 the restored credit is not applied to the trainee's other UNPAID attendance", async () => {
+    it("ATT-23 the restored credit pays the trainee's oldest UNPAID attendance", async () => {
       const fx = fixtures();
       const { trainee, attend } = await world(fx);
       const sub = await fx.buy(trainee.id, (await fx.punchPlan(1, 0)).id);
       const paid = await attend('2025-12-01T10:00:00Z');
-      const unpaid = await attend('2025-12-02T10:00:00Z');
+      const unpaidLater = await attend('2025-12-03T10:00:00Z');
+      const unpaidOlder = await attend('2025-12-02T10:00:00Z');
 
       await fx.attendance.remove(paid.attendance.id);
 
-      expect(await fx.att(unpaid.attendance.id)).toMatchObject({
+      expect(await fx.att(unpaidOlder.attendance.id)).toMatchObject({
+        paymentStatus: PAID,
+        subscriptionId: sub.id,
+      });
+      expect(await fx.att(unpaidLater.attendance.id)).toMatchObject({
         paymentStatus: UNPAID,
         subscriptionId: null,
       });
-      expect((await fx.sub(sub.id)).remainingCredits).toBe(1);
+      expect(await fx.sub(sub.id)).toMatchObject({
+        remainingCredits: 0,
+        status: SubscriptionStatus.EXHAUSTED,
+      });
     });
 
     it('ATT-24 deleting attendance in a finalized settlement period is refused (409); the payout stays as stored', async () => {
