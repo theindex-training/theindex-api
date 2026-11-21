@@ -89,3 +89,34 @@ export function onlyWorkoutByDay(
   }
   return only;
 }
+
+/** The longest range of days `GET /api/schedules/slots` and `/api/bookings/trainings` answer. */
+export const MAX_RANGE_DAYS = 14;
+
+/**
+ * The problem with a range of days (`from` and `to` included), or null when it is fine: `to` may
+ * not be before `from`, and the range covers at most `MAX_RANGE_DAYS` days.
+ */
+export function dayRangeProblem(from: string, to: string): string | null {
+  if (to < from) return 'to must not be before from';
+  if (to > addDays(from, MAX_RANGE_DAYS - 1)) {
+    return `A range can cover at most ${MAX_RANGE_DAYS} days`;
+  }
+  return null;
+}
+
+type RangeSortable = Sortable & { gym: { name: string } };
+
+/**
+ * Trainings of several gyms in the order people read them: by day and start time, then end time,
+ * gym name and trainer name.
+ */
+export function compareGymSlots(a: RangeSortable, b: RangeSortable): number {
+  return (
+    (a.date ?? '').localeCompare(b.date ?? '') ||
+    a.trainingTime.startTime.localeCompare(b.trainingTime.startTime) ||
+    a.trainingTime.endTime.localeCompare(b.trainingTime.endTime) ||
+    a.gym.name.localeCompare(b.gym.name) ||
+    a.trainer.name.localeCompare(b.trainer.name)
+  );
+}

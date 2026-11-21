@@ -125,6 +125,51 @@ describe('Bookings (e2e)', () => {
     expect(
       (staff.body as { slots: { bookedCount: number }[] }).slots[0].bookedCount,
     ).toBe(1);
+
+    // The dashboards' lists of a range of days: the training's day, across every gym.
+    const day = (slots[0] as { date?: string }).date!;
+    const range = await c
+      .http()
+      .get('/api/schedules/slots')
+      .query({ from: day, to: day })
+      .set(admin)
+      .expect(200);
+    expect(range.body).toMatchObject({
+      from: day,
+      to: day,
+      slots: [
+        {
+          id: slotId,
+          gym: { id: gym.id, name: 'Center' },
+          bookedCount: 1,
+          attendanceCount: 0,
+          unregisteredTraineeIds: [ana.id],
+        },
+      ],
+    });
+    const mine = await c
+      .http()
+      .get('/api/bookings/trainings')
+      .query({ from: day, to: addDays(day, 1) })
+      .set(trainee)
+      .expect(200);
+    expect(mine.body).toMatchObject({
+      slots: [
+        { id: slotId, gym: { id: gym.id, name: 'Center' }, bookedByMe: true },
+      ],
+    });
+    expect(
+      messageOf(
+        (
+          await c
+            .http()
+            .get('/api/schedules/slots')
+            .query({ from: day })
+            .set(admin)
+            .expect(400)
+        ).body,
+      ),
+    ).toContain('to must be YYYY-MM-DD');
     expect(
       messageOf(
         (

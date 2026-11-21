@@ -6,7 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ProfilePhotosService } from '../profile-photos/profile-photos.service';
-import { EntityManager, In, QueryFailedError, Repository } from 'typeorm';
+import {
+  Between,
+  EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { toGymLocalDate } from '../attendance/attendance-timezone.util';
 import { AttendanceEntity } from '../attendance/attendance.entity';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
@@ -19,6 +25,7 @@ import {
   CreateScheduleSlotDto,
   CreateScheduleWeekDto,
   CreateTemplateSlotDto,
+  DayRangeQueryDto,
   ScheduleTrainingTimeDto,
   ScheduleWeekQueryDto,
   UpdateScheduleSlotDto,
@@ -33,7 +40,9 @@ import {
 import { ScheduleWeekStatus } from './enums/schedule-week-status.enum';
 import {
   addDays,
+  compareGymSlots,
   compareSlots,
+  dayRangeProblem,
   onlyWorkoutByDay,
   firstEditableDate,
   isEditableDate,
@@ -42,7 +51,7 @@ import {
   weekStartOf,
   weekdayOf,
 } from './schedule-week';
-import { slotStartsAt } from './booking-rules';
+import { slotEndsAt, slotStartsAt } from './booking-rules';
 import { buildTrainingBookings } from './training-bookings';
 
 type SlotFields = {
@@ -432,6 +441,94 @@ export class SchedulesService {
     };
   }
 
+  /**
+   * The trainings of every active gym on a range of days (at most 14), drafts included, for the
+   * staff's dashboard: each with its gym, when it starts and ends, how many booked, and its
+   * attendance. Attendance counts for a training as on its page (`training`): rows of its gym
+   * whose `trainedAt` is its start. `unregisteredTraineeIds` are the trainees who booked it, are
+   * active and have no such row yet, in booking order: the ones Register attendance can tick.
+   */
+  async trainings(query: DayRangeQueryDto) {
+    assertDayRange(query);
+    const m = this.slotRepo.manager;
+    const slots = await this.slotRepo.find({
+      where: {
+        date: Between(query.from, query.to),
+        week: { gym: { isActive: true } },
+      },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: { gym: true },
+      },
+    });
+    const ids = slots.map((s) => s.id);
+    const startsAt = new Map(
+      slots.map((s) => [s.id, slotStartsAt(s.date, s.trainingTime!.startTime)]),
+    );
+    const [counts, bookings, attendance] = ids.length
+      ? await Promise.all([
+          bookingCounts(m, ids),
+          m.find(ScheduleBookingEntity, {
+            where: { slotId: In(ids) },
+            relations: { trainee: true },
+            order: { createdAt: 'ASC' },
+          }),
+          m
+            .createQueryBuilder(AttendanceEntity, 'a')
+            .select(['a.id', 'a.traineeId', 'a.locationId', 'a.trainedAt'])
+            .where('a.locationId IN (:...gymIds)', {
+              gymIds: [...new Set(slots.map((s) => s.week!.gymId))],
+            })
+            .andWhere('a.trainedAt IN (:...starts)', {
+              starts: [...startsAt.values()],
+            })
+            .getMany(),
+        ])
+      : [new Map<string, number>(), [], []];
+    const attendedAt = new Map<string, Set<string>>();
+    for (const row of attendance) {
+      const key = attendanceKey(row.locationId, row.trainedAt);
+      attendedAt.set(
+        key,
+        (attendedAt.get(key) ?? new Set()).add(row.traineeId),
+      );
+    }
+
+    return {
+      from: query.from,
+      to: query.to,
+      slots: slots
+        .map((slot) => {
+          const gym = slot.week!.gym!;
+          const start = startsAt.get(slot.id)!;
+          const attended =
+            attendedAt.get(attendanceKey(gym.id, start)) ?? new Set<string>();
+          return {
+            ...presentSlot(slot, counts.get(slot.id) ?? 0),
+            gym: { id: gym.id, name: gym.name },
+            weekStart: slot.week!.weekStart,
+            /** DRAFT: trainees don't see the week yet. */
+            weekStatus: slot.week!.status,
+            startsAt: start,
+            endsAt: slotEndsAt(slot.date, slot.trainingTime!.endTime),
+            /** Trainees with attendance saved for this training. */
+            attendanceCount: attended.size,
+            unregisteredTraineeIds: bookings
+              .filter(
+                (b) =>
+                  b.slotId === slot.id &&
+                  b.trainee!.isActive &&
+                  !attended.has(b.traineeId),
+              )
+              .map((b) => b.traineeId),
+          };
+        })
+        .sort(compareGymSlots),
+    };
+  }
+
   private async slot(id: string) {
     const slot = await this.slotRepo.findOne({
       where: { id },
@@ -463,6 +560,16 @@ export class SchedulesService {
     if (!gym) throw new NotFoundException('Gym not found');
     return gym;
   }
+}
+
+/** 400 for a range of days that ends before it starts or covers more than 14 days. */
+export function assertDayRange(query: DayRangeQueryDto) {
+  const problem = dayRangeProblem(query.from, query.to);
+  if (problem) throw new BadRequestException(problem);
+}
+
+function attendanceKey(gymId: string, trainedAt: Date) {
+  return `${gymId}|${trainedAt.getTime()}`;
 }
 
 /** Locks a week's row for the rest of the transaction, so publish and discard can't overlap. */

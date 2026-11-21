@@ -157,3 +157,20 @@ export class TrainingCalendarQueryDto {
   @IsIn(CALENDAR_LANGUAGES)
   lang?: CalendarLanguage;
 }
+
+/** A range of gym-local days, both included: at most 14 days. */
+export class DayRangeQueryDto {
+  @ApiProperty({ example: '2026-11-21', description: 'First day, YYYY-MM-DD' })
+  @Matches(DAY, { message: 'from must be YYYY-MM-DD' })
+  @IsISO8601({ strict: true }, { message: 'from must be a real date' })
+  from!: string;
+
+  @ApiProperty({
+    example: '2026-11-22',
+    description:
+      'Last day (included), YYYY-MM-DD; at most 13 days after `from`',
+  })
+  @Matches(DAY, { message: 'to must be YYYY-MM-DD' })
+  @IsISO8601({ strict: true }, { message: 'to must be a real date' })
+  to!: string;
+}
