@@ -17,7 +17,11 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
 import { BookingsService } from './bookings.service';
-import { CreateBookingDto, ScheduleWeekQueryDto } from './dto/schedule.dto';
+import {
+  CreateBookingDto,
+  DayRangeQueryDto,
+  ScheduleWeekQueryDto,
+} from './dto/schedule.dto';
 
 type TraineeRequest = { user: { traineeProfileId?: string | null } };
 
@@ -38,6 +42,12 @@ export class BookingsController {
   @Get('schedule')
   week(@Query() query: ScheduleWeekQueryDto, @Req() req: TraineeRequest) {
     return this.service.week(traineeOf(req), query);
+  }
+
+  /** Every active gym's published trainings of a range of days (at most 14), each with its gym. */
+  @Get('trainings')
+  trainings(@Query() query: DayRangeQueryDto, @Req() req: TraineeRequest) {
+    return this.service.trainings(traineeOf(req), query);
   }
 
   /** One training with its gym and its whole workout (title, summary, exercises and videos). */
