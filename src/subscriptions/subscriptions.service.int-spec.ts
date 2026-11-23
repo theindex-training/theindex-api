@@ -69,6 +69,51 @@ describe('SubscriptionsService (integration)', () => {
       expect(sub.remainingCredits).toBeNull();
     });
 
+    it('SUB-02 TIME plan of months: endsAt is Sofia midnight of the same day N months later', async () => {
+      const fx = fixtures();
+      const { trainee } = await world(fx);
+      const monthly = await fx.monthPlan(1, 9000);
+      const quarterly = await fx.monthPlan(3, 24000);
+
+      const apr = await fx.buy(trainee.id, monthly.id, {
+        startsAt: '2026-04-14',
+      });
+      const jan31 = await fx.buy(trainee.id, monthly.id, {
+        startsAt: '2026-01-31',
+      });
+      const nov = await fx.buy(trainee.id, quarterly.id, {
+        startsAt: '2026-11-14',
+      });
+
+      expect(apr.endsAt!.toISOString()).toBe('2026-05-13T21:00:00.000Z'); // May 14 00:00 Sofia
+      expect(jan31.endsAt!.toISOString()).toBe('2026-02-27T22:00:00.000Z'); // Feb 28 00:00 Sofia
+      expect(nov.endsAt!.toISOString()).toBe('2027-02-13T22:00:00.000Z'); // Feb 14 00:00 Sofia
+      expect(await fx.sub(apr.id)).toMatchObject({
+        type: PlanType.TIME,
+        initialCredits: null,
+        remainingCredits: null,
+      });
+    });
+
+    it('SUB-02 a month pass from Apr 14 pays trainings through May 13, not on May 14', async () => {
+      const fx = fixtures();
+      const { trainee, attend } = await world(fx);
+      const plan = await fx.monthPlan(1, 9000);
+      const sub = await fx.buy(trainee.id, plan.id, { startsAt: '2026-04-14' });
+
+      const lastEvening = await attend('2026-05-13T20:30:00.000Z'); // May 13 23:30 Sofia
+      const nextMorning = await attend('2026-05-14T05:00:00.000Z'); // May 14 08:00 Sofia
+
+      expect(lastEvening).toMatchObject({
+        paymentStatus: PAID,
+        subscriptionId: sub.id,
+      });
+      expect(nextMorning).toMatchObject({
+        paymentStatus: UNPAID,
+        subscriptionId: null,
+      });
+    });
+
     it('SUB-03 startsAt defaults to now and respects an explicit offset', async () => {
       const fx = fixtures();
       const { trainee } = await world(fx);
@@ -172,7 +217,7 @@ describe('SubscriptionsService (integration)', () => {
         'Punch plan must have credits',
       );
       expect((await rejectionOf(fx.buy(trainee.id, time.id))).message).toBe(
-        'Time plan must have durationDays',
+        'Time plan must have durationDays or durationMonths',
       );
       expect(await fx.subscriptionRows()).toHaveLength(0);
     });

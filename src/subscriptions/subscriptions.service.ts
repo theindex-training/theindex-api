@@ -15,6 +15,7 @@ import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { SubscriptionResolverService } from './subscription-resolver.service';
 import { SubscriptionEntity } from './subscription.entity';
+import { timePassEndsAt } from './time-pass-end';
 
 @Injectable()
 export class SubscriptionsService {
@@ -55,9 +56,12 @@ export class SubscriptionsService {
       }
       if (
         plan.type === PlanType.TIME &&
-        (!plan.durationDays || plan.durationDays <= 0)
+        !(plan.durationDays && plan.durationDays > 0) &&
+        !(plan.durationMonths && plan.durationMonths > 0)
       ) {
-        throw new BadRequestException('Time plan must have durationDays');
+        throw new BadRequestException(
+          'Time plan must have durationDays or durationMonths',
+        );
       }
 
       const startsAt = dto.startsAt ? new Date(dto.startsAt) : new Date();
@@ -73,11 +77,7 @@ export class SubscriptionsService {
         startsAt,
         status: SubscriptionStatus.ACTIVE,
         endsAt:
-          plan.type === PlanType.TIME
-            ? new Date(
-                startsAt.getTime() + plan.durationDays! * 24 * 60 * 60 * 1000,
-              )
-            : null,
+          plan.type === PlanType.TIME ? timePassEndsAt(startsAt, plan) : null,
         initialCredits: plan.type === PlanType.PUNCH ? plan.credits! : null,
         remainingCredits: plan.type === PlanType.PUNCH ? plan.credits! : null,
       });

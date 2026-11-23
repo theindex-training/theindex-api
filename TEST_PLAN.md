@@ -91,6 +91,7 @@ Code: `settlements/settlements.service.ts`, `settlements-cron.service.ts`, `sett
 - [x] **SET-06** [I] P0. A PUNCH training keeps its place in the pass across periods.
 - [x] **SET-07/SET-09** [I] P0. A TIME pass waits until it ends (`TIME_PASS_NOT_ENDED`), then the report of the period it ends in pays all its trainings, the earlier ones carried over.
 - [x] **SET-19** [I] P0. The owner's example: a $100, 30-day TIME pass bought Jan 12 (ends Feb 11) with 10 trainings (Jan 13, six Jan 15–31, three Feb 1–11). The Jan 1–15 and Jan 16–31 reports pay none (they list them as waiting for Feb 11); the Feb 1–15 report pays all ten at $10, January's carried over, to whoever led each; finalizing in order pays $0, $0, $100. The pure spec adds the 20-training variant ($5 each).
+- [x] **SET-20** [I] P0. A one-month pass from Apr 16 ends May 16 00:00 Sofia, so the May 1–15 report pays all its trainings (April's carried over) and a training at 00:30 on May 16 is UNPAID, waiting in May 16–31.
 - [x] **SET-10** [I] P0. A training is paid once: a second (old, duplicate) report for the same period pays nothing for it.
 - [x] **SET-15** [I] P0. Unpaid trainings covered by a pass bought later are paid by the report of the purchase.
 - [x] **SET-16** [I] P1. A pass bought after the period end waits for the next report (`NEXT_REPORT`).
@@ -140,6 +141,7 @@ Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.t
 ### Purchase
 - [x] **SUB-01** [I] P0. PUNCH plan: assert `type PUNCH`, `initialCredits = remainingCredits = plan.credits`, `endsAt null`, `status ACTIVE`, and `paidCents` defaulting to `plan.priceCents`.
 - [x] **SUB-02** [I] P0. TIME plan: assert `endsAt = startsAt + durationDays × 86 400 000 ms` (fixed 24h days, so across a DST change the *local* end time shifts by 1h) and credits null.
+- [x] **SUB-02 (months)** [I+U] P0. TIME plan with `durationMonths`: `endsAt` is Europe/Sofia midnight of the same day N months after the Sofia day of `startsAt` (Apr 14 → May 14 00:00, exclusive; Jan 31 + 1 month → Feb 28; DST-safe), unit-tested in `time-pass-end.spec.ts`. A training on May 13 23:30 is paid by it, one on May 14 08:00 is not.
 - [x] **SUB-03** [I] P1. `startsAt`:
   - Assert omitted → frozen "now".
   - Assert an ISO datetime with offset is respected.
@@ -490,6 +492,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 - [x] **PLN-06** [I] P0. DELETE = deactivate (`isActive false`, row kept). Assert an inactive plan can't be bought (SUB-05) and existing subs keep working.
 - [x] **PLN-07** [I] P1. (Service filter + ordering done; the `?active=yes` suspect is controller parsing, left for [E].) List: `?active=true` → only active; `?active=false` → only inactive; no param → all; ordered `createdAt DESC`. ⚠ Suspect: any other value (`?active=yes`) is treated as `false`.
 - [x] **PLN-08** [E] P1. (404 covered at [I]; roles still open.) Unknown id → 404 `Plan not found`. TRAINEE can list and get (incl. inactive plans) but gets 403 on create/update/delete.
+- [x] **PLN-09** [I+E] P0. TIME plans by calendar months: `durationMonths` (int ≥ 1) is stored with `durationDays` null; exactly one of the two (neither or both → 400); sending one alone on update switches the plan to it; PUNCH and TIME → PUNCH clear both; switching a plan leaves sold passes' `endsAt` as it was.
 
 ---
 
