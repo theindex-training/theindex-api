@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { GymLocationEntity } from '../gym-locations/gym-location.entity';
 import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import {
@@ -21,15 +21,22 @@ import {
   signCalendarToken,
   verifyCalendarToken,
 } from './calendar-token';
-import { ScheduleWeekQueryDto } from './dto/schedule.dto';
+import { DayRangeQueryDto, ScheduleWeekQueryDto } from './dto/schedule.dto';
 import {
   ScheduleBookingEntity,
   ScheduleSlotEntity,
   ScheduleWeekEntity,
 } from './schedule.entity';
 import { ScheduleWeekStatus } from './enums/schedule-week-status.enum';
-import { addDays, compareSlots, weekStartOf, weekdayOf } from './schedule-week';
 import {
+  addDays,
+  compareGymSlots,
+  compareSlots,
+  weekStartOf,
+  weekdayOf,
+} from './schedule-week';
+import {
+  assertDayRange,
   bookingCounts,
   isUniqueViolation,
   lockSlot,
@@ -98,6 +105,40 @@ export class BookingsService {
       weekEnd: addDays(weekStart, 6),
       week: week ? { id: week.id } : null,
       slots: views.sort(compareSlots),
+    };
+  }
+
+  /**
+   * The trainings of every active gym's published weeks on a range of days (at most 14), as in
+   * `week`, each with its gym: the trainee's dashboard (today and tomorrow).
+   */
+  async trainings(traineeId: string, query: DayRangeQueryDto) {
+    assertDayRange(query);
+    const slots = await this.bookingRepo.manager.find(ScheduleSlotEntity, {
+      where: {
+        date: Between(query.from, query.to),
+        week: {
+          status: ScheduleWeekStatus.PUBLISHED,
+          gym: { isActive: true },
+        },
+      },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: { gym: true },
+      },
+    });
+    const views = await this.present(traineeId, slots);
+    return {
+      from: query.from,
+      to: query.to,
+      slots: views
+        .map((view, i) => ({
+          ...view,
+          gym: { id: slots[i].week!.gym!.id, name: slots[i].week!.gym!.name },
+        }))
+        .sort(compareGymSlots),
     };
   }
 

@@ -1,6 +1,8 @@
 import {
   addDays,
+  compareGymSlots,
   compareSlots,
+  dayRangeProblem,
   onlyWorkoutByDay,
   firstEditableDate,
   isEditableDate,
@@ -103,6 +105,64 @@ describe('schedule-week', () => {
     expect([...only.entries()]).toEqual([
       ['2026-11-09', 'w-mon'],
       ['2026-11-13', 'w-fri'],
+    ]);
+  });
+});
+
+describe('dayRangeProblem', () => {
+  it('accepts one day and up to 14 days, across months', () => {
+    expect(dayRangeProblem('2026-11-21', '2026-11-21')).toBeNull();
+    expect(dayRangeProblem('2026-11-21', '2026-11-22')).toBeNull();
+    expect(dayRangeProblem('2026-11-25', '2026-12-08')).toBeNull();
+  });
+
+  it('refuses a range that ends before it starts', () => {
+    expect(dayRangeProblem('2026-11-22', '2026-11-21')).toBe(
+      'to must not be before from',
+    );
+  });
+
+  it('refuses a range of more than 14 days', () => {
+    expect(dayRangeProblem('2026-11-25', '2026-12-09')).toBe(
+      'A range can cover at most 14 days',
+    );
+  });
+});
+
+describe('compareGymSlots', () => {
+  const slot = (
+    date: string,
+    startTime: string,
+    gym: string,
+    trainer = 'Velcho',
+  ) => ({
+    date,
+    trainingTime: { startTime, endTime: '23:00:00' },
+    gym: { name: gym },
+    trainer: { name: trainer },
+  });
+
+  it('orders by day, start, gym and trainer', () => {
+    const slots = [
+      slot('2026-11-22', '07:00:00', 'Center'),
+      slot('2026-11-21', '18:00:00', 'Lozenets'),
+      slot('2026-11-21', '18:00:00', 'Center', 'Zara'),
+      slot('2026-11-21', '18:00:00', 'Center', 'Asen'),
+      slot('2026-11-21', '07:00:00', 'Lozenets'),
+    ];
+    expect(
+      [...slots]
+        .sort(compareGymSlots)
+        .map(
+          (s) =>
+            `${s.date} ${s.trainingTime.startTime} ${s.gym.name} ${s.trainer.name}`,
+        ),
+    ).toEqual([
+      '2026-11-21 07:00:00 Lozenets Velcho',
+      '2026-11-21 18:00:00 Center Asen',
+      '2026-11-21 18:00:00 Center Zara',
+      '2026-11-21 18:00:00 Lozenets Velcho',
+      '2026-11-22 07:00:00 Center Velcho',
     ]);
   });
 });

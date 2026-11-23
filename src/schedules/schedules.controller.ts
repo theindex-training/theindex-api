@@ -21,6 +21,7 @@ import {
   CreateScheduleSlotDto,
   CreateScheduleWeekDto,
   CreateTemplateSlotDto,
+  DayRangeQueryDto,
   ScheduleWeekQueryDto,
   UpdateScheduleSlotDto,
   UpdateTemplateSlotDto,
@@ -115,6 +116,15 @@ export class SchedulesController {
     @Body() dto: CreateScheduleSlotDto,
   ) {
     return this.service.addSlot(weekId, dto);
+  }
+
+  /**
+   * Every active gym's trainings of a range of days (at most 14), with their attendance: the
+   * staff's dashboard.
+   */
+  @Get('slots')
+  trainings(@Query() query: DayRangeQueryDto) {
+    return this.service.trainings(query);
   }
 
   /** One training with the trainees who booked it and what their subscriptions have left. */
