@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
 import { CashRegisterKvEntity } from './cash-register-kv.entity';
+import { CashRegisterTransactionType } from './enums/cash-register-transaction-type.enum';
 
 describe('CashRegisterService (integration)', () => {
   const fixtures = setupIntegrationSuite();
@@ -66,6 +67,9 @@ describe('CashRegisterService (integration)', () => {
 
     expect(await fx.cashRegister.getCurrentState()).toEqual({
       balanceCents: 0,
+      total: 0,
+      limit: 50,
+      offset: 0,
       transactions: [],
     });
     expect(await kvRepo.count()).toBe(0);
@@ -208,5 +212,107 @@ describe('CashRegisterService (integration)', () => {
     expect(txs.map((t) => t.balanceAfterCents).sort((a, b) => b - a)).toEqual([
       1000, 700, 400, 100,
     ]);
+  });
+  describe('CR-12 transactions are paged', () => {
+    it('CR-12 gives the newest 50 by default, with the total; offset/limit give the next page', async () => {
+      const fx = fixtures();
+      for (let i = 1; i <= 53; i++) {
+        await fx.cashIn(i * 100);
+      }
+      const balance = (53 * 54 * 100) / 2;
+
+      const first = await fx.cashRegister.getCurrentState();
+      expect(first).toMatchObject({
+        balanceCents: balance,
+        total: 53,
+        limit: 50,
+        offset: 0,
+      });
+      expect(first.transactions).toHaveLength(50);
+      expect(first.transactions[0].amountCents).toBe(5300);
+      expect(first.transactions[49].amountCents).toBe(400);
+
+      const rest = await fx.cashRegister.getCurrentState({
+        offset: 50,
+        limit: 50,
+      });
+      expect(rest).toMatchObject({ total: 53, limit: 50, offset: 50 });
+      expect(rest.transactions.map((t) => t.amountCents)).toEqual([
+        300, 200, 100,
+      ]);
+      // The balance is the register's, whatever the page.
+      expect(rest.balanceCents).toBe(balance);
+
+      const past = await fx.cashRegister.getCurrentState({ offset: 60 });
+      expect(past).toMatchObject({ total: 53, offset: 60 });
+      expect(past.transactions).toEqual([]);
+    });
+
+    it('CR-12 transactions of the same moment come by id, so pages neither overlap nor skip', async () => {
+      const fx = fixtures();
+      await fx.cashIn(100);
+      // One database transaction: the rows share createdAt.
+      await fx.ds.transaction(async (m) => {
+        for (let i = 1; i <= 5; i++) {
+          await fx.cashRegister.registerSubscriptionPayment(
+            m,
+            randomUUID(),
+            i * 1000,
+          );
+        }
+      });
+
+      const all = await fx.cashRegister.getCurrentState();
+      const sameMoment = all.transactions.filter(
+        (t) => t.type === CashRegisterTransactionType.SUBSCRIPTION_IN,
+      );
+      expect(new Set(sameMoment.map((t) => t.createdAt.getTime())).size).toBe(
+        1,
+      );
+      expect(sameMoment.map((t) => t.id)).toEqual(
+        sameMoment
+          .map((t) => t.id)
+          .sort()
+          .reverse(),
+      );
+
+      const paged: string[] = [];
+      for (let offset = 0; offset < 6; offset += 2) {
+        const page = await fx.cashRegister.getCurrentState({
+          offset,
+          limit: 2,
+        });
+        expect(page.total).toBe(6);
+        paged.push(...page.transactions.map((t) => t.id));
+      }
+      expect(paged).toEqual(all.transactions.map((t) => t.id));
+      expect(all.transactions[5].type).toBe('MANUAL_IN');
+    });
+
+    it('CR-12 the rows of a later page get their source details', async () => {
+      const fx = fixtures();
+      const trainee = await fx.trainee('Maria Ivanova');
+      const plan = await fx.punchPlan(4, 6000, { title: 'Four pack' });
+      const sub = await fx.buy(trainee.id, plan.id);
+      await fx.cashIn(100);
+      await fx.cashIn(200);
+
+      const page = await fx.cashRegister.getCurrentState({
+        offset: 2,
+        limit: 2,
+      });
+
+      expect(page.total).toBe(3);
+      expect(page.transactions).toHaveLength(1);
+      expect(page.transactions[0]).toMatchObject({
+        type: 'SUBSCRIPTION_IN',
+        sourceId: sub.id,
+        sourceDetails: {
+          boughtBy: { traineeId: trainee.id, name: 'Maria Ivanova' },
+          planTitle: 'Four pack',
+          subscriptionType: 'PUNCH',
+        },
+      });
+    });
   });
 });
