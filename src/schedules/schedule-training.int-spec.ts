@@ -166,6 +166,46 @@ describe('SchedulesService.training (integration)', () => {
     ]);
   });
 
+  it('lists who came to the training (its gym and start, any trainer), walk-ins included, with what is left now', async () => {
+    const fx = fixtures();
+    const f = await friday(fx);
+    const marta = await fx.trainer('Marta');
+    const ana = await fx.trainee('Ana');
+    const boris = await fx.trainee('Boris');
+    const walkIn = await fx.trainee('Cveta');
+    const elsewhere = await fx.trainee('Dimo');
+    const plan = await fx.punchPlan(5, 5000);
+    for (const t of [ana, boris, walkIn]) await fx.buy(t.id, plan.id);
+    await bookings(fx).book(ana.id, f.slot.id);
+    await bookings(fx).book(boris.id, f.slot.id);
+
+    await fx.attend(ana.id, f.velcho.id, f.gym.id, '2026-11-13T18:00');
+    // Registered under another trainer, without a booking: still this training.
+    await fx.attend(walkIn.id, marta.id, f.gym.id, '2026-11-13T18:00');
+    // Another gym at the same time: not this training.
+    await fx.attend(elsewhere.id, f.velcho.id, f.other.id, '2026-11-13T18:00');
+
+    const seen = await schedules(fx).training(f.slot.id);
+
+    expect(
+      seen.attendees.map((t) => [
+        t.name,
+        t.booked,
+        t.paymentStatus,
+        t.subscription?.remainingCredits,
+        t.photoUrl,
+      ]),
+    ).toEqual([
+      ['Ana', true, 'PAID', 4, null],
+      ['Cveta', false, 'PAID', 4, null],
+    ]);
+    // Boris booked and didn't come: only on the booked list, still projected.
+    expect(seen.trainees.map((t) => [t.name, t.attendanceSaved])).toEqual([
+      ['Ana', true],
+      ['Boris', false],
+    ]);
+  });
+
   it('shows a training nobody booked with an empty list', async () => {
     const fx = fixtures();
     const f = await friday(fx);
@@ -174,6 +214,7 @@ describe('SchedulesService.training (integration)', () => {
 
     expect(seen.bookedCount).toBe(0);
     expect(seen.trainees).toEqual([]);
+    expect(seen.attendees).toEqual([]);
     expect(seen.workout).toBeNull();
   });
 
