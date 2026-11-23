@@ -1,8 +1,9 @@
 import { messageOf, setupE2eSuite } from './e2e-app';
 
 /**
- * Cash register over HTTP: ADMIN-only access (CR-10) and the DTO rules that
- * encode business rules (CR-11). Balance/idempotency rules are covered in
+ * Cash register over HTTP: ADMIN-only access (CR-10), the DTO rules that
+ * encode business rules (CR-11) and the transactions' paging query (CR-13).
+ * Balance/idempotency rules and the pages themselves (CR-12) are covered in
  * `cash-register.service.int-spec.ts`.
  */
 describe('Cash register (e2e)', () => {
@@ -42,9 +43,11 @@ describe('Cash register (e2e)', () => {
         .expect(200);
       const body = state.body as {
         balanceCents: number;
+        total: number;
         transactions: unknown[];
       };
       expect(body.balanceCents).toBe(3500);
+      expect(body.total).toBe(2);
       expect(body.transactions).toHaveLength(2);
     });
 
@@ -156,6 +159,69 @@ describe('Cash register (e2e)', () => {
         'Cash register balance cannot be negative',
       );
       expect(await c.balance()).toBe(5000);
+    });
+  });
+  describe('CR-13 paging query', () => {
+    it('CR-13 offset and limit from the query string page the transactions', async () => {
+      const c = ctx();
+      const admin = await c.loginAsAdmin();
+      for (const amount of [100, 200, 300]) {
+        await seedBalance(admin, amount);
+      }
+
+      const res = await c
+        .http()
+        .get('/api/cash-register?offset=1&limit=1')
+        .set('Authorization', `Bearer ${admin}`)
+        .expect(200);
+
+      const body = res.body as {
+        balanceCents: number;
+        total: number;
+        limit: number;
+        offset: number;
+        transactions: { amountCents: number }[];
+      };
+      expect(body).toMatchObject({
+        balanceCents: 600,
+        total: 3,
+        limit: 1,
+        offset: 1,
+      });
+      expect(body.transactions.map((t) => t.amountCents)).toEqual([200]);
+    });
+
+    it.each([
+      ['limit 0', 'limit=0'],
+      ['limit over 500', 'limit=501'],
+      ['negative offset', 'offset=-1'],
+      ['non-integer limit', 'limit=2.5'],
+      ['non-numeric offset', 'offset=abc'],
+      ['unknown parameter', 'page=2'],
+    ])('CR-13 %s -> 400', async (_label, query) => {
+      const c = ctx();
+      const admin = await c.loginAsAdmin();
+
+      const res = await c
+        .http()
+        .get(`/api/cash-register?${query}`)
+        .set('Authorization', `Bearer ${admin}`)
+        .expect(400);
+
+      expect(Array.isArray(messageOf(res.body))).toBe(true);
+    });
+
+    it('CR-13 limit 500 is accepted', async () => {
+      const c = ctx();
+      const admin = await c.loginAsAdmin();
+
+      const res = await c
+        .http()
+        .get('/api/cash-register?limit=500')
+        .set('Authorization', `Bearer ${admin}`)
+        .expect(200);
+
+      expect((res.body as { limit: number }).limit).toBe(500);
     });
   });
 });

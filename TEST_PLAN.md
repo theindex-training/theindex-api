@@ -250,7 +250,7 @@ Code: `attendance/attendance.service.ts` (`create`, `createBatch`, `remove`), `a
 ---
 
 ## 4. Cash register: P0
-- [x] **Module done** (service layer: `cash-register.service.int-spec.ts`; HTTP: `test/e2e/cash-register.e2e-spec.ts`, CR-10, CR-11)
+- [x] **Module done** (service layer: `cash-register.service.int-spec.ts`; HTTP: `test/e2e/cash-register.e2e-spec.ts`, CR-10, CR-11, CR-13)
 - [x] **Service layer done** (`cash-register.service.int-spec.ts`).
 
 Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `cash_register_kv` (`cash_register_balance_cents`). Each change appends a transaction with `balanceAfterCents`.
@@ -260,7 +260,7 @@ Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `ca
   - Assert the stored amount is **negative** and the type is `MANUAL_OUT`.
   - Overdraw → 400 `Cash register balance cannot be negative`. Assert no tx row and an unchanged balance.
 - [x] **CR-03** [I] P0. OUT that brings the balance to exactly 0 is allowed.
-- [x] **CR-04** [I] P1. Empty state: `getCurrentState()` → `{ balanceCents: 0, transactions: [] }`. Assert the first tx creates the kv row starting from 0.
+- [x] **CR-04** [I] P1. Empty state: `getCurrentState()` → `{ balanceCents: 0, total: 0, limit: 50, offset: 0, transactions: [] }`. Assert the first tx creates the kv row starting from 0.
 - [x] **CR-05** [I] P0. Running balance: after a mixed sequence, assert each `balanceAfterCents` equals the cumulative sum, and `balanceCents` equals the last `balanceAfterCents` and Σ amounts.
 - [x] **CR-06** [I] P0. Idempotency per `(sourceType, sourceId)`: assert calling `registerSubscriptionPayment` twice with the same id returns the existing tx, with no new row and no balance change.
 - [x] **CR-07** [I] P0. Zero-amount automatic tx (`registerSubscriptionPayment` / `registerSettlementFinalization` with 0): assert it returns `null`, adds no row and leaves the balance unchanged. Replaces the current spy-based spec (INF-09).
@@ -272,6 +272,11 @@ Code: `cash-register/cash-register.service.ts`, controller. Balance lives in `ca
 - [x] **CR-09** [I] P2. Concurrency: parallel manual OUTs that together exceed the balance. Assert the final balance ≥ 0 and equals Σ committed tx amounts. Flaky-prone, optional.
 - [x] **CR-10** [E] P0. ADMIN only: TRAINER/TRAINEE → 403 on both routes.
 - [x] **CR-11** [E] P1. DTO: `direction` not `IN|OUT` → 400; `amountCents` 0, negative or non-integer → 400; `notes: ''` → 400.
+- [x] **CR-12** [I] P1. Paged transactions (Nov 2026):
+  - No query: the newest 50, with `total` counting every transaction, `limit` 50 and `offset` 0; `offset`/`limit` give the next page, and a page past the end is empty. `balanceCents` is the register's on every page.
+  - Rows of one database transaction (same `createdAt`) come by `id` descending, so walking the pages gives every row once, in the unpaged order.
+  - A later page's rows get their `sourceDetails`.
+- [x] **CR-13** [E] P1. Paging query over HTTP: `?offset=1&limit=1` pages; `limit` 0 or over 500, a negative `offset`, a non-integer or non-numeric value and an unknown parameter → 400; `limit=500` is accepted.
 
 ---
 

@@ -10,6 +10,7 @@ import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { SettlementEntity } from '../settlements/settlement.entity';
 
 const CASH_REGISTER_BALANCE_KEY = 'cash_register_balance_cents';
+const DEFAULT_TRANSACTIONS_LIMIT = 50;
 
 @Injectable()
 export class CashRegisterService {
@@ -25,15 +26,27 @@ export class CashRegisterService {
     private readonly settlementRepo: Repository<SettlementEntity>,
   ) {}
 
-  async getCurrentState() {
+  /**
+   * The balance and one page of the transactions, newest first (50 by default). `total` counts
+   * every transaction; only the page's ones get their source details. Transactions made at the
+   * same moment (one database transaction) come by id, so the pages never overlap.
+   */
+  async getCurrentState(query: { offset?: number; limit?: number } = {}) {
+    const limit = query.limit ?? DEFAULT_TRANSACTIONS_LIMIT;
+    const offset = query.offset ?? 0;
     const balance = await this.getCurrentBalanceCents();
-    const transactions = await this.txRepo.find({
-      order: { createdAt: 'DESC' },
+    const [transactions, total] = await this.txRepo.findAndCount({
+      order: { createdAt: 'DESC', id: 'DESC' },
+      skip: offset,
+      take: limit,
     });
     const enrichedTransactions = await this.enrichTransactions(transactions);
 
     return {
       balanceCents: balance,
+      total,
+      limit,
+      offset,
       transactions: enrichedTransactions,
     };
   }
