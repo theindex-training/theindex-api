@@ -49,12 +49,24 @@ export class CreatePlanDto {
   @ApiPropertyOptional({
     example: 30,
     minimum: 1,
-    description: 'Duration in days (required for TIME plans)',
+    description:
+      'Duration in 24-hour days (TIME plans: this or durationMonths)',
   })
   @IsOptional()
   @IsInt()
   @Min(1)
   durationDays?: number;
+
+  @ApiPropertyOptional({
+    example: 1,
+    minimum: 1,
+    description:
+      'Duration in calendar months, e.g. Apr 14 to May 14 (TIME plans: this or durationDays)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationMonths?: number;
 
   @ApiPropertyOptional({
     example: true,

@@ -1,6 +1,7 @@
 import { gymLocalDaysBetween } from '../attendance/attendance-timezone.util';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { SubscriptionStatus } from '../common/enums/subscription-status.enum';
+import { timePassLastInstant } from './time-pass-end';
 
 /** An active trainee, as the renewals overview needs it. */
 export type RenewalTrainee = {
@@ -158,7 +159,8 @@ export function buildSubscriptionRenewals(
 
     if (activeOfType.length) {
       row.endsAt = latestEnd(activeOfType);
-      row.daysLeft = gymLocalDaysBetween(now, row.endsAt!);
+      // Counted to the pass's last day, so its last day reads 0 ("ends today").
+      row.daysLeft = gymLocalDaysBetween(now, timePassLastInstant(row.endsAt!));
       result.time.active.push(row);
     } else {
       row.endsAt = latestEnd(ofType);

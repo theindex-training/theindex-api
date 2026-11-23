@@ -10,6 +10,23 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { PlanEntity } from './plan.entity';
 
+/** A TIME plan lasts either a number of days or of calendar months. */
+function assertTimeDuration(plan: {
+  durationDays?: number | null;
+  durationMonths?: number | null;
+}): void {
+  const hasDays = !!plan.durationDays && plan.durationDays > 0;
+  const hasMonths = !!plan.durationMonths && plan.durationMonths > 0;
+  if (!hasDays && !hasMonths)
+    throw new BadRequestException(
+      'Time plan requires durationDays or durationMonths',
+    );
+  if (hasDays && hasMonths)
+    throw new BadRequestException(
+      'Time plan takes durationDays or durationMonths, not both',
+    );
+}
+
 @Injectable()
 export class PlansService {
   constructor(
@@ -34,17 +51,17 @@ export class PlansService {
       if (!dto.credits || dto.credits <= 0)
         throw new BadRequestException('Punch plan requires credits');
     }
-    if (dto.type === PlanType.TIME) {
-      if (!dto.durationDays || dto.durationDays <= 0)
-        throw new BadRequestException('Time plan requires durationDays');
-    }
+    if (dto.type === PlanType.TIME) assertTimeDuration(dto);
 
     const plan = this.planRepo.create({
       type: dto.type,
       title: dto.title.trim(),
       priceCents: dto.priceCents,
       credits: dto.type === PlanType.PUNCH ? dto.credits! : null,
-      durationDays: dto.type === PlanType.TIME ? dto.durationDays! : null,
+      durationDays:
+        dto.type === PlanType.TIME ? (dto.durationDays ?? null) : null,
+      durationMonths:
+        dto.type === PlanType.TIME ? (dto.durationMonths ?? null) : null,
       isActive: dto.isActive ?? true,
     });
 
@@ -64,15 +81,23 @@ export class PlansService {
       plan.credits = dto.credits === null ? null : dto.credits;
     if (dto.durationDays !== undefined)
       plan.durationDays = dto.durationDays === null ? null : dto.durationDays;
+    if (dto.durationMonths !== undefined)
+      plan.durationMonths =
+        dto.durationMonths === null ? null : dto.durationMonths;
+    // Sending one duration alone switches the plan to it.
+    if (dto.durationDays && dto.durationMonths === undefined)
+      plan.durationMonths = null;
+    if (dto.durationMonths && dto.durationDays === undefined)
+      plan.durationDays = null;
 
     // Validate consistency
     if (plan.type === PlanType.PUNCH) {
       if (!plan.credits || plan.credits <= 0)
         throw new BadRequestException('Punch plan requires credits');
       plan.durationDays = null;
+      plan.durationMonths = null;
     } else {
-      if (!plan.durationDays || plan.durationDays <= 0)
-        throw new BadRequestException('Time plan requires durationDays');
+      assertTimeDuration(plan);
       plan.credits = null;
     }
 

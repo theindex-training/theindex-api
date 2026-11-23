@@ -104,6 +104,24 @@ export class Fixtures {
     });
   }
 
+  /** A TIME plan of calendar months (Apr 14 -> May 14). */
+  monthPlan(
+    durationMonths: number,
+    priceCents: number,
+    extra: DeepPartial<PlanEntity> = {},
+  ) {
+    return this.ds.getRepository(PlanEntity).save({
+      type: PlanType.TIME,
+      title: `Time ${durationMonths}m`,
+      priceCents,
+      credits: null,
+      durationDays: null,
+      durationMonths,
+      isActive: true,
+      ...extra,
+    });
+  }
+
   // ---- through real services ----
 
   buy(

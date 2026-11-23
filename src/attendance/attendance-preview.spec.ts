@@ -177,6 +177,25 @@ describe('buildAttendancePreview', () => {
       expect(row.level).toBe(level);
     });
 
+    it('a pass ending at Sofia midnight (a month plan) counts to its last day', () => {
+      const ana = trainee('Ana');
+      const tonight = time(ana, '2026-10-09T22:00:00Z', '2026-11-09T22:00:00Z'); // ends Nov 10 00:00 Sofia
+      const tomorrow = time(
+        ana,
+        '2026-10-10T22:00:00Z',
+        '2026-11-10T22:00:00Z',
+      ); // ends Nov 11 00:00 Sofia
+
+      const [last] = preview([ana], [tonight]);
+      const [oneMore] = preview([ana], [tomorrow]);
+
+      // Nov 9 is the last day: "ends today", not "1 day left".
+      expect(last.subscription?.daysLeft).toBe(0);
+      expect(last.level).toBe('LAST');
+      expect(oneMore.subscription?.daysLeft).toBe(1);
+      expect(oneMore.level).toBe('LOW');
+    });
+
     it('counts Sofia calendar days: 23:30 UTC is already the next day', () => {
       const ana = trainee('Ana');
       // 01:30 on 10 Nov in Sofia.

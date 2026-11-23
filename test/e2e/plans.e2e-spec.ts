@@ -32,7 +32,18 @@ describe('Plans (e2e)', () => {
       [
         'TIME without durationDays',
         { type: 'TIME', title: 'T', priceCents: 1000 },
-        'Time plan requires durationDays',
+        'Time plan requires durationDays or durationMonths',
+      ],
+      [
+        'TIME with both durations',
+        {
+          type: 'TIME',
+          title: 'T',
+          priceCents: 1000,
+          durationDays: 30,
+          durationMonths: 1,
+        },
+        'Time plan takes durationDays or durationMonths, not both',
       ],
     ])(
       'PLN-03 %s -> 400 with the service message (a string)',
@@ -55,6 +66,16 @@ describe('Plans (e2e)', () => {
         'durationDays 0',
         { type: 'TIME', title: 'T', priceCents: 1000, durationDays: 0 },
         'durationDays must not be less than 1',
+      ],
+      [
+        'durationMonths 0',
+        { type: 'TIME', title: 'T', priceCents: 1000, durationMonths: 0 },
+        'durationMonths must not be less than 1',
+      ],
+      [
+        'float durationMonths',
+        { type: 'TIME', title: 'T', priceCents: 1000, durationMonths: 1.5 },
+        'durationMonths must be an integer number',
       ],
       [
         'negative priceCents',
@@ -101,7 +122,25 @@ describe('Plans (e2e)', () => {
         priceCents: 0,
         credits: 1,
         durationDays: null,
+        durationMonths: null,
         isActive: true,
+      });
+    });
+
+    it('PLN-09 a TIME plan of calendar months is created over HTTP', async () => {
+      const c = ctx();
+      const res = await createPlan(await c.loginAsAdmin(), {
+        type: 'TIME',
+        title: 'Monthly',
+        priceCents: 9000,
+        durationMonths: 1,
+      }).expect(201);
+
+      expect(res.body).toMatchObject({
+        type: 'TIME',
+        credits: null,
+        durationDays: null,
+        durationMonths: 1,
       });
     });
 

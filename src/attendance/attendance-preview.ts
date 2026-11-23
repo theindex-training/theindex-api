@@ -1,6 +1,7 @@
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import { gymLocalDaysBetween } from './attendance-timezone.util';
+import { timePassLastInstant } from '../subscriptions/time-pass-end';
 
 /** A trainee picked for the training. */
 export type PreviewTrainee = {
@@ -156,7 +157,11 @@ export function buildAttendancePreview(
           .map((sub) => sub.endsAt!.getTime()),
       ),
     );
-    const daysLeft = Math.max(0, gymLocalDaysBetween(now, endsAt));
+    // Counted to the pass's last day, so its last day reads 0 ("ends today").
+    const daysLeft = Math.max(
+      0,
+      gymLocalDaysBetween(now, timePassLastInstant(endsAt)),
+    );
 
     return {
       ...person,

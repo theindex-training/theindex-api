@@ -123,7 +123,7 @@ describe('PlansService (integration)', () => {
           priceCents: 100,
           credits: 10,
         }),
-        'Time plan requires durationDays',
+        'Time plan requires durationDays or durationMonths',
       );
 
       expect(await fx.ds.getRepository(PlanEntity).count()).toBe(0);
@@ -178,7 +178,7 @@ describe('PlansService (integration)', () => {
 
       await expectBadRequest(
         svc(fx).update(plan.id, { type: PlanType.TIME }),
-        'Time plan requires durationDays',
+        'Time plan requires durationDays or durationMonths',
       );
       expect(await planRow(fx, plan.id)).toMatchObject({
         type: PlanType.PUNCH,
@@ -240,7 +240,7 @@ describe('PlansService (integration)', () => {
       );
       await expectBadRequest(
         svc(fx).update(time.id, { durationDays: null }),
-        'Time plan requires durationDays',
+        'Time plan requires durationDays or durationMonths',
       );
 
       expect((await planRow(fx, punch.id)).credits).toBe(10);
@@ -377,6 +377,138 @@ describe('PlansService (integration)', () => {
       expect(ids(await svc(fx).list())).toEqual([d.id, c.id, b.id, a.id]);
       expect(ids(await svc(fx).list(true))).toEqual([c.id, a.id]);
       expect(ids(await svc(fx).list(false))).toEqual([d.id, b.id]);
+    });
+  });
+
+  describe('calendar-month durations', () => {
+    it('PLN-09 TIME by months: durationMonths stored, durationDays and credits null', async () => {
+      const fx = fixtures();
+
+      const plan = await svc(fx).create({
+        type: PlanType.TIME,
+        title: 'Monthly',
+        priceCents: 9000,
+        credits: 12,
+        durationMonths: 1,
+      });
+
+      const expected = {
+        type: PlanType.TIME,
+        credits: null,
+        durationDays: null,
+        durationMonths: 1,
+      };
+      expect(plan).toMatchObject(expected);
+      expect(await planRow(fx, plan.id)).toMatchObject(expected);
+    });
+
+    it('PLN-09 TIME with both durations -> 400, nothing stored', async () => {
+      const fx = fixtures();
+
+      await expectBadRequest(
+        svc(fx).create({
+          type: PlanType.TIME,
+          title: 'T',
+          priceCents: 100,
+          durationDays: 30,
+          durationMonths: 1,
+        }),
+        'Time plan takes durationDays or durationMonths, not both',
+      );
+      expect(await fx.ds.getRepository(PlanEntity).count()).toBe(0);
+    });
+
+    it('PLN-09 PUNCH ignores durationMonths', async () => {
+      const fx = fixtures();
+
+      const plan = await svc(fx).create({
+        type: PlanType.PUNCH,
+        title: 'P',
+        priceCents: 100,
+        credits: 10,
+        durationMonths: 1,
+      });
+
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        credits: 10,
+        durationDays: null,
+        durationMonths: null,
+      });
+    });
+
+    it('PLN-09 sending one duration alone switches the plan to it', async () => {
+      const fx = fixtures();
+      const plan = await fx.timePlan(30, 9000);
+
+      await svc(fx).update(plan.id, { durationMonths: 1 });
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        durationDays: null,
+        durationMonths: 1,
+      });
+
+      await svc(fx).update(plan.id, { durationDays: 14 });
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        durationDays: 14,
+        durationMonths: null,
+      });
+
+      // Both sent, as the plan form does: the null one is cleared.
+      await svc(fx).update(plan.id, { durationDays: null, durationMonths: 3 });
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        durationDays: null,
+        durationMonths: 3,
+      });
+    });
+
+    it('PLN-09 update: both durations -> 400, none -> 400, row unchanged', async () => {
+      const fx = fixtures();
+      const plan = await fx.monthPlan(1, 9000);
+
+      await expectBadRequest(
+        svc(fx).update(plan.id, { durationDays: 30, durationMonths: 2 }),
+        'Time plan takes durationDays or durationMonths, not both',
+      );
+      await expectBadRequest(
+        svc(fx).update(plan.id, { durationMonths: null }),
+        'Time plan requires durationDays or durationMonths',
+      );
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        durationDays: null,
+        durationMonths: 1,
+      });
+    });
+
+    it('PLN-09 TIME -> PUNCH clears durationMonths', async () => {
+      const fx = fixtures();
+      const plan = await fx.monthPlan(1, 9000);
+
+      await svc(fx).update(plan.id, { type: PlanType.PUNCH, credits: 8 });
+
+      expect(await planRow(fx, plan.id)).toMatchObject({
+        type: PlanType.PUNCH,
+        credits: 8,
+        durationDays: null,
+        durationMonths: null,
+      });
+    });
+
+    it('PLN-09 switching a plan to months leaves sold passes as they were', async () => {
+      const fx = fixtures();
+      const trainee = await fx.trainee('Ana');
+      const plan = await fx.timePlan(30, 9000);
+      const sold = await fx.buy(trainee.id, plan.id, {
+        startsAt: '2026-01-14',
+      });
+
+      await svc(fx).update(plan.id, { durationMonths: 1 });
+
+      expect((await fx.sub(sold.id)).endsAt!.toISOString()).toBe(
+        '2026-02-13T00:00:00.000Z',
+      );
+      const next = await fx.buy(trainee.id, plan.id, {
+        startsAt: '2026-01-14',
+      });
+      expect(next.endsAt!.toISOString()).toBe('2026-02-13T22:00:00.000Z');
     });
   });
 });

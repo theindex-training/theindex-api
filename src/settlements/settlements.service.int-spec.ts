@@ -566,6 +566,55 @@ describe('SettlementsService (integration)', () => {
     });
   });
 
+  describe('SET-20 a calendar-month TIME pass', () => {
+    it('Apr 16 -> May 16 ends at midnight Sofia, so the May 1-15 report pays it and May 16 is not covered', async () => {
+      const fx = fixtures();
+      const { attend, buy, coachA, coachB } = await world(fx);
+      const sub = await buy((await fx.monthPlan(1, 9000)).id, {
+        startsAt: '2026-04-16',
+      });
+      expect(sub.endsAt).toEqual(new Date('2026-05-15T21:00:00.000Z')); // May 16 00:00 Sofia
+      const covered = [
+        await attend('2026-04-16T15:00:00Z'), // 18:00 Sofia
+        await attend('2026-04-30T15:00:00Z', { trainerId: coachB.id }),
+        await attend('2026-05-15T20:30:00Z'), // 23:30 Sofia, its last evening
+      ];
+      const after = await attend('2026-05-15T21:30:00Z'); // 00:30 Sofia on May 16
+      expect(after.paymentStatus).toBe(AttendancePaymentStatus.UNPAID);
+      const apr2 = await fx.report('2026-04-16', '2026-04-30');
+      const may1 = await fx.report('2026-05-01', '2026-05-15');
+      const may2 = await fx.report('2026-05-16', '2026-05-31');
+
+      expect(await paidIds(fx, apr2.id)).toEqual([]);
+      expect(
+        (await report(fx, apr2.id)).waiting.map((w) => [
+          w.attendanceId,
+          w.reason,
+        ]),
+      ).toEqual(covered.slice(0, 2).map((a) => [a.id, 'TIME_PASS_NOT_ENDED']));
+
+      const { rows } = await fx.settlements.allocations(may1.id, {});
+      expect(
+        rows.map((r) => [r.attendanceId, r.valueCents, r.fromEarlierPeriod]),
+      ).toEqual([
+        [covered[0].id, 3000, true],
+        [covered[1].id, 3000, true],
+        [covered[2].id, 3000, false],
+      ]);
+      expect((await report(fx, may1.id)).lines).toEqual([
+        expect.objectContaining({ trainerId: coachA.id, amountCents: 6000 }),
+        expect.objectContaining({ trainerId: coachB.id, amountCents: 3000 }),
+      ]);
+      expect(await paidIds(fx, may2.id)).toEqual([]);
+      expect(
+        (await report(fx, may2.id)).waiting.map((w) => [
+          w.attendanceId,
+          w.reason,
+        ]),
+      ).toEqual([[after.id, 'UNPAID']]);
+    });
+  });
+
   describe('finalize', () => {
     async function twoPunchTrainings(fx: Fixtures) {
       const w = await world(fx);
