@@ -1,4 +1,8 @@
-import { addCalendarMonths, timePassEndsAt } from './time-pass-end';
+import {
+  addCalendarMonths,
+  timePassEndsAt,
+  timePassLastInstant,
+} from './time-pass-end';
 
 const months = (durationMonths: number) => ({
   durationDays: null,
@@ -105,5 +109,13 @@ describe('timePassEndsAt', () => {
       durationMonths: null,
     });
     expect(end.toISOString()).toBe('2025-04-14T10:00:00.000Z');
+  });
+});
+
+describe('timePassLastInstant', () => {
+  it('is 1 ms before the exclusive end, so a midnight end belongs to the day before', () => {
+    expect(
+      timePassLastInstant(new Date('2026-12-22T22:00:00.000Z')).toISOString(),
+    ).toBe('2026-12-22T21:59:59.999Z'); // Dec 22 23:59:59.999 Sofia
   });
 });

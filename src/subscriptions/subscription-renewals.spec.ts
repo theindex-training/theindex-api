@@ -205,6 +205,29 @@ describe('buildSubscriptionRenewals', () => {
       });
     });
 
+    it('a pass ending at Sofia midnight (a month plan) counts days left to its last day', () => {
+      const ana = trainee('Ana');
+      const bob = trainee('Bob');
+      const subs = [
+        // Ends Nov 10 00:00 Sofia: Nov 9 (today) is its last day.
+        time(ana, '2026-10-09T22:00:00Z', '2026-11-09T22:00:00Z'),
+        // Ends Nov 20 00:00 Sofia: last day Nov 19, 10 days from today.
+        time(bob, '2026-10-19T22:00:00Z', '2026-11-19T22:00:00Z'),
+      ];
+
+      const result = buildSubscriptionRenewals(
+        [ana, bob],
+        subs,
+        new Map(),
+        NOW,
+      );
+
+      expect(result.time.active.map((r) => [r.name, r.daysLeft])).toEqual([
+        ['Ana', 0],
+        ['Bob', 10],
+      ]);
+    });
+
     it('a renewal bought ahead counts: days left run to the latest end', () => {
       const ana = trainee('Ana');
       const subs = [

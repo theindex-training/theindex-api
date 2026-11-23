@@ -54,3 +54,14 @@ export function timePassEndsAt(
   }
   return new Date(startsAt.getTime() + duration.durationDays! * DAY_MS);
 }
+
+/**
+ * The last instant a TIME pass covers (`endsAt` is exclusive). Its gym-local
+ * day is the pass's last day: a month pass from Nov 23 ends Dec 23 00:00, so
+ * its last day is Dec 22. Count "days left" to this, so the last day reads 0
+ * ("ends today"). Passes that end later in the day (e.g. 02:00, as a date-only
+ * start gives day plans) keep that day as their last day.
+ */
+export function timePassLastInstant(endsAt: Date): Date {
+  return new Date(endsAt.getTime() - 1);
+}
