@@ -24,6 +24,7 @@ import { SettlementEntity } from '../../src/settlements/settlement.entity';
 import { SubscriptionEntity } from '../../src/subscriptions/subscription.entity';
 import { TraineeProfileEntity } from '../../src/trainee-profiles/trainee-profile.entity';
 import { TrainerProfileEntity } from '../../src/trainer-profiles/trainer-profile.entity';
+import type { ProviderOverride } from '../int/test-app';
 
 /** Admin seeded by the real BootstrapService (INF-07). */
 export const E2E_ADMIN = { email: 'e2e-admin', password: 'e2e-admin-pass' };
@@ -40,15 +41,19 @@ export const E2E_JWT_SECRET = 'e2e-test-only-secret';
  * truncates all tables. JWT_SECRET and the seed admin are set here, before
  * compiling, because `JwtStrategy` reads the secret in its constructor.
  */
-export async function createE2eApp(): Promise<INestApplication<App>> {
+export async function createE2eApp(
+  overrides: ProviderOverride[] = [],
+): Promise<INestApplication<App>> {
   process.env.JWT_SECRET = E2E_JWT_SECRET;
   delete process.env.JWT_EXPIRES_IN;
   process.env.SEED_ADMIN_EMAIL = E2E_ADMIN.email;
   process.env.SEED_ADMIN_PASSWORD = E2E_ADMIN.password;
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  for (const { provide, useValue } of overrides) {
+    builder.overrideProvider(provide).useValue(useValue);
+  }
+  const moduleRef = await builder.compile();
 
   // Errors/warnings only: the per-request route and seed logs drown the output.
   const app = moduleRef.createNestApplication<INestApplication<App>>({
@@ -93,11 +98,13 @@ export async function resetDatabase(app: INestApplication): Promise<void> {
  * Registers the per-file lifecycle: one app per file, a clean DB before each
  * test, and `app.close()` at the end (clears the subscriptions cron timer).
  */
-export function setupE2eSuite(): () => E2eContext {
+export function setupE2eSuite(
+  opts: { overrides?: ProviderOverride[] } = {},
+): () => E2eContext {
   let ctx: E2eContext | undefined;
 
   beforeAll(async () => {
-    ctx = new E2eContext(await createE2eApp());
+    ctx = new E2eContext(await createE2eApp(opts.overrides));
   }, 30_000);
 
   beforeEach(async () => {
