@@ -7,6 +7,8 @@ import { LoginDto } from '../accounts/dto/login.dto';
 import { RegisterDto } from '../accounts/dto/register.dto';
 import { AllowDuringSetup } from './allow-during-setup.decorator';
 import { AuthService } from './auth.service';
+import { GoogleLoginDto } from './dto/google-login.dto';
+import { GoogleIdTokenVerifier } from './google/google-id-token.verifier';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 
@@ -16,6 +18,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly registration: AccountRegistrationService,
+    private readonly google: GoogleIdTokenVerifier,
   ) {}
 
   /**
@@ -39,6 +42,24 @@ export class AuthController {
   login(@Body() _dto: LoginDto, @Req() req: Request & { user: AccountEntity }) {
     // _dto is not used because LocalAuthGuard authenticates and sets req.user
     return this.auth.login(req.user);
+  }
+
+  /**
+   * Public: the OAuth client id of "Sign in with Google" (not a secret: Google shows it to the
+   * browser anyway), or null while `GOOGLE_CLIENT_ID` isn't set, when the front shows no button.
+   */
+  @Get('google/config')
+  googleConfig() {
+    return { clientId: this.google.clientId() };
+  }
+
+  /**
+   * Public: "Sign in with Google" into the existing account with the Google account's email
+   * (Gmail or Google Workspace only). Never creates an account. Answers like `POST /auth/login`.
+   */
+  @Post('google')
+  loginWithGoogle(@Body() dto: GoogleLoginDto) {
+    return this.auth.loginWithGoogle(dto.credential);
   }
 
   @Get('me')

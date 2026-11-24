@@ -314,6 +314,12 @@ Code: `auth/*`, `accounts/dto/login.dto.ts`, every controller's `@Roles`.
   - Allowed role → anything but 401/403.
   - This is the single highest-value test against permission regressions. Keep it data-driven so adding a route forces adding a row.
   - Done: one row per route in `MATRIX`; a first test compares the rows with the routes Express actually registered, so a new route without a row fails. Allowed calls use a random UUID and minimal bodies, so they don't mutate data; rows whose handler check runs after the pipes (`change-password`) send a valid body.
+- [x] **AUTH-12** [U+I+E] P0. **Sign in with Google** (a feature, tested as it was built): a shortcut into the existing account with the Google account's email, never a new one.
+  - `auth/google/google-sign-in.spec.ts` (pure): only a verified email of a Gmail address (`gmail.com`, `googlemail.com`, any case) or a Google Workspace account (non-blank `hd`) is accepted.
+  - `auth/google/google-id-token.verifier.spec.ts`: a token signed by Google's keys for `GOOGLE_CLIENT_ID` passes (either issuer spelling); another audience or issuer, an expired one, another key's signature, a payload changed after signing and a non-JWT → 401 `GOOGLE_TOKEN_INVALID`; no (or blank) `GOOGLE_CLIENT_ID` → 503 and a null client id; the keys unreachable → 503. Google is faked at its boundary (`test/int/google-id-token.ts`: a local key pair as `GOOGLE_SIGNING_KEYS`); the checks are google-auth-library's.
+  - `auth/google-sign-in.int-spec.ts`: the same account and token claims as a password login; the email matched whatever its case; nothing stored (the account row unchanged, the password still works); a Workspace trainer and an admin sign in; `setupRequired` kept for an admin-created account; an address no account has (Gmail's dots not ignored) → 401 `GOOGLE_NO_ACCOUNT` and no account created; a non-Gmail personal account (even one an account has) and an unverified email → 401 `GOOGLE_EMAIL_NOT_ACCEPTED`; not connected → 403 `NOT_LINKED_MESSAGE`; disabled → 401; a token not signed by Google → 401 before any lookup.
+  - `test/e2e/google-sign-in.e2e-spec.ts`: `GET /auth/google/config` gives the client id or null (then sign-in → 503); `POST /auth/google` → 201 like a login with a token `/auth/me` accepts; the 401s' `{ statusCode, message, error }`; 400 without a credential, with one over 4096 characters or with unknown fields. Both routes are PUBLIC rows of AUTH-11.
+  - Deliberate breaks, each caught: the audience and issuer not checked; the Gmail/Workspace rule skipped; the "connected to a profile" check dropped.
 
 ---
 
@@ -703,6 +709,8 @@ Legend: ✅ allowed by guard · 🔒 guard denies (403 `Forbidden resource`) · 
 | POST | `/auth/login` | — | — | — |
 | POST | `/auth/register` | — | — | — |
 | GET | `/auth/register/options` | — | — | — |
+| GET | `/auth/google/config` | — | — | — |
+| POST | `/auth/google` | — | — | — |
 | GET | `/auth/me` | ✅ | ✅ | ✅ |
 | PATCH | `/accounts/:id` | ✅ | ✅ ⚠ | 🔒 |
 | DELETE | `/accounts/:id` | ✅ | ✅ ⚠ | 🔒 |

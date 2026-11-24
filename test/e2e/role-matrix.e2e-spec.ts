@@ -79,6 +79,9 @@ const MATRIX: Row[] = [
   r('POST /auth/login', PUBLIC, PUBLIC, PUBLIC, E2E_ADMIN),
   r('POST /auth/register', PUBLIC, PUBLIC, PUBLIC),
   r('GET /auth/register/options', PUBLIC, PUBLIC, PUBLIC),
+  // Sign in with Google: an existing account by its email (`src/auth/google/`).
+  r('GET /auth/google/config', PUBLIC, PUBLIC, PUBLIC),
+  r('POST /auth/google', PUBLIC, PUBLIC, PUBLIC),
   r('GET /auth/me', ALLOW, ALLOW, ALLOW),
 
   // ⚠ ACC-15: TRAINER can manage every account, incl. ADMIN ones.

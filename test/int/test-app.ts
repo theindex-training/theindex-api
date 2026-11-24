@@ -45,6 +45,12 @@ export function testDbOptions() {
 
 type ModuleImport = Type<unknown> | DynamicModule;
 
+/** A provider a suite replaces, only at a boundary (e.g. Google's signing keys). */
+export interface ProviderOverride {
+  provide: unknown;
+  useValue: unknown;
+}
+
 /**
  * Builds the real feature modules (no mocked collaborators) on top of the
  * test database. `compile()` does not run lifecycle hooks, so the
@@ -53,8 +59,9 @@ type ModuleImport = Type<unknown> | DynamicModule;
  */
 export async function createIntegrationModule(
   extraImports: ModuleImport[] = [],
+  overrides: ProviderOverride[] = [],
 ): Promise<TestingModule> {
-  return Test.createTestingModule({
+  const builder = Test.createTestingModule({
     imports: [
       TypeOrmModule.forRoot(testDbOptions()),
       // Entities used only to build fixtures (not owned by the modules below).
@@ -72,7 +79,11 @@ export async function createIntegrationModule(
       SettlementsModule,
       ...extraImports,
     ],
-  }).compile();
+  });
+  for (const { provide, useValue } of overrides) {
+    builder.overrideProvider(provide).useValue(useValue);
+  }
+  return builder.compile();
 }
 
 export async function truncateAll(dataSource: DataSource): Promise<void> {
@@ -88,13 +99,16 @@ export async function truncateAll(dataSource: DataSource): Promise<void> {
  * Returns a getter for the fixtures (they exist only after beforeAll).
  */
 export function setupIntegrationSuite(
-  opts: { extraImports?: ModuleImport[] } = {},
+  opts: { extraImports?: ModuleImport[]; overrides?: ProviderOverride[] } = {},
 ): () => Fixtures {
   let moduleRef: TestingModule | undefined;
   let fixtures: Fixtures | undefined;
 
   beforeAll(async () => {
-    moduleRef = await createIntegrationModule(opts.extraImports);
+    moduleRef = await createIntegrationModule(
+      opts.extraImports,
+      opts.overrides,
+    );
     fixtures = new Fixtures(moduleRef);
   });
 

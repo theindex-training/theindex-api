@@ -5,6 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { AccountsModule } from '../accounts/accounts.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import {
+  GOOGLE_SIGNING_KEYS_PROVIDER,
+  GoogleIdTokenVerifier,
+} from './google/google-id-token.verifier';
 import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
@@ -31,7 +35,14 @@ import { LocalStrategy } from './strategies/local.strategy';
       },
     }),
   ],
-  providers: [AuthService, LocalStrategy, JwtStrategy, RolesGuard],
+  providers: [
+    AuthService,
+    GoogleIdTokenVerifier,
+    GOOGLE_SIGNING_KEYS_PROVIDER,
+    LocalStrategy,
+    JwtStrategy,
+    RolesGuard,
+  ],
   controllers: [AuthController],
   exports: [AuthService],
 })
