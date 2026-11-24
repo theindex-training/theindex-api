@@ -52,7 +52,10 @@ import {
   weekdayOf,
 } from './schedule-week';
 import { slotEndsAt, slotStartsAt } from './booking-rules';
-import { buildTrainingBookings } from './training-bookings';
+import {
+  buildTrainingAttendees,
+  buildTrainingBookings,
+} from './training-bookings';
 
 type SlotFields = {
   trainingTimeId?: string;
@@ -350,8 +353,10 @@ export class SchedulesService {
 
   /**
    * One training of a week for staff: when and where, the trainer, its whole workout (as trainees
-   * see it, plus its id), and the trainees who booked it (with their profile photo's `photoUrl`) and what is left of their subscriptions (`training-bookings.ts`: projected
-   * until attendance is saved for the training, i.e. for the same trainee, gym and start time).
+   * see it, plus its id), the trainees who booked it (with their profile photo's `photoUrl`) and
+   * what is left of their subscriptions (`training-bookings.ts`: projected until attendance is
+   * saved for the training, i.e. for the same trainee, gym and start time), and the `attendees`:
+   * everyone with attendance saved for it, walk-ins included, with what is left now.
    */
   async training(id: string) {
     const m = this.slotRepo.manager;
@@ -371,29 +376,57 @@ export class SchedulesService {
       where: { slotId: id },
       relations: { trainee: true },
     });
-    const traineeIds = bookings.map((b) => b.traineeId);
-    const [subscriptions, attendance] = traineeIds.length
-      ? await Promise.all([
-          m.find(SubscriptionEntity, {
-            where: {
-              traineeId: In(traineeIds),
-              status: SubscriptionStatus.ACTIVE,
-            },
-            relations: { plan: true },
-          }),
-          m.find(AttendanceEntity, {
-            where: {
-              traineeId: In(traineeIds),
-              locationId: gym.id,
-              trainedAt: startsAt,
-            },
-            relations: { subscription: { plan: true } },
-          }),
-        ])
-      : [[], []];
+    // Attendance counts for the training as on the dashboard (`trainings`): its gym and its
+    // start, whoever the trainer, walk-ins included.
+    const attendance = await m.find(AttendanceEntity, {
+      where: { locationId: gym.id, trainedAt: startsAt },
+      relations: { trainee: true, subscription: { plan: true } },
+    });
+    const bookedIds = new Set(bookings.map((b) => b.traineeId));
+    const traineeIds = [
+      ...new Set([...bookedIds, ...attendance.map((a) => a.traineeId)]),
+    ];
+    const subscriptions = traineeIds.length
+      ? await m.find(SubscriptionEntity, {
+          where: {
+            traineeId: In(traineeIds),
+            status: SubscriptionStatus.ACTIVE,
+          },
+          relations: { plan: true },
+        })
+      : [];
     const photos = await this.photos.thumbnails({
       traineeProfileIds: traineeIds,
       trainerProfileIds: [],
+    });
+    const previewSubscriptions = subscriptions.map((sub) => ({
+      id: sub.id,
+      traineeId: sub.traineeId,
+      type: sub.type,
+      planTitle: sub.plan.title,
+      startsAt: sub.startsAt,
+      endsAt: sub.endsAt,
+      remainingCredits: sub.remainingCredits,
+      createdAt: sub.createdAt,
+    }));
+    const saved = attendance.map((a) => ({
+      traineeId: a.traineeId,
+      name: a.trainee.name,
+      nickname: a.trainee.nickname,
+      isActive: a.trainee.isActive,
+      paymentStatus: a.paymentStatus,
+      subscription: a.subscription
+        ? {
+            type: a.subscription.type,
+            planTitle: a.subscription.plan.title,
+            endsAt: a.subscription.endsAt,
+          }
+        : null,
+    }));
+    // The trainee's profile photo thumbnail, null without one.
+    const withPhoto = <T extends { traineeId: string }>(row: T) => ({
+      ...row,
+      photoUrl: photos.trainee.get(row.traineeId) ?? null,
     });
 
     return {
@@ -410,34 +443,18 @@ export class SchedulesService {
           isActive: b.trainee!.isActive,
           bookedAt: b.createdAt,
         })),
-        subscriptions.map((sub) => ({
-          id: sub.id,
-          traineeId: sub.traineeId,
-          type: sub.type,
-          planTitle: sub.plan.title,
-          startsAt: sub.startsAt,
-          endsAt: sub.endsAt,
-          remainingCredits: sub.remainingCredits,
-          createdAt: sub.createdAt,
-        })),
-        attendance.map((a) => ({
-          traineeId: a.traineeId,
-          paymentStatus: a.paymentStatus,
-          subscription: a.subscription
-            ? {
-                type: a.subscription.type,
-                planTitle: a.subscription.plan.title,
-                endsAt: a.subscription.endsAt,
-              }
-            : null,
-        })),
+        previewSubscriptions,
+        saved.filter((a) => bookedIds.has(a.traineeId)),
         startsAt,
         new Date(),
-      ).map((row) => ({
-        ...row,
-        // The trainee's profile photo thumbnail, null without one.
-        photoUrl: photos.trainee.get(row.traineeId) ?? null,
-      })),
+      ).map(withPhoto),
+      /** Who came: every trainee with attendance saved for the training, booked or not. */
+      attendees: buildTrainingAttendees(
+        saved,
+        previewSubscriptions,
+        bookedIds,
+        new Date(),
+      ).map(withPhoto),
     };
   }
 

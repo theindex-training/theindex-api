@@ -2,7 +2,9 @@ import { PreviewSubscription } from '../attendance/attendance-preview';
 import { AttendancePaymentStatus } from '../common/enums/attendance-payment-status.enum';
 import { PlanType } from '../common/enums/plan-type.enum';
 import {
+  AttendedTrainee,
   BookedTrainee,
+  buildTrainingAttendees,
   buildTrainingBookings,
   SavedAttendance,
 } from './training-bookings';
@@ -258,5 +260,119 @@ describe('buildTrainingBookings', () => {
         level: 'UNPAID',
       }),
     ]);
+  });
+});
+
+describe('buildTrainingAttendees', () => {
+  function attended(
+    t: BookedTrainee,
+    saved: Omit<SavedAttendance, 'traineeId'>,
+  ): AttendedTrainee {
+    return {
+      traineeId: t.traineeId,
+      name: t.name,
+      nickname: t.nickname,
+      isActive: t.isActive,
+      ...saved,
+    };
+  }
+  const paidPunch = {
+    paymentStatus: AttendancePaymentStatus.PAID,
+    subscription: { type: PlanType.PUNCH, planTitle: 'Punch 16', endsAt: null },
+  };
+  const unpaid = {
+    paymentStatus: AttendancePaymentStatus.UNPAID,
+    subscription: null,
+  };
+
+  it('lists everyone who came with what is left now, marking who had booked', () => {
+    const ana = booked('Ana', { nickname: 'Ani' });
+    const walkIn = booked('Walk-in');
+
+    const rows = buildTrainingAttendees(
+      [attended(ana, paidPunch), attended(walkIn, unpaid)],
+      [punch(ana, 4), punch(walkIn, 9)],
+      new Set([ana.traineeId]),
+      NOW,
+    );
+
+    expect(rows).toEqual([
+      {
+        traineeId: walkIn.traineeId,
+        name: 'Walk-in',
+        nickname: null,
+        isActive: true,
+        booked: false,
+        paymentStatus: 'UNPAID',
+        level: 'UNPAID',
+        subscription: null,
+      },
+      {
+        traineeId: ana.traineeId,
+        name: 'Ana',
+        nickname: 'Ani',
+        isActive: true,
+        booked: true,
+        paymentStatus: 'PAID',
+        level: 'OK',
+        // What is left now: the saved training already took its credit.
+        subscription: {
+          type: 'PUNCH',
+          planTitle: 'Punch 16',
+          remainingCredits: 4,
+          endsAt: null,
+          daysLeft: null,
+        },
+      },
+    ]);
+  });
+
+  it('lists a trainee saved twice once, by the paid row', () => {
+    const ana = booked('Ana');
+
+    const rows = buildTrainingAttendees(
+      [attended(ana, unpaid), attended(ana, paidPunch)],
+      [punch(ana, 2)],
+      new Set(),
+      NOW,
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        traineeId: ana.traineeId,
+        paymentStatus: 'PAID',
+        level: 'LOW',
+      }),
+    ]);
+  });
+
+  it('lists unpaid, last and low first, then by name', () => {
+    const zara = booked('Zara');
+    const asen = booked('Asen');
+    const last = booked('Last');
+    const none = booked('None');
+
+    const rows = buildTrainingAttendees(
+      [
+        attended(zara, paidPunch),
+        attended(asen, paidPunch),
+        attended(last, paidPunch),
+        attended(none, unpaid),
+      ],
+      [punch(zara, 10), punch(asen, 10)],
+      new Set(),
+      NOW,
+    );
+
+    expect(rows.map((r) => [r.name, r.level])).toEqual([
+      ['None', 'UNPAID'],
+      ['Last', 'LAST'],
+      ['Asen', 'OK'],
+      ['Zara', 'OK'],
+    ]);
+  });
+
+  it('is empty when nobody came', () => {
+    expect(buildTrainingAttendees([], [], new Set(), NOW)).toEqual([]);
   });
 });

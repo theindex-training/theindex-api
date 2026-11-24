@@ -127,14 +127,7 @@ export function buildTrainingBookings(
   startsAt: Date,
   now: Date,
 ): TrainingBookingRow[] {
-  const savedByTrainee = new Map<string, SavedAttendance>();
-  for (const row of attendance) {
-    // A trainee saved twice for the same training: the paid row tells more.
-    const known = savedByTrainee.get(row.traineeId);
-    if (!known || known.paymentStatus !== AttendancePaymentStatus.PAID) {
-      savedByTrainee.set(row.traineeId, row);
-    }
-  }
+  const savedByTrainee = savedPerTrainee(attendance);
 
   const projected = new Map(
     buildAttendancePreview(
@@ -184,10 +177,86 @@ export function buildTrainingBookings(
     };
   });
 
-  return rows.sort(
-    (a, b) =>
-      LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level) ||
-      a.name.localeCompare(b.name, 'bg') ||
-      a.traineeId.localeCompare(b.traineeId),
+  return rows.sort(byAttention);
+}
+
+/** A trainee with attendance saved for the training, booked or not (a walk-in). */
+export type AttendedTrainee = SavedAttendance & {
+  name: string;
+  nickname: string | null;
+  isActive: boolean;
+};
+
+/**
+ * One trainee who came to the training, on the staff's training page: everyone with attendance
+ * saved for it (its gym and start, whoever the trainer, as the dashboard's `attendanceCount`
+ * counts them), walk-ins included. The figures are what is left now, as for a booked trainee
+ * whose attendance is saved.
+ */
+export type TrainingAttendeeRow = Omit<
+  TrainingBookingRow,
+  'bookedAt' | 'attendanceSaved'
+> & {
+  /** Whether they had booked the training; false for a walk-in. */
+  booked: boolean;
+};
+
+/**
+ * The trainees with attendance saved for a training, once each (a trainee saved twice: the paid
+ * row), with what is left of their subscriptions now, in the order of the booked list (unpaid,
+ * last, low, then by name).
+ *
+ * `subscriptions` are the trainees' ACTIVE subscriptions; `bookedIds` who booked the training.
+ */
+export function buildTrainingAttendees(
+  attended: AttendedTrainee[],
+  subscriptions: PreviewSubscription[],
+  bookedIds: ReadonlySet<string>,
+  now: Date,
+): TrainingAttendeeRow[] {
+  const people = new Map(attended.map((a) => [a.traineeId, a]));
+  return [...savedPerTrainee(attended).values()]
+    .map((saved): TrainingAttendeeRow => {
+      const person = people.get(saved.traineeId)!;
+      return {
+        traineeId: saved.traineeId,
+        name: person.name,
+        nickname: person.nickname,
+        isActive: person.isActive,
+        booked: bookedIds.has(saved.traineeId),
+        paymentStatus: saved.paymentStatus,
+        ...savedFigures(
+          saved,
+          subscriptions.filter((s) => s.traineeId === saved.traineeId),
+          now,
+        ),
+      };
+    })
+    .sort(byAttention);
+}
+
+/** One saved attendance per trainee: for a trainee saved twice, the paid row tells more. */
+function savedPerTrainee<T extends SavedAttendance>(
+  attendance: T[],
+): Map<string, T> {
+  const byTrainee = new Map<string, T>();
+  for (const row of attendance) {
+    const known = byTrainee.get(row.traineeId);
+    if (!known || known.paymentStatus !== AttendancePaymentStatus.PAID) {
+      byTrainee.set(row.traineeId, row);
+    }
+  }
+  return byTrainee;
+}
+
+/** Rows needing attention first (unpaid, last, low), then by name. */
+function byAttention(
+  a: Pick<TrainingBookingRow, 'level' | 'name' | 'traineeId'>,
+  b: Pick<TrainingBookingRow, 'level' | 'name' | 'traineeId'>,
+): number {
+  return (
+    LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level) ||
+    a.name.localeCompare(b.name, 'bg') ||
+    a.traineeId.localeCompare(b.traineeId)
   );
 }
