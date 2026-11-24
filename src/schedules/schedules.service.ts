@@ -549,24 +549,55 @@ export class SchedulesService {
   private async slot(id: string) {
     const slot = await this.slotRepo.findOne({
       where: { id },
-      relations: { trainingTime: true, trainer: true, workout: true },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: true,
+      },
     });
     if (!slot) throw new NotFoundException('Schedule slot not found');
-    const counts = await bookingCounts(this.slotRepo.manager, [slot.id]);
-    return presentSlot(slot, counts.get(slot.id) ?? 0);
+    const m = this.slotRepo.manager;
+    const [counts, attended] = await Promise.all([
+      bookingCounts(m, [slot.id]),
+      attendanceCounts(m, slot.week!.gymId, [slot]),
+    ]);
+    return {
+      ...presentSlot(slot, counts.get(slot.id) ?? 0),
+      attendanceCount: attended.get(slot.id) ?? 0,
+    };
   }
 
+  /**
+   * A week's slots, each with how many booked it and `attendanceCount`: the trainees with
+   * attendance saved for it, by the rule of the training's page and the dashboard (its gym and
+   * `trainedAt` = its start, whoever the trainer, walk-ins included).
+   */
   private async weekSlots(weekId: string) {
+    const m = this.slotRepo.manager;
     const slots = await this.slotRepo.find({
       where: { weekId },
-      relations: { trainingTime: true, trainer: true, workout: true },
+      relations: {
+        trainingTime: true,
+        trainer: true,
+        workout: true,
+        week: true,
+      },
     });
-    const counts = await bookingCounts(
-      this.slotRepo.manager,
-      slots.map((s) => s.id),
-    );
+    const [counts, attended] = await Promise.all([
+      bookingCounts(
+        m,
+        slots.map((s) => s.id),
+      ),
+      slots.length
+        ? attendanceCounts(m, slots[0].week!.gymId, slots)
+        : new Map<string, number>(),
+    ]);
     return slots
-      .map((s) => presentSlot(s, counts.get(s.id) ?? 0))
+      .map((s) => ({
+        ...presentSlot(s, counts.get(s.id) ?? 0),
+        attendanceCount: attended.get(s.id) ?? 0,
+      }))
       .sort(compareSlots);
   }
 
@@ -587,6 +618,37 @@ export function assertDayRange(query: DayRangeQueryDto) {
 
 function attendanceKey(gymId: string, trainedAt: Date) {
   return `${gymId}|${trainedAt.getTime()}`;
+}
+
+/**
+ * How many trainees have attendance saved for each of a gym's slots: rows of the gym whose
+ * `trainedAt` is the slot's start (whoever the trainer, walk-ins included), each trainee once.
+ */
+async function attendanceCounts(
+  m: EntityManager,
+  gymId: string,
+  slots: ScheduleSlotEntity[],
+): Promise<Map<string, number>> {
+  const startsAt = new Map(
+    slots.map((s) => [s.id, slotStartsAt(s.date, s.trainingTime!.startTime)]),
+  );
+  if (!startsAt.size) return new Map();
+  const rows: { trainedAt: Date; count: string }[] = await m
+    .createQueryBuilder(AttendanceEntity, 'a')
+    .select('a.trainedAt', 'trainedAt')
+    .addSelect('COUNT(DISTINCT a.traineeId)', 'count')
+    .where('a.locationId = :gymId', { gymId })
+    .andWhere('a.trainedAt IN (:...starts)', {
+      starts: [...startsAt.values()],
+    })
+    .groupBy('a.trainedAt')
+    .getRawMany();
+  const byStart = new Map(
+    rows.map((r) => [new Date(r.trainedAt).getTime(), Number(r.count)]),
+  );
+  return new Map(
+    [...startsAt].map(([id, start]) => [id, byStart.get(start.getTime()) ?? 0]),
+  );
 }
 
 /** Locks a week's row for the rest of the transaction, so publish and discard can't overlap. */

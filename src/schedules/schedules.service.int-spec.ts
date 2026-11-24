@@ -542,6 +542,36 @@ describe('SchedulesService (integration)', () => {
       expect(error.message).toBe(message);
     });
 
+    it("counts each training's attendance: its gym and start, whoever the trainer, walk-ins included", async () => {
+      const fx = fixtures();
+      const s = await createdWeek(fx);
+      const other = await fx.location('Lozenets');
+      const ana = await fx.trainee('Ana');
+      const boris = await fx.trainee('Boris');
+      const cveta = await fx.trainee('Cveta');
+
+      // Today's 07:10 training: Ana with its trainer, Boris registered under another one.
+      await fx.attend(ana.id, s.velcho.id, s.gym.id, '2026-11-12T07:10');
+      await fx.attend(boris.id, s.vasko.id, s.gym.id, '2026-11-12T07:10');
+      // Not this training: another gym at the same time, and the same gym at another time.
+      await fx.attend(cveta.id, s.velcho.id, other.id, '2026-11-12T07:10');
+      await fx.attend(cveta.id, s.velcho.id, s.gym.id, '2026-11-12T11:00');
+
+      const week = await svc(fx).week({ gymId: s.gym.id });
+
+      expect(
+        week.slots.map((slot) => [slot.date, slot.attendanceCount]),
+      ).toEqual([
+        ['2026-11-12', 2],
+        ['2026-11-13', 0],
+      ]);
+      // A changed training answers its count too.
+      const changed = await svc(fx).updateSlot(s.tomorrow.id, {
+        trainerId: s.vasko.id,
+      });
+      expect(changed.attendanceCount).toBe(0);
+    });
+
     it('allows two trainings at the same time with different trainers', async () => {
       const fx = fixtures();
       const s = await createdWeek(fx);
