@@ -285,4 +285,115 @@ describe('Trainee profiles (e2e)', () => {
       });
     });
   });
+
+  describe('TRN-10 /trainees/me/year-in-review', () => {
+    it('TRN-10 TRAINEE gets their own year: Sofia dates, favourite time, streak, top trainer', async () => {
+      const c = ctx();
+      const admin = await c.loginAsAdmin();
+      const trainee = await c.trainee('Maria');
+      const other = await c.trainee('Petar');
+      const ivan = await c.trainer('Ivan Petrov');
+      const desi = await c.trainer('Desislava Ilieva');
+      const location = await c.location();
+      const attend = (
+        traineeId: string,
+        trainerId: string,
+        trainedAt: string,
+      ) =>
+        c
+          .http()
+          .post('/api/attendance')
+          .set('Authorization', `Bearer ${admin}`)
+          .send({ traineeId, trainerId, locationId: location.id, trainedAt })
+          .expect(201);
+      // 01:30 on Thu Jan 1, 2026 in Sofia (still Dec 31 in UTC): in 2026, in the week from
+      // Mon Dec 29.
+      await attend(trainee.id, ivan.id, '2025-12-31T23:30:00.000Z');
+      // 07:00 Sofia, Mon Jan 5 and Mon Jan 12: with Jan 1, three weeks in a row.
+      await attend(trainee.id, ivan.id, '2026-01-05T05:00:00.000Z');
+      await attend(trainee.id, desi.id, '2026-01-12T05:00:00.000Z');
+      // 00:30 on Jan 1, 2027 in Sofia: not in 2026.
+      await attend(trainee.id, desi.id, '2026-12-31T22:30:00.000Z');
+      // Someone else's training doesn't count.
+      await attend(other.id, desi.id, '2026-03-03T05:00:00.000Z');
+      const token = await c.provisionAndLogin('trainee', trainee.id);
+
+      const res = await c
+        .http()
+        .get('/api/trainees/me/year-in-review?year=2026')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toEqual({
+        year: 2026,
+        trainings: 3,
+        firstTrainingOn: '2026-01-01',
+        favouriteTime: { time: '07:00', count: 2 },
+        longestStreakWeeks: 3,
+        topTrainer: {
+          id: ivan.id,
+          name: 'Ivan Petrov',
+          count: 2,
+          photoUrl: null,
+        },
+        busiestMonth: { month: 1, count: 3 },
+      });
+    });
+
+    it('TRN-10 a year without trainings is empty', async () => {
+      const c = ctx();
+      const trainee = await c.trainee('Maria');
+      const token = await c.provisionAndLogin('trainee', trainee.id);
+
+      const res = await c
+        .http()
+        .get('/api/trainees/me/year-in-review?year=2026')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toEqual({
+        year: 2026,
+        trainings: 0,
+        firstTrainingOn: null,
+        favouriteTime: null,
+        longestStreakWeeks: 0,
+        topTrainer: null,
+        busiestMonth: null,
+      });
+    });
+
+    it.each(['', '?year=26', '?year=next'])(
+      'TRN-10 a missing or bad year (%s) -> 400',
+      async (query) => {
+        const c = ctx();
+        const trainee = await c.trainee('Maria');
+        const token = await c.provisionAndLogin('trainee', trainee.id);
+
+        await c
+          .http()
+          .get(`/api/trainees/me/year-in-review${query}`)
+          .set('Authorization', `Bearer ${token}`)
+          .expect(400);
+      },
+    );
+
+    it.each(['ADMIN', 'TRAINER'] as const)(
+      'TRN-10 %s -> 403 "Forbidden resource"',
+      async (role) => {
+        const c = ctx();
+        const token =
+          role === 'ADMIN'
+            ? await c.loginAsAdmin()
+            : await c.provisionAndLogin('trainer', (await c.trainer()).id);
+
+        const res = await c
+          .http()
+          .get('/api/trainees/me/year-in-review?year=2026')
+          .set('Authorization', `Bearer ${token}`)
+          .expect(403);
+
+        expect(messageOf(res.body)).toBe('Forbidden resource');
+      },
+    );
+  });
 });

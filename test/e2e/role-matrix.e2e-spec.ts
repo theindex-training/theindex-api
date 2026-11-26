@@ -137,6 +137,8 @@ const MATRIX: Row[] = [
   r('GET /trainees/:id/overview', ALLOW, ALLOW, GUARD),
   // Handler roles override the class roles: TRAINEE only (TRN-09).
   r('GET /trainees/me/training-insights', GUARD, GUARD, ALLOW),
+  // TRAINEE only, their own year (TRN-10).
+  r('GET /trainees/me/year-in-review', GUARD, GUARD, ALLOW),
 
   r('POST /trainees/:traineeId/subscriptions', ALLOW, ALLOW, GUARD),
   r('GET /trainees/:traineeId/subscriptions', ALLOW, ALLOW, OWN_SUBSCRIPTIONS),

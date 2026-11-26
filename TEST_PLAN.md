@@ -534,6 +534,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
   - Unknown id → 404.
   - Day names depend on the DB's `lc_time`; assert `weekdayNumber` strictly and the name loosely.
 - [x] **TRN-09** [E] P0. `/trainees/me/training-insights` is TRAINEE **only**: ADMIN/TRAINER → 403 because handler roles override class roles. TRAINEE without `traineeProfileId` → 403 `Trainee profile is not linked to account`.
+- [x] **TRN-10** [U][E] P1. `/trainees/me/year-in-review?year=` (TRAINEE only, own): the gym-local year's trainings, first training, favourite start time, longest run of weeks with a training, top trainer (with `photoUrl`) and busiest month (`year-in-review.spec.ts`); an empty year; a missing or bad year → 400; ADMIN/TRAINER → 403.
 - [x] **TRN-10** [E] P0. TRAINEE → 403 on every other `/trainees` route. TRAINER has full CRUD.
 
 ---

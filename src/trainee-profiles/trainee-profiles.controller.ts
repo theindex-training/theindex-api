@@ -19,6 +19,7 @@ import { Roles } from '../auth/roles.decorator';
 import { AccountRole } from '../common/enums/account-role.enum';
 import { CreateTraineeDto } from './dto/create-trainee.dto';
 import { UpdateTraineeDto } from './dto/update-trainee.dto';
+import { YearInReviewQueryDto } from './dto/year-in-review.query.dto';
 import { TraineeProfilesService } from './trainee-profiles.service';
 
 type TraineeJwtUser = {
@@ -79,5 +80,26 @@ export class TraineeProfilesController {
     }
 
     return this.traineesService.trainingInsights(req.user.traineeProfileId);
+  }
+
+  /**
+   * The trainee's year at the gym (their own): trainings, first training, favourite start time,
+   * longest run of weeks with a training, the trainer they trained with most and the busiest
+   * month, all gym-local. For the front's year in review at New Year.
+   */
+  @Roles(AccountRole.TRAINEE)
+  @Get('me/year-in-review')
+  myYearInReview(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: YearInReviewQueryDto,
+  ) {
+    if (!req.user.traineeProfileId) {
+      throw new ForbiddenException('Trainee profile is not linked to account');
+    }
+
+    return this.traineesService.yearInReview(
+      req.user.traineeProfileId,
+      query.year,
+    );
   }
 }
