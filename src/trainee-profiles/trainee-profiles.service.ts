@@ -16,6 +16,7 @@ import { GymSubscriptionEntity } from '../gym-subscriptions/gym-subscription.ent
 import { CreateTraineeDto } from './dto/create-trainee.dto';
 import { UpdateTraineeDto } from './dto/update-trainee.dto';
 import { TraineeProfileEntity } from './trainee-profile.entity';
+import { YearAttendance, yearBounds, yearInReview } from './year-in-review';
 
 const REPORT_TIMEZONE = 'Europe/Sofia';
 
@@ -290,6 +291,43 @@ export class TraineeProfilesService {
       },
       attendance: {
         recent: attendanceDto,
+      },
+    };
+  }
+
+  /**
+   * The trainee's year at the gym for the front's New Year story (pure `year-in-review.ts`): their
+   * trainings of the gym-local year, with the top trainer's photo.
+   */
+  async yearInReview(id: string, year: number) {
+    await this.getById(id);
+    const { from, to } = yearBounds(year);
+    const rows = await this.attRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.trainer', 't')
+      .select('a.trainedAt', 'trainedAt')
+      .addSelect('a.trainerId', 'trainerId')
+      .addSelect('t.name', 'trainerName')
+      .where('a.traineeId = :id', { id })
+      .andWhere('a.trainedAt >= :from AND a.trainedAt < :to', { from, to })
+      .getRawMany<YearAttendance>();
+
+    const review = yearInReview(
+      year,
+      rows.map((row) => ({ ...row, trainedAt: new Date(row.trainedAt) })),
+    );
+    if (!review.topTrainer) {
+      return { ...review, topTrainer: null };
+    }
+    const photos = await this.photos.thumbnails({
+      traineeProfileIds: [],
+      trainerProfileIds: [review.topTrainer.id],
+    });
+    return {
+      ...review,
+      topTrainer: {
+        ...review.topTrainer,
+        photoUrl: photos.trainer.get(review.topTrainer.id) ?? null,
       },
     };
   }
