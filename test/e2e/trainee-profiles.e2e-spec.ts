@@ -306,9 +306,10 @@ describe('Trainee profiles (e2e)', () => {
           .set('Authorization', `Bearer ${admin}`)
           .send({ traineeId, trainerId, locationId: location.id, trainedAt })
           .expect(201);
-      // 01:30 on Jan 1, 2026 in Sofia (still Dec 31 in UTC): in 2026.
+      // 01:30 on Thu Jan 1, 2026 in Sofia (still Dec 31 in UTC): in 2026, in the week from
+      // Mon Dec 29.
       await attend(trainee.id, ivan.id, '2025-12-31T23:30:00.000Z');
-      // 07:00 Sofia, Mon Jan 5 and Mon Jan 12: two weeks in a row.
+      // 07:00 Sofia, Mon Jan 5 and Mon Jan 12: with Jan 1, three weeks in a row.
       await attend(trainee.id, ivan.id, '2026-01-05T05:00:00.000Z');
       await attend(trainee.id, desi.id, '2026-01-12T05:00:00.000Z');
       // 00:30 on Jan 1, 2027 in Sofia: not in 2026.
@@ -328,7 +329,7 @@ describe('Trainee profiles (e2e)', () => {
         trainings: 3,
         firstTrainingOn: '2026-01-01',
         favouriteTime: { time: '07:00', count: 2 },
-        longestStreakWeeks: 2,
+        longestStreakWeeks: 3,
         topTrainer: {
           id: ivan.id,
           name: 'Ivan Petrov',

@@ -59,6 +59,15 @@ describe('yearInReview', () => {
     expect(review.longestStreakWeeks).toBe(2 + 1);
   });
 
+  it('counts the week of Jan 1 from the Monday before it, as the e2e fixture has it', () => {
+    const review = yearInReview(2026, [
+      at('2025-12-31T23:30:00Z'), // Thu Jan 1, 01:30 Sofia (week from Mon Dec 29)
+      at('2026-01-05T05:00:00Z'),
+      at('2026-01-12T05:00:00Z'),
+    ]);
+    expect(review.longestStreakWeeks).toBe(3);
+  });
+
   it('runs a streak across a month and the turn of the week at Sofia midnight', () => {
     const review = yearInReview(2026, [
       // Sunday Mar 29, 23:30 Sofia (20:30 UTC, the clocks have gone forward) ...
