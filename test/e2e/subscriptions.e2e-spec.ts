@@ -106,8 +106,90 @@ describe('Subscriptions (e2e)', () => {
             .expect({ deleted: true });
         }
         expect(await c.subscriptionRows()).toHaveLength(0);
+        // The paid one's sale is taken back out; the free one never moved cash.
+        expect(await c.balance()).toBe(0);
+        expect(await c.cashTxs()).toHaveLength(2);
       },
     );
+
+    it('SUB-42 DELETE takes the sale back out, shown on GET /cash-register; 409 when the register holds less', async () => {
+      const c = ctx();
+      const admin = await c.loginAsAdmin();
+      const trainee = await c.trainee();
+      const plan = await c.punchPlan(10, 10000);
+      const auth = { Authorization: `Bearer ${admin}` };
+      const buy = async () =>
+        (
+          await c
+            .http()
+            .post(`/api/trainees/${trainee.id}/subscriptions`)
+            .set(auth)
+            .send({ planId: plan.id })
+            .expect(201)
+        ).body as { id: string };
+
+      const kept = await buy();
+      const mistake = await buy();
+      await c
+        .http()
+        .delete(`/api/subscriptions/${mistake.id}`)
+        .set(auth)
+        .expect(200);
+
+      const state = await c
+        .http()
+        .get('/api/cash-register')
+        .set(auth)
+        .expect(200);
+      expect(state.body).toMatchObject({ balanceCents: 10000, total: 3 });
+      const [reversal, sale] = (
+        state.body as {
+          transactions: {
+            type: string;
+            sourceId: string;
+            amountCents: number;
+            createdAt: string;
+            sourceDetails: Record<string, unknown>;
+          }[];
+        }
+      ).transactions;
+      expect(reversal).toMatchObject({
+        type: 'SUBSCRIPTION_REVERSAL',
+        sourceType: 'SUBSCRIPTION',
+        sourceId: mistake.id,
+        amountCents: -10000,
+        balanceAfterCents: 10000,
+        sourceDetails: {
+          boughtBy: { traineeId: trainee.id },
+          planTitle: plan.title,
+          subscriptionType: 'PUNCH',
+          deletedAt: reversal.createdAt,
+        },
+      });
+      expect(reversal).not.toHaveProperty('sourceSnapshot.name');
+      expect(sale).toMatchObject({
+        type: 'SUBSCRIPTION_IN',
+        sourceId: mistake.id,
+        sourceDetails: { deletedAt: reversal.createdAt },
+      });
+
+      await c
+        .http()
+        .post('/api/cash-register/transactions/manual')
+        .set(auth)
+        .send({ direction: 'OUT', amountCents: 2500 })
+        .expect(201);
+      const refused = await c
+        .http()
+        .delete(`/api/subscriptions/${kept.id}`)
+        .set(auth)
+        .expect(409);
+      expect(messageOf(refused.body)).toBe(
+        'The cash register holds 75.00 EUR, less than the 100.00 EUR this subscription was sold for, so its sale cannot be taken back out. Put the missing amount in first.',
+      );
+      expect(await c.subscriptionRows()).toHaveLength(1);
+      expect(await c.balance()).toBe(7500);
+    });
 
     it('SUB-40 TRAINEE -> 403 on create and delete (even for their own profile); nothing changes', async () => {
       const c = ctx();

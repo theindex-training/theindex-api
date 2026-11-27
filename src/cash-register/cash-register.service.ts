@@ -1,16 +1,34 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { CreateManualCashRegisterTransactionDto } from './dto/create-manual-cash-register-transaction.dto';
 import { CashRegisterKvEntity } from './cash-register-kv.entity';
-import { CashRegisterTransactionEntity } from './cash-register-transaction.entity';
+import {
+  CashRegisterTransactionEntity,
+  SubscriptionSaleSnapshot,
+} from './cash-register-transaction.entity';
 import { CashRegisterTransactionSourceType } from './enums/cash-register-transaction-source-type.enum';
 import { CashRegisterTransactionType } from './enums/cash-register-transaction-type.enum';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
 import { SettlementEntity } from '../settlements/settlement.entity';
+import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 
 const CASH_REGISTER_BALANCE_KEY = 'cash_register_balance_cents';
 const DEFAULT_TRANSACTIONS_LIMIT = 50;
+
+const SUBSCRIPTION_TYPES: CashRegisterTransactionType[] = [
+  CashRegisterTransactionType.SUBSCRIPTION_IN,
+  CashRegisterTransactionType.SUBSCRIPTION_REVERSAL,
+];
+
+/** Cents as the API's messages show money: "70.00 EUR". */
+function euros(cents: number): string {
+  return `${(cents / 100).toFixed(2)} EUR`;
+}
 
 @Injectable()
 export class CashRegisterService {
@@ -24,6 +42,8 @@ export class CashRegisterService {
     private readonly subscriptionRepo: Repository<SubscriptionEntity>,
     @InjectRepository(SettlementEntity)
     private readonly settlementRepo: Repository<SettlementEntity>,
+    @InjectRepository(TraineeProfileEntity)
+    private readonly traineeRepo: Repository<TraineeProfileEntity>,
   ) {}
 
   /**
@@ -85,6 +105,41 @@ export class CashRegisterService {
     });
   }
 
+  /**
+   * Takes a deleted subscription's sale back out (`SUBSCRIPTION_REVERSAL`, the amount its
+   * `SUBSCRIPTION_IN` put in), in the deleting transaction. Nothing when the sale put nothing in.
+   * 409 when the cash register holds less than that, since the balance never goes below 0.
+   */
+  async reverseSubscriptionPayment(
+    manager: EntityManager,
+    subscriptionId: string,
+    sale: SubscriptionSaleSnapshot,
+  ) {
+    const paid = await manager
+      .getRepository(CashRegisterTransactionEntity)
+      .findOne({
+        where: {
+          type: CashRegisterTransactionType.SUBSCRIPTION_IN,
+          sourceType: CashRegisterTransactionSourceType.SUBSCRIPTION,
+          sourceId: subscriptionId,
+        },
+      });
+    if (!paid || paid.amountCents === 0) return null;
+
+    return this.applyTransaction(manager, {
+      amountCents: -paid.amountCents,
+      type: CashRegisterTransactionType.SUBSCRIPTION_REVERSAL,
+      sourceType: CashRegisterTransactionSourceType.SUBSCRIPTION,
+      sourceId: subscriptionId,
+      notes: null,
+      sourceSnapshot: sale,
+      whenShort: (balanceCents) =>
+        new ConflictException(
+          `The cash register holds ${euros(balanceCents)}, less than the ${euros(paid.amountCents)} this subscription was sold for, so its sale cannot be taken back out. Put the missing amount in first.`,
+        ),
+    });
+  }
+
   async registerSettlementFinalization(
     manager: EntityManager,
     sourceId: string,
@@ -118,6 +173,9 @@ export class CashRegisterService {
       sourceType: CashRegisterTransactionSourceType;
       sourceId: string | null;
       notes: string | null;
+      sourceSnapshot?: SubscriptionSaleSnapshot | null;
+      /** The error to answer when the balance would go below 0 (a 400 by default). */
+      whenShort?: (balanceCents: number) => Error;
     },
   ) {
     if (params.amountCents === 0) {
@@ -129,7 +187,11 @@ export class CashRegisterService {
     const txRepo = manager.getRepository(CashRegisterTransactionEntity);
     if (params.sourceId) {
       const existing = await txRepo.findOne({
-        where: { sourceType: params.sourceType, sourceId: params.sourceId },
+        where: {
+          type: params.type,
+          sourceType: params.sourceType,
+          sourceId: params.sourceId,
+        },
       });
       if (existing) return existing;
     }
@@ -160,6 +222,7 @@ export class CashRegisterService {
     const nextBalance = currentBalance + params.amountCents;
 
     if (nextBalance < 0) {
+      if (params.whenShort) throw params.whenShort(currentBalance);
       throw new BadRequestException('Cash register balance cannot be negative');
     }
 
@@ -173,26 +236,26 @@ export class CashRegisterService {
       sourceType: params.sourceType,
       sourceId: params.sourceId,
       notes: params.notes,
+      sourceSnapshot: params.sourceSnapshot ?? null,
     });
 
     return txRepo.save(tx);
   }
 
+  /**
+   * Adds `sourceDetails`: a subscription's sale (who bought which plan, and `deletedAt` once it was
+   * deleted and its sale taken back out) on both of its rows, or a settlement's period.
+   */
   private async enrichTransactions(
     transactions: CashRegisterTransactionEntity[],
   ) {
+    const isSubscriptionTx = (tx: CashRegisterTransactionEntity) =>
+      SUBSCRIPTION_TYPES.includes(tx.type) &&
+      tx.sourceType === CashRegisterTransactionSourceType.SUBSCRIPTION &&
+      !!tx.sourceId;
+
     const subscriptionIds = Array.from(
-      new Set(
-        transactions
-          .filter(
-            (tx) =>
-              tx.type === CashRegisterTransactionType.SUBSCRIPTION_IN &&
-              tx.sourceType ===
-                CashRegisterTransactionSourceType.SUBSCRIPTION &&
-              !!tx.sourceId,
-          )
-          .map((tx) => tx.sourceId as string),
-      ),
+      new Set(transactions.filter(isSubscriptionTx).map((tx) => tx.sourceId!)),
     );
 
     const settlementIds = Array.from(
@@ -208,44 +271,82 @@ export class CashRegisterService {
       ),
     );
 
-    const subscriptions = subscriptionIds.length
-      ? await this.subscriptionRepo.find({
-          where: { id: In(subscriptionIds) },
-          relations: { trainee: true, plan: true },
-        })
-      : [];
+    const [subscriptions, reversals, settlements] = await Promise.all([
+      subscriptionIds.length
+        ? this.subscriptionRepo.find({
+            where: { id: In(subscriptionIds) },
+            relations: { trainee: true, plan: true },
+          })
+        : ([] as SubscriptionEntity[]),
+      subscriptionIds.length
+        ? this.txRepo.find({
+            where: {
+              type: CashRegisterTransactionType.SUBSCRIPTION_REVERSAL,
+              sourceType: CashRegisterTransactionSourceType.SUBSCRIPTION,
+              sourceId: In(subscriptionIds),
+            },
+          })
+        : ([] as CashRegisterTransactionEntity[]),
+      settlementIds.length
+        ? this.settlementRepo.find({
+            where: { id: In(settlementIds) },
+          })
+        : ([] as SettlementEntity[]),
+    ]);
 
-    const settlements = settlementIds.length
-      ? await this.settlementRepo.find({
-          where: { id: In(settlementIds) },
-        })
+    const reversalsBySubscription = new Map(
+      reversals.map((tx) => [tx.sourceId!, tx]),
+    );
+    const deletedTraineeIds = Array.from(
+      new Set(
+        reversals
+          .map((tx) => tx.sourceSnapshot?.traineeId)
+          .filter((id): id is string => !!id),
+      ),
+    );
+    const trainees = deletedTraineeIds.length
+      ? await this.traineeRepo.find({ where: { id: In(deletedTraineeIds) } })
       : [];
 
     const subscriptionsById = new Map(subscriptions.map((s) => [s.id, s]));
+    const traineesById = new Map(trainees.map((t) => [t.id, t]));
     const settlementsById = new Map(settlements.map((s) => [s.id, s]));
 
-    return transactions.map((tx) => {
-      if (
-        tx.type === CashRegisterTransactionType.SUBSCRIPTION_IN &&
-        tx.sourceType === CashRegisterTransactionSourceType.SUBSCRIPTION &&
-        tx.sourceId
-      ) {
-        const subscription = subscriptionsById.get(tx.sourceId);
+    const buyer = (trainee: TraineeProfileEntity | undefined) =>
+      trainee
+        ? {
+            traineeId: trainee.id,
+            name: trainee.name,
+            nickname: trainee.nickname,
+          }
+        : null;
+
+    const saleDetails = (subscriptionId: string) => {
+      const subscription = subscriptionsById.get(subscriptionId);
+      if (subscription) {
         return {
-          ...tx,
-          sourceDetails: subscription
-            ? {
-                boughtBy: {
-                  traineeId: subscription.traineeId,
-                  name: subscription.trainee.name,
-                  nickname: subscription.trainee.nickname,
-                },
-                purchasedAt: subscription.createdAt,
-                subscriptionType: subscription.type,
-                planTitle: subscription.plan.title,
-              }
-            : null,
+          boughtBy: buyer(subscription.trainee),
+          purchasedAt: subscription.createdAt,
+          subscriptionType: subscription.type,
+          planTitle: subscription.plan.title,
+          deletedAt: null,
         };
+      }
+      const reversal = reversalsBySubscription.get(subscriptionId);
+      const sale = reversal?.sourceSnapshot;
+      if (!reversal || !sale) return null;
+      return {
+        boughtBy: buyer(traineesById.get(sale.traineeId)),
+        purchasedAt: new Date(sale.purchasedAt),
+        subscriptionType: sale.subscriptionType,
+        planTitle: sale.planTitle,
+        deletedAt: reversal.createdAt,
+      };
+    };
+
+    return transactions.map((tx) => {
+      if (isSubscriptionTx(tx)) {
+        return { ...tx, sourceDetails: saleDetails(tx.sourceId!) };
       }
 
       if (

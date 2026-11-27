@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SettlementEntity } from '../settlements/settlement.entity';
 import { SubscriptionEntity } from '../subscriptions/subscription.entity';
+import { TraineeProfileEntity } from '../trainee-profiles/trainee-profile.entity';
 import { CashRegisterController } from './cash-register.controller';
 import { CashRegisterKvEntity } from './cash-register-kv.entity';
 import { CashRegisterService } from './cash-register.service';
@@ -14,6 +15,7 @@ import { CashRegisterTransactionEntity } from './cash-register-transaction.entit
       CashRegisterTransactionEntity,
       SubscriptionEntity,
       SettlementEntity,
+      TraineeProfileEntity,
     ]),
   ],
   controllers: [CashRegisterController],

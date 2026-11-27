@@ -1,5 +1,9 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { freezeTime } from '../../test/int/clock';
 import { Fixtures, rejectionOf } from '../../test/int/fixtures';
 import { setupIntegrationSuite } from '../../test/int/test-app';
@@ -406,24 +410,100 @@ describe('SubscriptionsService (integration)', () => {
       expect(err.message).toBe('Subscription not found');
     });
 
-    // CHARACTERIZATION: possibly unintended
-    it('SUB-21 deleting does not reverse the cash register; sourceDetails becomes null', async () => {
+    it("SUB-21 deleting takes the sale back out of the cash register; both rows keep the sale's details", async () => {
       const fx = fixtures();
       const { trainee } = await world(fx);
-      const plan = await fx.punchPlan(5, 7000);
-      const sub = await fx.buy(trainee.id, plan.id);
+      const plan = await fx.punchPlan(5, 7000, { title: 'Card 5' });
+      await fx.cashIn(1500);
+      const sub = await fx.buy(trainee.id, plan.id, { paidCents: 6500 });
 
       await fx.subscriptions.remove(sub.id);
 
       const state = await fx.cashRegister.getCurrentState();
-      expect(state.balanceCents).toBe(7000);
-      expect(state.transactions).toHaveLength(1);
-      expect(state.transactions[0]).toMatchObject({
+      expect(state.balanceCents).toBe(1500);
+      expect(state.total).toBe(3);
+      const details = {
+        boughtBy: { traineeId: trainee.id, name: 'Ana' },
+        purchasedAt: sub.createdAt,
+        subscriptionType: PlanType.PUNCH,
+        planTitle: 'Card 5',
+      };
+      const [reversal, sale] = state.transactions;
+      expect(reversal).toMatchObject({
+        type: 'SUBSCRIPTION_REVERSAL',
+        sourceType: 'SUBSCRIPTION',
+        sourceId: sub.id,
+        amountCents: -6500,
+        balanceAfterCents: 1500,
+        sourceDetails: details,
+      });
+      expect(sale).toMatchObject({
         type: 'SUBSCRIPTION_IN',
         sourceId: sub.id,
-        amountCents: 7000,
-        sourceDetails: null,
+        amountCents: 6500,
+        balanceAfterCents: 8000,
+        sourceDetails: { ...details, deletedAt: reversal.createdAt },
       });
+    });
+
+    it('SUB-21 a free subscription (nothing paid) leaves the cash register alone', async () => {
+      const fx = fixtures();
+      const { trainee } = await world(fx);
+      const plan = await fx.punchPlan(5, 7000);
+      const sub = await fx.buy(trainee.id, plan.id, { paidCents: 0 });
+
+      await fx.subscriptions.remove(sub.id);
+
+      const state = await fx.cashRegister.getCurrentState();
+      expect(state.balanceCents).toBe(0);
+      expect(state.total).toBe(0);
+    });
+
+    it('SUB-21 refused (409) when the cash register holds less than the sale; nothing changes', async () => {
+      const fx = fixtures();
+      const { trainee, attend } = await world(fx);
+      const plan = await fx.punchPlan(5, 7000);
+      const sub = await fx.buy(trainee.id, plan.id);
+      const row = await attend('2025-12-01T10:00:00Z');
+      await fx.cashOut(2000);
+
+      const err = await rejectionOf(fx.subscriptions.remove(sub.id));
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.message).toBe(
+        'The cash register holds 50.00 EUR, less than the 70.00 EUR this subscription was sold for, so its sale cannot be taken back out. Put the missing amount in first.',
+      );
+      expect(await fx.sub(sub.id)).toMatchObject({ remainingCredits: 4 });
+      expect(await fx.att(row.id)).toMatchObject({
+        paymentStatus: PAID,
+        subscriptionId: sub.id,
+      });
+      const state = await fx.cashRegister.getCurrentState();
+      expect(state.balanceCents).toBe(5000);
+      expect(state.total).toBe(2);
+    });
+
+    it('SUB-21 deleting twice at once takes the sale out once', async () => {
+      const fx = fixtures();
+      const { trainee } = await world(fx);
+      const plan = await fx.punchPlan(5, 7000);
+      await fx.cashIn(10000);
+      const sub = await fx.buy(trainee.id, plan.id);
+
+      const results = await Promise.allSettled([
+        fx.subscriptions.remove(sub.id),
+        fx.subscriptions.remove(sub.id),
+      ]);
+
+      expect(results.map((r) => r.status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      const rejected = results.find((r) => r.status === 'rejected');
+      expect(rejected!.reason).toBeInstanceOf(NotFoundException);
+      const state = await fx.cashRegister.getCurrentState();
+      expect(state.balanceCents).toBe(10000);
+      expect(state.total).toBe(3);
     });
 
     it("SUB-22 freed attendance is paid by the trainee's other active PUNCH subscription", async () => {
@@ -556,6 +636,8 @@ describe('SubscriptionsService (integration)', () => {
       const row = await attend('2025-12-01T10:00:00Z');
       const settlement = await fx.report('2025-12-01', '2025-12-15');
       await fx.settlements.finalize(settlement.id);
+      // The payout left less than the sale in the cash register; deleting takes the sale back out.
+      await fx.cashIn(5000);
 
       await fx.subscriptions.remove(sub.id);
 

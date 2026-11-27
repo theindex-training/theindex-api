@@ -22,12 +22,6 @@ Ordered by impact (money and data integrity first).
 - Why it looks unintended: the code has an explicit race branch ("Edge case (race): revert this attendance to UNPAID"), so the author expected the loser to be stored as UNPAID, not to fail. Not listed in `TEST_PLAN.md`; found while writing ATT-09. The same pattern (insert with FK, then lock the parent) probably applies to batch creates for trainees who share nothing, but that isn't tested.
 - Impact / who would notice: staff recording attendance from two devices at once (or a double-click / retry) for the same trainee get an error toast for one of them; the attendance is silently missing until re-entered. Low frequency, and no money is lost.
 
-## subscriptions: deleting a subscription does not reverse its payment
-- Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-21 deleting does not reverse the cash register; sourceDetails becomes null`
-- Current behavior: `remove` frees the attendance and deletes the subscription, but the `SUBSCRIPTION_IN` transaction and balance stay. The tx then has `sourceDetails: null`.
-- Why it looks unintended: if a sale was entered by mistake (the usual reason to delete), the register keeps money that was never received. If it is a refund, the money that left isn't recorded.
-- Impact / who would notice: the owner; the cash register balance drifts from the real cash.
-
 ## subscriptions: buying a TIME pass pays for ALL unpaid attendance, even outside its window
 - Test: `src/subscriptions/subscriptions.service.int-spec.ts` > `SUB-13 TIME marks ALL unpaid attendance PAID, even outside [startsAt, endsAt)`
 - Current behavior: on purchase, every UNPAID attendance of the trainee is marked PAID and linked to the new TIME sub, including attendance months before `startsAt` or after `endsAt`. The resolver (used for new attendance) only matches `startsAt <= trainedAt < endsAt`.
@@ -225,6 +219,12 @@ Ordered by impact (money and data integrity first).
 # Fixed
 
 Entries move here once the behavior is fixed. The tests named here now assert the corrected behavior.
+
+## subscriptions: deleting a subscription did not reverse its payment (fixed Nov 2026)
+- Tests: `src/subscriptions/subscriptions.service.int-spec.ts` > the four `SUB-21 …` tests (incl. `SUB-21 deleting takes the sale back out of the cash register; both rows keep the sale's details`, `SUB-21 refused (409) when the cash register holds less than the sale; nothing changes`); `test/e2e/subscriptions.e2e-spec.ts` > `SUB-40 …`, `SUB-42 …`; `src/cash-register/cash-register.service.int-spec.ts` > `CR-08 …`
+- Old behavior: `remove` freed the trainings and deleted the subscription, but the `SUBSCRIPTION_IN` transaction and the balance stayed, and the transaction's `sourceDetails` became null.
+- Fix (the owner's decision: a subscription is deleted when it was sold by mistake, a misclick or the wrong plan, and usually right away): deleting appends a `SUBSCRIPTION_REVERSAL` transaction that takes the sale's amount (its `SUBSCRIPTION_IN`) back out, in the same database transaction. The sale row stays (every later row's `balanceAfterCents` depends on it). The reversal keeps a `sourceSnapshot` of the sale (trainee id, plan title, type, purchase time; the name is read when shown), so both rows keep their `sourceDetails`, with `deletedAt`. When the cash register holds less than the sale, the delete is refused with 409 and nothing changes (the balance never goes below 0). The subscription row is locked, so two deletes at once take the sale out once.
+- Remaining impact: subscriptions deleted before the fix left their sales in the balance; the owner corrects the balance with a manual OUT if needed (their sale rows still show no details). A deleted subscription whose trainings a FINAL settlement already paid out is still taken back out in full (the owner: it hasn't happened); the payout stays (SUB-23).
 
 ## subscriptions / attendance: freed trainings and returned credits were not paid by the trainee's other subscriptions (fixed Nov 2026)
 - Tests: `src/subscriptions/subscriptions.service.int-spec.ts` > the four `SUB-22 …` tests (incl. `SUB-22 a card bought before the old one is deleted takes over its trainings (production case)`); `src/attendance/attendance.service.int-spec.ts` > `ATT-23 the restored credit pays the trainee's oldest UNPAID attendance`

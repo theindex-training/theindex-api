@@ -133,7 +133,7 @@ Code: `settlements/settlements.service.ts`, `settlements-cron.service.ts`, `sett
 ---
 
 ## 2. Subscriptions: P0
-- [x] **Module done** (service layer: `subscriptions.service.int-spec.ts`, incl. resolver; HTTP: `test/e2e/subscriptions.e2e-spec.ts`, SUB-06, SUB-40, SUB-41)
+- [x] **Module done** (service layer: `subscriptions.service.int-spec.ts`, incl. resolver; HTTP: `test/e2e/subscriptions.e2e-spec.ts`, SUB-06, SUB-40, SUB-41, SUB-42)
 - [x] **Service layer done** (`subscriptions.service.int-spec.ts`, incl. resolver).
 
 Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.ts`, `subscriptions.controller.ts`.
@@ -171,7 +171,7 @@ Code: `subscriptions/subscriptions.service.ts`, `subscription-resolver.service.t
   - Assert its PAID attendance becomes UNPAID with `subscriptionId null`.
   - Assert UNPAID rows and other subs' rows are untouched.
   - Assert `{ deleted: true }`. Unknown id → 404 `Subscription not found`.
-- [x] **SUB-21** [I] P0. ⚠ Suspect: deleting does not reverse the cash register. Assert the `SUBSCRIPTION_IN` tx and balance remain and `sourceDetails` becomes null.
+- [x] **SUB-21** [I] P0. Deleting takes the sale back out of the cash register (`SUBSCRIPTION_REVERSAL`, fixed Nov 2026; it used to stay). Both rows keep the sale's `sourceDetails` with `deletedAt`; a free subscription moves no cash; 409 and no change when the register holds less; two deletes at once reverse once.
 - [x] **SUB-22** [I] P1. Attendance freed by the delete is paid by the trainee's other active subscriptions, oldest first, by the resolver's rule (fixed; was ⚠ not re-reconciled, see `TEST_NOTES.md` § Fixed).
 - [x] **SUB-23** [I] P1. Deleting a sub referenced by settlement allocations: assert the allocations remain with `subscriptionId null` (FK SET NULL) and unchanged `valueCents`.
 
@@ -188,6 +188,7 @@ Test through `AttendanceService.create` (the real consumer) plus `resolveForAtte
 
 ### Access
 - [x] **SUB-40** [E] P0. ADMIN and TRAINER can create and delete subscriptions (incl. `paidCents: 0`). TRAINEE → 403.
+- [x] **SUB-42** [E] P0. DELETE takes the sale back out: `GET /cash-register` shows the reversal and the sale with `deletedAt`; 409 with the amounts when the register holds less.
 - [x] **SUB-41** [E] P0. TRAINEE `GET /trainees/:ownId/subscriptions` → 200. Another trainee's id → 403 `TRAINEE can only access subscriptions for their own trainee profile`. TRAINEE token with `traineeProfileId: null` → 403.
 
 ### Renewals overview (`GET /subscription-renewals`)
@@ -656,7 +657,7 @@ Code: `attendance/attendance-timezone.util.ts`, `attendance-time.util.ts` (+ exi
 - **Q2. Test DB.** The plan uses real Postgres. The code relies on `AT TIME ZONE`, `to_char`, `EXTRACT(ISODOW)`, `FOR UPDATE` locks and enum columns, which mocked repositories or `pg-mem` can't faithfully run. Mocked repos would also mean asserting on query-builder chains, which breaks the "fail if the rule breaks" rule. OK to require Docker locally and a Postgres service in CI?
 - **Q3. CI gate (INF-10).** ✅ Approved and done (Nov 2026), including the lint gate (baseline errors fixed with type/format-only changes; no behavior change).
 - **Q4. e2e setup duplication.** INF-06 copies the `main.ts` app setup into the tests. The alternative is a tiny refactor that exports a `configureApp(app)` from `main.ts` and uses it in both places. That's a production change, so it isn't done without approval.
-- **Q5. Business rules flagged ⚠ that affect money or security:** ACC-15 (TRAINER can take over ADMIN), SET-09/SET-10/SET-31 (lost, double or unreversed payouts; fixed by automatic reports, Nov 2026), SUB-13 (TIME pays for out-of-window attendance), SUB-21 (deleting a sub keeps the cash). These get characterized as-is, but they deserve an owner decision soon.
+- **Q5. Business rules flagged ⚠ that affect money or security:** ACC-15 (TRAINER can take over ADMIN), SET-09/SET-10/SET-31 (lost, double or unreversed payouts; fixed by automatic reports, Nov 2026), SUB-13 (TIME pays for out-of-window attendance), SUB-21 (deleting a sub kept the cash; fixed Nov 2026: the sale is taken back out). These get characterized as-is, but they deserve an owner decision soon.
 
 ## Self-review log
 

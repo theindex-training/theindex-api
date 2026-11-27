@@ -125,8 +125,29 @@ export class SubscriptionsService {
       const subscriptionRepo = manager.getRepository(SubscriptionEntity);
       const attendanceRepo = manager.getRepository(AttendanceEntity);
 
-      const subscription = await subscriptionRepo.findOne({ where: { id } });
+      // Locked, so a second delete of it waits and then finds it gone (404).
+      const subscription = await subscriptionRepo
+        .createQueryBuilder('s')
+        .setLock('pessimistic_write')
+        .where('s.id = :id', { id })
+        .getOne();
       if (!subscription) throw new NotFoundException('Subscription not found');
+
+      // A subscription is deleted when it was sold by mistake: its sale leaves the cash register
+      // again (409, changing nothing, when the register holds less).
+      const plan = await manager
+        .getRepository(PlanEntity)
+        .findOneOrFail({ where: { id: subscription.planId } });
+      await this.cashRegisterService.reverseSubscriptionPayment(
+        manager,
+        subscription.id,
+        {
+          traineeId: subscription.traineeId,
+          planTitle: plan.title,
+          subscriptionType: subscription.type,
+          purchasedAt: subscription.createdAt.toISOString(),
+        },
+      );
 
       const freed = await attendanceRepo
         .createQueryBuilder()

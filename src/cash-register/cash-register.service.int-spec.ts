@@ -189,6 +189,7 @@ describe('CashRegisterService (integration)', () => {
       purchasedAt: sub.createdAt,
       subscriptionType: 'PUNCH',
       planTitle: 'Two pack',
+      deletedAt: null,
     });
     expect(manualTx.id).toBe(manual.id);
     expect(manualTx.sourceDetails).toBeNull();
